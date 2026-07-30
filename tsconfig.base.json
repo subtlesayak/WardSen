@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "jsx": "react-jsx",
+    "types": ["node", "vitest/globals"],
+    "paths": {
+      "@wardsen/core": ["./packages/core/src/index.ts"],
+      "@wardsen/security": ["./packages/security/src/index.ts"],
+      "@wardsen/database": ["./packages/database/src/index.ts"],
+      "@wardsen/provider-bitwarden": ["./packages/provider-bitwarden/src/index.ts"],
+      "@wardsen/provider-keepassxc": ["./packages/provider-keepassxc/src/index.ts"],
+      "@wardsen/delivery-bitwarden-send": ["./packages/delivery-bitwarden-send/src/index.ts"],
+      "@wardsen/provider-scaffolds": ["./packages/provider-scaffolds/src/index.ts"]
+    }
+  }
+}

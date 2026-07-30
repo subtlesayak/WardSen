@@ -1,0 +1,11 @@
+node_modules/
+dist/
+apps/server/dist/
+apps/web/dist/
+.vite-temp/
+.wardsen-profiles/
+.wardsen-data/
+*.log
+.env
+.env.*
+!.env.example

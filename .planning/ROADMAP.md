@@ -1,0 +1,55 @@
+# WardSen Roadmap
+
+## Milestone 1: Production-Quality Open-Source Desktop Foundation
+
+Status: implementation complete through Phase 19.
+
+### Completed Phases
+
+- Phase 1: Monorepo and shared types
+- Phase 2: SQLite schema and migrations
+- Phase 3: Safe CLI runner
+- Phase 4: Provider registry
+- Phase 5: Multi-account session manager
+- Phase 6: Bitwarden credential adapter
+- Phase 7: Bitwarden Send adapter
+- Phase 8: People directory
+- Phase 9: Credential-search interface
+- Phase 10: Individual delivery flow
+- Phase 11: Delivery history and revocation
+- Phase 12: Bulk-delivery queue
+- Phase 13: KeePassXC adapter
+- Phase 14: Windows installer
+- Phase 15: macOS installer
+- Phase 16: Tauri packaging
+- Phase 17: Provider scaffolds
+- Phase 18: Security tests and docs
+
+## Completed Phase 19: Release Risk Hardening
+
+Status: complete
+
+### Problem
+
+WardSen now has the main product foundation, but the attached risk review identifies release-blocking security, isolation, supply-chain, bulk-action and messaging risks that need a dedicated hardening pass before a public release.
+
+### Scope
+
+- Plaintext credential handling audit across backend, provider adapters, delivery providers, frontend responses, logs, process execution and build artifacts.
+- Strong account-isolation audit and tests proving one account cannot retrieve, deliver or mutate another account's credential/session context.
+- Supply-chain security hardening for dependencies, provider CLI acquisition, release workflows, SBOM generation and dependency scanning.
+- Bulk-action safeguards for wrong-credential/wrong-recipient blast radius, including confirmation, large-batch confirmation, cancellation, bounded concurrency, partial-failure reporting and batch revocation where supported.
+- Honest security messaging explaining that expiry and view limits control link access but cannot prevent a recipient from saving a viewed credential.
+
+### Acceptance Criteria
+
+- No credential plaintext, TOTP secret, access password, master password or provider session token is persisted to SQLite, audit logs, frontend responses, command strings, shell history or temporary files.
+- Provider CLI calls use isolated account profiles/environments, per-account session tokens and tests covering cross-account misuse attempts.
+- CI includes dependency and code scanning, plus a documented release checklist for locked dependencies, provider CLI integrity and signed/reproducible release expectations.
+- Bulk delivery requires a confirmation summary that includes credential name, source vault, delivery provider, recipient count, link mode, expiry and view limit, with an additional confirmation for large batches.
+- Security docs and in-product copy avoid self-destruct claims and clearly state the limits of expiry, view limits and revocation.
+- Risk-specific tests pass under `npm run check`, `npm test` and `npm run build`.
+
+### Source
+
+Added from the user-provided "Biggest risks for WardSen" risk review.

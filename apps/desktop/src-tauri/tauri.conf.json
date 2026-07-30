@@ -1,0 +1,35 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "WardSen",
+  "version": "0.1.0",
+  "identifier": "dev.wardsen.app",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build:server && npm run build:web",
+    "devUrl": "http://127.0.0.1:5173",
+    "frontendDist": "../../web/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "WardSen",
+        "width": 1280,
+        "height": 820,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "resources": {
+      "../../server/dist/index.cjs": "server/index.cjs"
+    },
+    "license": "Apache-2.0",
+    "copyright": "Copyright 2026 WardSen contributors"
+  }
+}
