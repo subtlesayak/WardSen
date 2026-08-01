@@ -74,6 +74,32 @@ describe("Bitwarden Send delivery provider", () => {
     ).rejects.toThrow("access passwords are disabled");
   });
 
+  it("uses a configured local Bitwarden CLI path when available", async () => {
+    const previous = process.env.WARDSEN_BITWARDEN_CLI_PATH;
+    process.env.WARDSEN_BITWARDEN_CLI_PATH = process.execPath;
+    const calls: CliCommandInput[] = [];
+    try {
+      const provider = new BitwardenSendDeliveryProvider({
+        getSessionToken: () => "session-token",
+        runCommand: async (input) => {
+          calls.push(input);
+          return ok(JSON.stringify({ id: "send-1", accessUrl: "https://send.example.test/#abc" }));
+        }
+      });
+
+      await provider.createDelivery({
+        deliveryAccountId: "acct-1",
+        expiresAt: new Date("2026-08-01T12:00:00.000Z"),
+        sourceCredential: { title: "Admin", urls: [] }
+      });
+
+      expect(calls[0].executable).toBe(process.execPath);
+    } finally {
+      if (previous === undefined) delete process.env.WARDSEN_BITWARDEN_CLI_PATH;
+      else process.env.WARDSEN_BITWARDEN_CLI_PATH = previous;
+    }
+  });
+
   it("maps disabled sends as revoked and past expiries as expired", async () => {
     const provider = new BitwardenSendDeliveryProvider({
       getSessionToken: () => "session-token",

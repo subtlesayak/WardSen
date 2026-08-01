@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import type {
   ConnectionResult,
   CreateDeliveryInput,
@@ -23,7 +25,7 @@ export class BitwardenSendDeliveryProvider implements DeliveryProvider {
   private readonly runCommand: BitwardenSendCommandRunner;
 
   constructor(private readonly options: BitwardenSendDeliveryOptions) {
-    this.executable = options.executable ?? "bw";
+    this.executable = options.executable ?? resolveBitwardenExecutable();
     this.runCommand = options.runCommand ?? runCliCommand;
   }
 
@@ -103,6 +105,30 @@ export class BitwardenSendDeliveryProvider implements DeliveryProvider {
       timeoutMs: 60_000
     });
   }
+}
+
+function resolveBitwardenExecutable(): string {
+  const candidates = bitwardenExecutableCandidates();
+  return candidates.find((candidate) => fs.existsSync(candidate)) ?? "bw";
+}
+
+function bitwardenExecutableCandidates(): string[] {
+  const explicit = process.env.WARDSEN_BITWARDEN_CLI_PATH;
+  const candidates: string[] = [];
+  if (explicit && path.isAbsolute(explicit)) candidates.push(explicit);
+
+  if (process.env.LOCALAPPDATA) {
+    candidates.push(path.join(process.env.LOCALAPPDATA, "WardSen", "tools", "bw.exe"));
+  }
+  if (process.env.APPDATA) {
+    candidates.push(path.join(process.env.APPDATA, "WardSen", "tools", "bw.exe"));
+  }
+  if (process.env.HOME) {
+    candidates.push(path.join(process.env.HOME, "Library", "Application Support", "WardSen", "tools", "bw"));
+    candidates.push(path.join(process.env.HOME, ".wardsen", "tools", "bw"));
+  }
+
+  return candidates;
 }
 
 function formatCredentialText(credential: CreateDeliveryInput["sourceCredential"]): string {

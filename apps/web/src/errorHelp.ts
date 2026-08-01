@@ -55,6 +55,30 @@ export function describeError(message?: string): ErrorHelp {
     };
   }
 
+  if (lower.includes("provider command") && lower.includes("timed out")) {
+    return {
+      title: "Provider login took too long",
+      detail,
+      guidance: "Finish any Bitwarden browser, SSO, email, captcha or two-step prompt that opened, then retry in WardSen. Signing in to the Bitwarden desktop app or another terminal does not sign in this WardSen vault account."
+    };
+  }
+
+  if (lower.includes("data.json.lock") || (lower.includes("eperm") && lower.includes("bitwarden"))) {
+    return {
+      title: "Bitwarden CLI could not write its local profile",
+      detail,
+      guidance: "Close Bitwarden CLI prompts and WardSen, reopen WardSen, then retry. If this keeps happening, check security software or folder permissions for WardSen's local data folder, because Bitwarden CLI needs to create a temporary data.json.lock folder while it reads or updates the vault profile."
+    };
+  }
+
+  if (lower.includes("provider command") && lower.includes("failed")) {
+    return {
+      title: "Provider tool reported an error",
+      detail,
+      guidance: "Read the provider detail, correct the account, password, SSO or provider setup issue, then retry. For Bitwarden, use Login first for a new WardSen vault account, then Unlock after it is logged in."
+    };
+  }
+
   if (lower.includes("requires confirmation") || lower.includes("confirmation phrase")) {
     return {
       title: "Confirmation is required",
@@ -86,12 +110,14 @@ function cleanMessage(message?: string) {
 function providerToolHelp(lowerDetail: string): Pick<ErrorHelp, "guidance" | "actionLabel" | "actionHref" | "setupNotes" | "terminalCommands"> {
   if (lowerDetail.includes('"bw"')) {
     return {
-      guidance: "Install the Bitwarden command-line tool, then close and reopen WardSen before retrying. No terminal is required if you use the official download guide, but the downloaded bw executable must be available on PATH.",
+      guidance: "Install the Bitwarden command-line tool, then close and reopen WardSen before retrying. If you used the native download, put the bw executable in WardSen's local tools folder or another permanent folder on PATH.",
       actionLabel: "Open Bitwarden CLI install guide",
       actionHref: "https://bitwarden.com/help/cli/",
       setupNotes: [
-        "Windows: download the Windows x64 native executable, extract it into a permanent folder, add that folder to PATH, then close and reopen WardSen.",
-        "macOS Intel: download the macOS x64 native executable, allow it to run, add its folder to PATH, then close and reopen WardSen.",
+        "Windows no-terminal option: create %LOCALAPPDATA%\\WardSen\\tools, copy bw.exe into that folder, then close and reopen WardSen.",
+        "Windows PATH option: download the Windows x64 native executable, extract it into a permanent folder, add that folder to PATH, then close and reopen WardSen.",
+        "macOS no-terminal option: create ~/Library/Application Support/WardSen/tools, put the bw executable there, allow it to run if macOS asks, then close and reopen WardSen.",
+        "macOS Intel PATH option: download the macOS x64 native executable, allow it to run, add its folder to PATH, then close and reopen WardSen.",
         "macOS Apple Silicon or other arm64 devices: use NPM, because Bitwarden recommends installing the CLI with npm on arm64.",
         "To verify setup, open Terminal, PowerShell or Command Prompt and run bw --version."
       ],

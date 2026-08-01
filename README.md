@@ -42,7 +42,7 @@ WardSen is an independent open-source project and is not affiliated with, endors
 
 ## Status
 
-`v0.1.0-rc.16` is the latest installer prerelease. It is suitable for developer review, security review and platform packaging validation.
+`v0.1.0-rc.17` is the latest installer prerelease. It is suitable for developer review, security review and platform packaging validation.
 
 Unsigned Windows x64 and macOS Apple Silicon installers are attached to the GitHub prerelease. Windows SmartScreen and macOS Gatekeeper may warn until signing certificates and notarization are configured. See [installer signing](docs/installer-signing.md) before publishing a fully trusted end-user release.
 
@@ -70,7 +70,8 @@ This release contains:
 - Provider setup errors include install/download buttons for users who do not know terminal commands
 - Provider setup buttons open official install pages through the packaged desktop app's system-browser opener
 - Provider setup errors include copyable install links and terminal recovery commands
-- Bitwarden CLI setup help now explains Windows and macOS native downloads, PATH, arm64/NPM installs and `bw --version` verification
+- Bitwarden CLI setup help now explains Windows and macOS native downloads, WardSen local tools folders, PATH, arm64/NPM installs and `bw --version` verification
+- Bitwarden provider errors now include safe CLI details and timeout guidance instead of leaving login stuck on a generic loading state
 - Third-party provider and trademark policy documents that WardSen is independent, user-installed-provider-tool based and not endorsed by supported providers
 - macOS first-install docs cover the unsigned-prerelease `"WardSen" is damaged and can't be opened` Gatekeeper message
 - Windows and macOS prerequisite and desktop packaging scripts
@@ -83,7 +84,7 @@ Go to [GitHub Releases](https://github.com/subtlesayak/WardSen/releases) and dow
 
 - Windows: `WardSen_0.1.0_x64-setup.exe` or `WardSen_0.1.0_x64_en-US.msi`
 - macOS Apple Silicon: `WardSen_0.1.0_aarch64.dmg`
-- macOS Intel: not attached to `v0.1.0-rc.16`; maintainers can build it from the manual Intel workflow
+- macOS Intel: not attached to `v0.1.0-rc.17`; maintainers can build it from the manual Intel workflow
 
 Windows first install:
 
@@ -123,10 +124,21 @@ Beginner-friendly Windows path:
 
 1. In WardSen, when the missing Bitwarden tool message appears, click **Open Bitwarden CLI install guide**.
 2. On Bitwarden's page, choose **Native Executable** and download **Windows x64**.
-3. Extract the downloaded ZIP into a permanent folder, for example `C:\Tools\Bitwarden CLI`.
-4. Add that folder to your Windows `PATH`.
+3. Create this folder if it does not exist: `%LOCALAPPDATA%\WardSen\tools`.
+4. Copy `bw.exe` into `%LOCALAPPDATA%\WardSen\tools\bw.exe`.
 5. Close and reopen WardSen.
-6. To verify, open **Command Prompt** or **PowerShell** and run:
+6. To verify outside the app, open **Command Prompt** or **PowerShell** and run:
+
+```powershell
+& "$env:LOCALAPPDATA\WardSen\tools\bw.exe" --version
+```
+
+Windows PATH option:
+
+1. Extract the downloaded ZIP into a permanent folder, for example `C:\Tools\Bitwarden CLI`.
+2. Add that folder to your Windows `PATH`.
+3. Close and reopen WardSen.
+4. To verify, open **Command Prompt** or **PowerShell** and run:
 
 ```powershell
 bw --version
@@ -148,9 +160,20 @@ Beginner-friendly macOS path:
 
 1. In WardSen, when the missing Bitwarden tool message appears, click **Open Bitwarden CLI install guide**.
 2. On Bitwarden's page, choose **Native Executable** and download **macOS x64** if you are on an Intel Mac.
-3. Put the downloaded executable in a permanent folder that is on your `PATH`.
-4. Close and reopen WardSen.
-5. To verify, open **Terminal** and run:
+3. Create this folder if it does not exist: `~/Library/Application Support/WardSen/tools`.
+4. Put the downloaded `bw` executable in that folder.
+5. Close and reopen WardSen.
+6. To verify outside the app, open **Terminal** and run:
+
+```bash
+"$HOME/Library/Application Support/WardSen/tools/bw" --version
+```
+
+macOS PATH option:
+
+1. Put the downloaded executable in a permanent folder that is on your `PATH`.
+2. Close and reopen WardSen.
+3. To verify, open **Terminal** and run:
 
 ```bash
 bw --version
@@ -190,7 +213,7 @@ Upload only the installer artifacts to GitHub Releases. Do not ask users to down
 
 ## Signing A Trusted Release
 
-`v0.1.0-rc.16` is intentionally published as an unsigned prerelease. To publish a trusted release later, maintainers need Windows Authenticode signing for `.exe` and `.msi` files, plus Apple Developer ID signing and notarization for macOS `.dmg` files.
+`v0.1.0-rc.17` is intentionally published as an unsigned prerelease. To publish a trusted release later, maintainers need Windows Authenticode signing for `.exe` and `.msi` files, plus Apple Developer ID signing and notarization for macOS `.dmg` files.
 
 High-level signing path:
 

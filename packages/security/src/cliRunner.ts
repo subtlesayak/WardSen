@@ -53,7 +53,7 @@ export async function runCliCommand(input: CliCommandInput): Promise<CliCommandR
       child.kill("SIGTERM");
       setTimeout(() => child.kill("SIGKILL"), 1500).unref();
       const result = finalize(124);
-      reject(new CliCommandError("CLI command timed out", result, input.executable, input.args));
+      reject(new CliCommandError(timeoutMessage(input, result, timeoutMs), result, input.executable, input.args));
       settled = true;
     }, timeoutMs);
 
@@ -78,7 +78,7 @@ export async function runCliCommand(input: CliCommandInput): Promise<CliCommandR
       if (result.exitCode === 0) {
         resolve(result);
       } else {
-        reject(new CliCommandError("CLI command failed", result, input.executable, input.args));
+        reject(new CliCommandError(failureMessage(input, result), result, input.executable, input.args));
       }
     });
 
@@ -94,6 +94,34 @@ export async function runCliCommand(input: CliCommandInput): Promise<CliCommandR
       };
     }
   });
+}
+
+function timeoutMessage(input: CliCommandInput, result: CliCommandResult, timeoutMs: number): string {
+  const command = providerCommandLabel(input);
+  const detail = commandOutputDetail(result);
+  return `${command} timed out after ${Math.round(timeoutMs / 1000)} seconds. If a browser, SSO, email, captcha or two-step prompt opened, finish it there, then retry in WardSen. WardSen uses an isolated provider profile for each vault account, so signing in to another desktop app or terminal does not sign in this WardSen account.${detail}`;
+}
+
+function failureMessage(input: CliCommandInput, result: CliCommandResult): string {
+  const command = providerCommandLabel(input);
+  return `${command} failed.${commandOutputDetail(result)}`;
+}
+
+function providerCommandLabel(input: CliCommandInput): string {
+  const tool = executableName(input.executable);
+  const operation = input.args[0] ? ` ${input.args[0]}` : "";
+  return `Provider command "${tool}${operation}"`;
+}
+
+function commandOutputDetail(result: CliCommandResult): string {
+  const output = [result.stderr, result.stdout].map((value) => value.trim()).filter(Boolean).join("\n");
+  if (!output) return "";
+  return ` Detail: ${truncateForError(output, 900)}`;
+}
+
+function truncateForError(value: string, limit: number): string {
+  if (value.length <= limit) return value;
+  return `${value.slice(0, limit)}...`;
 }
 
 function providerExecutableMessage(executable: string, error: NodeJS.ErrnoException): string {

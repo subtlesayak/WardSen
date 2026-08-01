@@ -42,6 +42,21 @@ describe("CLI runner", () => {
     })).rejects.toThrow('Provider command "wardsen-missing-cli-for-test" was not found');
   });
 
+  it("includes safe provider output when a command fails", async () => {
+    await expect(runCliCommand({
+      executable: process.execPath,
+      args: ["-e", "console.error('invalid login'); process.exit(2)"]
+    })).rejects.toThrow("invalid login");
+  });
+
+  it("explains long-running provider commands instead of hanging indefinitely", async () => {
+    await expect(runCliCommand({
+      executable: process.execPath,
+      args: ["-e", "setTimeout(() => {}, 1000)"],
+      timeoutMs: 10
+    })).rejects.toThrow("timed out after");
+  });
+
   it("redacts safe error messages with explicit secrets", () => {
     const message = safeErrorMessage(new Error("failed password=hunter2 session=token-1 raw-token"), ["raw-token"]);
     expect(message).toBe("failed password=[REDACTED] session=[REDACTED] [REDACTED]");
@@ -50,5 +65,15 @@ describe("CLI runner", () => {
   it("redacts colon and JSON-style secret fields", () => {
     const message = safeErrorMessage(new Error('Password: hunter2 {"totp":"123456","accessPassword":"send-pass"}'));
     expect(message).toBe('Password: [REDACTED] {"totp":"[REDACTED]","accessPassword":"[REDACTED]"}');
+  });
+
+  it("redacts local user paths from safe errors", () => {
+    const localAppData = process.env.LOCALAPPDATA;
+    if (!localAppData) return;
+
+    const message = safeErrorMessage(new Error(`EPERM mkdir '${localAppData}\\WardSen\\data\\profiles\\acct\\data.json.lock'`));
+
+    expect(message).toContain("%LOCALAPPDATA%\\WardSen");
+    expect(message).not.toContain(localAppData);
   });
 });

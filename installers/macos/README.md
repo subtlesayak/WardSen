@@ -49,7 +49,16 @@ Official Bitwarden CLI options for macOS include the native macOS x64 executable
 npm install -g @bitwarden/cli
 ```
 
-If you download the native macOS x64 executable from Bitwarden's guide, put it in a permanent folder that is on `PATH`. Verify the setup in a new Terminal window:
+If you download the native macOS x64 executable from Bitwarden's guide and do not want to edit `PATH`, put it in WardSen's local tools folder, close and reopen WardSen, then verify from Terminal:
+
+```bash
+mkdir -p "$HOME/Library/Application Support/WardSen/tools"
+cp "$HOME/Downloads/bw" "$HOME/Library/Application Support/WardSen/tools/bw"
+chmod +x "$HOME/Library/Application Support/WardSen/tools/bw"
+"$HOME/Library/Application Support/WardSen/tools/bw" --version
+```
+
+Alternatively, put the native executable in a permanent folder that is on `PATH`. Verify the setup in a new Terminal window:
 
 ```bash
 bw --version

@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 import type {
   ConnectionResult,
@@ -29,7 +30,7 @@ export class BitwardenCredentialProvider implements CredentialProvider {
   private readonly runCommand: BitwardenCommandRunner;
 
   constructor(private readonly options: BitwardenProviderOptions) {
-    this.executable = options.executable ?? "bw";
+    this.executable = options.executable ?? resolveBitwardenExecutable();
     this.sessions = options.sessions ?? new AccountSessionManager();
     this.runCommand = options.runCommand ?? runCliCommand;
   }
@@ -57,7 +58,7 @@ export class BitwardenCredentialProvider implements CredentialProvider {
     if (input.username) args.push(input.username);
     if (input.sso) args.push("--sso");
     if (input.serverUrl) await this.run(accountId, ["config", "server", input.serverUrl]);
-    await this.run(accountId, args, input.password, 120_000, [input.password ?? ""]);
+    await this.run(accountId, args, input.password, 45_000, [input.password ?? ""]);
   }
 
   async unlock(accountId: string, input: ProviderUnlockInput): Promise<void> {
@@ -123,6 +124,30 @@ export class BitwardenCredentialProvider implements CredentialProvider {
       }
     });
   }
+}
+
+function resolveBitwardenExecutable(): string {
+  const candidates = bitwardenExecutableCandidates();
+  return candidates.find((candidate) => fs.existsSync(candidate)) ?? "bw";
+}
+
+function bitwardenExecutableCandidates(): string[] {
+  const explicit = process.env.WARDSEN_BITWARDEN_CLI_PATH;
+  const candidates: string[] = [];
+  if (explicit && path.isAbsolute(explicit)) candidates.push(explicit);
+
+  if (process.env.LOCALAPPDATA) {
+    candidates.push(path.join(process.env.LOCALAPPDATA, "WardSen", "tools", "bw.exe"));
+  }
+  if (process.env.APPDATA) {
+    candidates.push(path.join(process.env.APPDATA, "WardSen", "tools", "bw.exe"));
+  }
+  if (process.env.HOME) {
+    candidates.push(path.join(process.env.HOME, "Library", "Application Support", "WardSen", "tools", "bw"));
+    candidates.push(path.join(process.env.HOME, ".wardsen", "tools", "bw"));
+  }
+
+  return candidates;
 }
 
 interface BitwardenItem {

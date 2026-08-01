@@ -26,7 +26,15 @@ npm install -g @bitwarden/cli
 choco install bitwarden-cli
 ```
 
-If you download the native Windows x64 executable from Bitwarden's guide, extract it into a permanent folder and add that folder to `PATH`. Verify the setup in a new PowerShell or Command Prompt window:
+If you download the native Windows x64 executable from Bitwarden's guide and do not want to edit `PATH`, create `%LOCALAPPDATA%\WardSen\tools`, copy `bw.exe` there, close and reopen WardSen, then verify from PowerShell:
+
+```powershell
+New-Item -ItemType Directory -Force "$env:LOCALAPPDATA\WardSen\tools"
+Copy-Item "$env:USERPROFILE\Downloads\bw.exe" "$env:LOCALAPPDATA\WardSen\tools\bw.exe"
+& "$env:LOCALAPPDATA\WardSen\tools\bw.exe" --version
+```
+
+Alternatively, extract the native executable into a permanent folder and add that folder to `PATH`. Verify the setup in a new PowerShell or Command Prompt window:
 
 ```powershell
 bw --version

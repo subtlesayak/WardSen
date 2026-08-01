@@ -47,6 +47,29 @@ describe("Bitwarden credential provider", () => {
     expect(calls[1].redact).toContain("vault-password");
   });
 
+  it("uses a configured local Bitwarden CLI path when available", async () => {
+    const previous = process.env.WARDSEN_BITWARDEN_CLI_PATH;
+    process.env.WARDSEN_BITWARDEN_CLI_PATH = process.execPath;
+    const calls: CliCommandInput[] = [];
+    try {
+      const provider = new BitwardenCredentialProvider({
+        profileRoot: "profiles",
+        runCommand: async (input) => {
+          calls.push(input);
+          return ok();
+        }
+      });
+
+      await provider.login("acct-1", { username: "user@example.com" });
+
+      expect(calls.at(-1)?.executable).toBe(process.execPath);
+      expect(calls.at(-1)?.timeoutMs).toBe(45_000);
+    } finally {
+      if (previous === undefined) delete process.env.WARDSEN_BITWARDEN_CLI_PATH;
+      else process.env.WARDSEN_BITWARDEN_CLI_PATH = previous;
+    }
+  });
+
   it("unlocks once, searches with the session token, paginates, and filters malformed items", async () => {
     const sessions = new AccountSessionManager();
     const calls: CliCommandInput[] = [];

@@ -25,10 +25,11 @@ describe("web error help", () => {
 
     expect(help.title).toBe("WardSen could not find a provider tool");
     expect(help.detail).toContain('"bw"');
-    expect(help.guidance).toContain("No terminal is required");
+    expect(help.guidance).toContain("local tools folder");
     expect(help.guidance).toContain("PATH");
     expect(help.actionLabel).toBe("Open Bitwarden CLI install guide");
     expect(help.actionHref).toBe("https://bitwarden.com/help/cli/");
+    expect(help.setupNotes?.join("\n")).toContain("%LOCALAPPDATA%\\WardSen\\tools");
     expect(help.setupNotes?.join("\n")).toContain("Windows x64");
     expect(help.setupNotes?.join("\n")).toContain("macOS Apple Silicon");
     expect(help.setupNotes?.join("\n")).toContain("bw --version");
@@ -47,6 +48,30 @@ describe("web error help", () => {
     expect(help.actionHref).toBe("https://keepassxc.org/download/");
     expect(help.terminalCommands?.map((item) => item.command)).toContain("winget install KeePassXCTeam.KeePassXC");
     expect(help.terminalCommands?.map((item) => item.command)).toContain("brew install --cask keepassxc");
+  });
+
+  it("explains provider command timeouts", () => {
+    const help = describeError('Provider command "bw login" timed out after 45 seconds.');
+
+    expect(help.title).toBe("Provider login took too long");
+    expect(help.guidance).toContain("SSO");
+    expect(help.guidance).toContain("does not sign in this WardSen vault account");
+  });
+
+  it("preserves provider command failure detail", () => {
+    const help = describeError('Provider command "bw login" failed. Detail: Username or password is incorrect.');
+
+    expect(help.title).toBe("Provider tool reported an error");
+    expect(help.detail).toContain("Username or password is incorrect");
+    expect(help.guidance).toContain("Login first");
+  });
+
+  it("explains Bitwarden local profile lock failures", () => {
+    const help = describeError("Provider command \"bw status\" failed. Detail: EPERM mkdir '%LOCALAPPDATA%\\WardSen\\data\\profiles\\acct\\data.json.lock'");
+
+    expect(help.title).toBe("Bitwarden CLI could not write its local profile");
+    expect(help.guidance).toContain("folder permissions");
+    expect(help.guidance).toContain("data.json.lock");
   });
 
   it("keeps unknown errors visible with generic recovery guidance", () => {
