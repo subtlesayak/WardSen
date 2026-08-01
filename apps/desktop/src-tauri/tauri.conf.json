@@ -5,7 +5,7 @@
   "identifier": "dev.wardsen.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build:server && npm run build:web",
+    "beforeBuildCommand": "npm run prepare:desktop-runtime && npm run build:server && npm run build:web",
     "beforeBundleCommand": "npm run prepare:desktop-runtime",
     "devUrl": "http://127.0.0.1:5173",
     "frontendDist": "../../web/dist"

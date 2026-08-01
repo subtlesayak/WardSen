@@ -6,6 +6,7 @@ describe("Tauri packaging config", () => {
   const config = JSON.parse(readFileSync(path.join(process.cwd(), "apps", "desktop", "src-tauri", "tauri.conf.json"), "utf8"));
 
   it("builds the local API server and web frontend before packaging", () => {
+    expect(config.build.beforeBuildCommand).toContain("npm run prepare:desktop-runtime");
     expect(config.build.beforeBuildCommand).toContain("npm run build:server");
     expect(config.build.beforeBuildCommand).toContain("npm run build:web");
     expect(config.build.beforeBundleCommand).toBe("npm run prepare:desktop-runtime");

@@ -5,7 +5,7 @@ WardSen uses Tauri 2 for the desktop shell and keeps the API server bound to `12
 ## Runtime Model
 
 1. Tauri loads the built React app from `apps/web/dist`.
-2. Before bundling, WardSen stages the release-machine Node.js executable under `apps/desktop/src-tauri/gen/runtime`.
+2. Before the Tauri Rust build and again before bundling, WardSen stages the release-machine Node.js executable under `apps/desktop/src-tauri/gen/runtime`.
 3. On startup, Tauri launches the bundled server artifact `server/index.cjs` with the bundled Node.js runtime when present.
 4. If the bundled runtime is unavailable, WardSen falls back to `WARDSEN_NODE_PATH` and then trusted system install locations.
 5. The web UI detects the Tauri origin and sends API requests to `http://127.0.0.1:4777`.
