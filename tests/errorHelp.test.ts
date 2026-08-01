@@ -20,6 +20,15 @@ describe("web error help", () => {
     expect(help.guidance).toContain("close and reopen WardSen");
   });
 
+  it("explains when a provider CLI is missing", () => {
+    const help = describeError('Provider command "bw" was not found. Install the Bitwarden CLI, then close and reopen WardSen so the desktop app can see the updated PATH.');
+
+    expect(help.title).toBe("WardSen could not find a provider tool");
+    expect(help.detail).toContain('"bw"');
+    expect(help.guidance).toContain("Install the missing provider CLI");
+    expect(help.guidance).toContain("PATH");
+  });
+
   it("keeps unknown errors visible with generic recovery guidance", () => {
     const help = describeError("Provider command exited with code 1.");
 

@@ -18,3 +18,4 @@
 - Added `v0.1.0-rc.10` release notes for the responsive layout and destructive-confirmation fixes.
 - Fixed desktop/tablet layout so the left sidebar stays anchored while the workspace scrolls independently.
 - Replaced difficult typed destructive prompts in the UI with a normal confirmation dialog while keeping server-side destructive confirmation phrases.
+- Added `v0.1.0-rc.11` release notes and missing provider-tool guidance so raw `spawn bw ENOENT` failures become install/PATH help.

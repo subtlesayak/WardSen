@@ -35,6 +35,13 @@ describe("CLI runner", () => {
     }
   });
 
+  it("turns missing provider executables into actionable errors", async () => {
+    await expect(runCliCommand({
+      executable: "wardsen-missing-cli-for-test",
+      args: ["status"]
+    })).rejects.toThrow('Provider command "wardsen-missing-cli-for-test" was not found');
+  });
+
   it("redacts safe error messages with explicit secrets", () => {
     const message = safeErrorMessage(new Error("failed password=hunter2 session=token-1 raw-token"), ["raw-token"]);
     expect(message).toBe("failed password=[REDACTED] session=[REDACTED] [REDACTED]");

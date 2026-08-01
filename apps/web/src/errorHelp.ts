@@ -32,6 +32,14 @@ export function describeError(message?: string): ErrorHelp {
     };
   }
 
+  if (lower.includes("provider command") && lower.includes("was not found")) {
+    return {
+      title: "WardSen could not find a provider tool",
+      detail,
+      guidance: "Install the missing provider CLI, make sure it is available on PATH, then close and reopen WardSen before retrying."
+    };
+  }
+
   if (lower.includes("requires confirmation") || lower.includes("confirmation phrase")) {
     return {
       title: "Confirmation is required",

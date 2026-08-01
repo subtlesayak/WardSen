@@ -67,7 +67,8 @@ export async function runCliCommand(input: CliCommandInput): Promise<CliCommandR
       clearTimeout(timer);
       if (settled) return;
       settled = true;
-      reject(error);
+      const result = finalize(127);
+      reject(new CliCommandError(providerExecutableMessage(input.executable, error), result, input.executable, input.args));
     });
     child.on("close", (code) => {
       clearTimeout(timer);
@@ -93,6 +94,19 @@ export async function runCliCommand(input: CliCommandInput): Promise<CliCommandR
       };
     }
   });
+}
+
+function providerExecutableMessage(executable: string, error: NodeJS.ErrnoException): string {
+  if (error.code !== "ENOENT") return `Provider command could not start: ${error.message}`;
+  const tool = executableName(executable);
+  const installHint = tool === "bw"
+    ? "Install the Bitwarden CLI, then close and reopen WardSen so the desktop app can see the updated PATH."
+    : `Install ${tool}, then close and reopen WardSen so the desktop app can see the updated PATH.`;
+  return `Provider command "${tool}" was not found. ${installHint}`;
+}
+
+function executableName(executable: string): string {
+  return executable.replaceAll("\\", "/").split("/").pop() || executable;
 }
 
 function validateCommand(input: CliCommandInput): void {
