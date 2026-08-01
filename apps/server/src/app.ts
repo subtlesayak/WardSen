@@ -622,6 +622,7 @@ const unlockSchema = z.object({
 const loginSchema = z.object({
   username: z.string().optional(),
   password: z.string().optional(),
+  verificationCode: z.string().optional(),
   serverUrl: z.string().url().optional(),
   sso: z.boolean().optional()
 });

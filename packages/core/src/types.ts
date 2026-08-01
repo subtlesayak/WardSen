@@ -32,6 +32,7 @@ export interface ConnectionResult {
 export interface ProviderLoginInput {
   username?: string;
   password?: string;
+  verificationCode?: string;
   serverUrl?: string;
   sso?: boolean;
 }

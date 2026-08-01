@@ -335,6 +335,7 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
   const [accessForm, setAccessForm] = useState({
     accountId: "",
     password: "",
+    verificationCode: "",
     databasePath: "",
     keyFilePath: "",
     sso: false
@@ -385,6 +386,7 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
           username: account.username,
           serverUrl: account.serverUrl,
           password: accessForm.password || undefined,
+          verificationCode: accessForm.verificationCode || undefined,
           databasePath: accessForm.databasePath || undefined,
           keyFilePath: accessForm.keyFilePath || undefined,
           sso: accessForm.sso
@@ -419,6 +421,7 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
           {api.accounts.map((account) => <option key={account.id} value={account.id}>{account.label}</option>)}
         </select></label>
         <label>Password<input value={accessForm.password} onChange={(event) => setAccessForm((current) => ({ ...current, password: event.target.value }))} placeholder="Master password or database password" type="password" /></label>
+        <label>Verification code<input value={accessForm.verificationCode} onChange={(event) => setAccessForm((current) => ({ ...current, verificationCode: event.target.value }))} placeholder="Bitwarden email or two-step code" inputMode="numeric" autoComplete="one-time-code" /></label>
         <label>Database path<input value={accessForm.databasePath} onChange={(event) => setAccessForm((current) => ({ ...current, databasePath: event.target.value }))} placeholder="KeePassXC .kdbx path" /></label>
         <label>Key file path<input value={accessForm.keyFilePath} onChange={(event) => setAccessForm((current) => ({ ...current, keyFilePath: event.target.value }))} placeholder="Optional KeePassXC key file" /></label>
         <label className="check"><input checked={accessForm.sso} type="checkbox" onChange={(event) => setAccessForm((current) => ({ ...current, sso: event.target.checked }))} /> Login with SSO</label>

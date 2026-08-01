@@ -58,7 +58,7 @@ export class BitwardenCredentialProvider implements CredentialProvider {
     if (input.username) args.push(input.username);
     if (input.sso) args.push("--sso");
     if (input.serverUrl) await this.run(accountId, ["config", "server", input.serverUrl]);
-    await this.run(accountId, args, input.password, 45_000, [input.password ?? ""]);
+    await this.run(accountId, args, loginStdin(input), 45_000, [input.password ?? "", input.verificationCode ?? ""]);
   }
 
   async unlock(accountId: string, input: ProviderUnlockInput): Promise<void> {
@@ -124,6 +124,12 @@ export class BitwardenCredentialProvider implements CredentialProvider {
       }
     });
   }
+}
+
+function loginStdin(input: ProviderLoginInput): string | undefined {
+  const values = [input.password, input.verificationCode].filter((value): value is string => Boolean(value));
+  if (!values.length) return undefined;
+  return `${values.join("\n")}\n`;
 }
 
 function resolveBitwardenExecutable(): string {

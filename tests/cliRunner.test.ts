@@ -76,4 +76,13 @@ describe("CLI runner", () => {
     expect(message).toContain("%LOCALAPPDATA%\\WardSen");
     expect(message).not.toContain(localAppData);
   });
+
+  it("removes terminal control noise and repeated Bitwarden prompts", () => {
+    const message = safeErrorMessage(new Error("\u001b[37D\u001b[37C\u001b[2K\u001b[G? Master password: [input is hidden]\r\u001b[37D\u001b[37C\u001b[2K\u001b[G? Master password: [input is hidden]\r? New device verification required. Enter OTP sent to login email."));
+
+    expect(message).toContain("Master password: [REDACTED]");
+    expect(message).toContain("New device verification required");
+    expect(message).not.toContain("\u001b");
+    expect(message.match(/Master password/g)?.length).toBe(1);
+  });
 });

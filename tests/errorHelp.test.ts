@@ -58,6 +58,14 @@ describe("web error help", () => {
     expect(help.guidance).toContain("does not sign in this WardSen vault account");
   });
 
+  it("turns Bitwarden new-device timeouts into verification-code help", () => {
+    const help = describeError('Provider command "bw login" timed out after 45 seconds. Detail: New device verification required. Enter OTP sent to login email.');
+
+    expect(help.title).toBe("Bitwarden needs a verification code");
+    expect(help.guidance).toContain("Verification code field");
+    expect(help.guidance).toContain("click Login again");
+  });
+
   it("preserves provider command failure detail", () => {
     const help = describeError('Provider command "bw login" failed. Detail: Username or password is incorrect.');
 

@@ -35,6 +35,7 @@ describe("Bitwarden credential provider", () => {
     await provider.login("acct-1", {
       username: "user@example.com",
       password: "vault-password",
+      verificationCode: "123456",
       serverUrl: "https://vault.example.test"
     });
 
@@ -43,8 +44,9 @@ describe("Bitwarden credential provider", () => {
       ["login", "user@example.com"]
     ]);
     expect(calls.every((call) => call.env?.BITWARDENCLI_APPDATA_DIR === path.join("profiles", "acct-1"))).toBe(true);
-    expect(calls[1].stdin).toBe("vault-password");
+    expect(calls[1].stdin).toBe("vault-password\n123456\n");
     expect(calls[1].redact).toContain("vault-password");
+    expect(calls[1].redact).toContain("123456");
   });
 
   it("uses a configured local Bitwarden CLI path when available", async () => {

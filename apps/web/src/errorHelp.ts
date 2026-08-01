@@ -56,6 +56,13 @@ export function describeError(message?: string): ErrorHelp {
   }
 
   if (lower.includes("provider command") && lower.includes("timed out")) {
+    if (lower.includes("enter otp") || lower.includes("new device verification") || lower.includes("verification required")) {
+      return {
+        title: "Bitwarden needs a verification code",
+        detail,
+        guidance: "Enter the Bitwarden email or two-step verification code in WardSen's Verification code field, keep the master password filled in, then click Login again."
+      };
+    }
     return {
       title: "Provider login took too long",
       detail,
