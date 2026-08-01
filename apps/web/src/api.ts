@@ -1,5 +1,15 @@
 import { invoke } from "@tauri-apps/api/core";
 
+export interface LocalServiceStatus {
+  running: boolean;
+  portOpen: boolean;
+  nodeRuntimeFound: boolean;
+  serverBundleFound: boolean;
+  lastError?: string;
+  lastExit?: string;
+  lastOutput?: string;
+}
+
 export async function apiGet<T>(path: string): Promise<T> {
   const url = apiUrl(path);
   const response = await fetchLocal(url, { headers: await apiHeaders() });
@@ -46,6 +56,11 @@ export function canRestartLocalService(): boolean {
 export async function restartLocalService(): Promise<void> {
   if (!canRestartLocalService()) return;
   await invoke("restart_local_service");
+}
+
+export async function getLocalServiceStatus(): Promise<LocalServiceStatus | undefined> {
+  if (!canRestartLocalService()) return undefined;
+  return invoke<LocalServiceStatus>("local_service_status");
 }
 
 function isTauriOrigin(): boolean {

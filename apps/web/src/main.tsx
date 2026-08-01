@@ -18,7 +18,7 @@ import {
   UsersRound,
   Vault
 } from "lucide-react";
-import { apiDownload, apiGet, apiSend, canRestartLocalService, restartLocalService } from "./api";
+import { apiDownload, apiGet, apiSend, canRestartLocalService, getLocalServiceStatus, restartLocalService, type LocalServiceStatus } from "./api";
 import { describeError } from "./errorHelp";
 import "./styles.css";
 
@@ -243,7 +243,27 @@ function useWardSenApi() {
       }));
       return false;
     }
-    return refresh();
+    const recovered = await refresh();
+    if (!recovered) {
+      await appendLocalServiceStatus();
+    }
+    return recovered;
+  }
+
+  async function appendLocalServiceStatus() {
+    try {
+      const status = await getLocalServiceStatus();
+      if (!status) return;
+      setState((current) => ({
+        ...current,
+        error: `${current.error ?? "WardSen could not reach the local service."}\n\nDesktop service check:\n${formatLocalServiceStatus(status)}`
+      }));
+    } catch (error) {
+      setState((current) => ({
+        ...current,
+        error: `${current.error ?? "WardSen could not reach the local service."}\n\nDesktop service check failed: ${error instanceof Error ? error.message : String(error)}`
+      }));
+    }
   }
 
   async function action(path: string, init: RequestInit = {}) {
@@ -1073,6 +1093,19 @@ function formatDate(value: string) {
 
 function sleep(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function formatLocalServiceStatus(status: LocalServiceStatus) {
+  const lines = [
+    `Process: ${status.running ? "running" : "not running"}`,
+    `Port 4777: ${status.portOpen ? "open" : "not reachable"}`,
+    `Bundled Node runtime: ${status.nodeRuntimeFound ? "found" : "missing"}`,
+    `Server bundle: ${status.serverBundleFound ? "found" : "missing"}`
+  ];
+  if (status.lastExit) lines.push(`Last exit: ${status.lastExit}`);
+  if (status.lastError) lines.push(`Last launch error: ${status.lastError}`);
+  if (status.lastOutput) lines.push(`Service output: ${status.lastOutput}`);
+  return lines.join("\n");
 }
 
 function accountLabel(accounts: AccountRecord[], accountId: string) {

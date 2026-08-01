@@ -130,6 +130,7 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
 .errorHelp span,
 .errorHelp small {
   display: block;
+  white-space: pre-line;
 }
 .errorHelp small {
   color: #8a4545;

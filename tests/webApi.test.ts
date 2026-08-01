@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import { apiGet, apiSend, apiUrl, canRestartLocalService, restartLocalService } from "../apps/web/src/api";
+import { apiGet, apiSend, apiUrl, canRestartLocalService, getLocalServiceStatus, restartLocalService } from "../apps/web/src/api";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async () => undefined)
@@ -85,6 +85,24 @@ describe("web API helpers", () => {
     await restartLocalService();
 
     expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("reads local service diagnostics when packaged under Tauri", async () => {
+    const status = {
+      running: false,
+      portOpen: false,
+      nodeRuntimeFound: true,
+      serverBundleFound: true,
+      lastExit: "exited with code 1"
+    };
+    vi.mocked(invoke).mockResolvedValueOnce(status);
+    vi.stubGlobal("window", {
+      location: { protocol: "tauri:", hostname: "localhost" }
+    });
+
+    await expect(getLocalServiceStatus()).resolves.toEqual(status);
+
+    expect(invoke).toHaveBeenCalledWith("local_service_status");
   });
 
   it("rejects absolute API URLs", () => {

@@ -32,8 +32,10 @@ describe("Tauri packaging config", () => {
 
   it("exposes a local-service restart command for desktop recovery", () => {
     expect(rustLauncher).toContain("restart_local_service");
+    expect(rustLauncher).toContain("local_service_status");
     expect(rustLauncher).toContain("restart_server_process");
-    expect(rustLauncher).toMatch(/tauri::generate_handler!\[[\s\S]*get_api_token[\s\S]*restart_local_service[\s\S]*\]/);
+    expect(rustLauncher).toContain("collect_child_output");
+    expect(rustLauncher).toMatch(/tauri::generate_handler!\[[\s\S]*get_api_token[\s\S]*restart_local_service[\s\S]*local_service_status[\s\S]*\]/);
   });
 
   it("enforces a desktop content security policy", () => {
