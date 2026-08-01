@@ -31,6 +31,7 @@ WardSen is an independent open-source project and is not affiliated with, endors
 - [Install from release](#install-from-release)
 - [Install from source](#install-from-source)
 - [Release artifact structure](#release-artifact-structure)
+- [Signing a trusted release](#signing-a-trusted-release)
 - [API docs](docs/api.md)
 - [Desktop packaging](docs/desktop-packaging.md)
 - [Installer signing](docs/installer-signing.md)
@@ -119,6 +120,21 @@ apps/
 ```
 
 Upload only the installer artifacts to GitHub Releases. Do not ask users to download the full `target` folder, `bundle` folder, source checkout, `node_modules` or build cache directories.
+
+## Signing A Trusted Release
+
+`v0.1.0-rc.6` is intentionally published as an unsigned prerelease. To publish a trusted release later, maintainers need Windows Authenticode signing for `.exe` and `.msi` files, plus Apple Developer ID signing and notarization for macOS `.dmg` files.
+
+High-level signing path:
+
+1. Obtain a Windows code-signing certificate and an Apple Developer ID Application certificate.
+2. Add the required GitHub Actions secrets for Windows and macOS signing.
+3. Set `MACOS_SIGNING_ENABLED=true` only after all Apple signing and notarization secrets are present.
+4. Run the `Release Installers` workflow for a new RC tag.
+5. Verify downloaded artifacts with `signtool`, `spctl`, `xcrun stapler` and the attached checksum files.
+6. Promote a final non-prerelease only after signed assets are attached and verified.
+
+See [installer signing](docs/installer-signing.md) for the exact secret names, local commands and GitHub Actions flow.
 
 ## Install From Source
 

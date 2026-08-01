@@ -8,6 +8,88 @@ WardSen release installers should be signed before a public release is published
 
 Do not promote a final `v0.1.0` or "latest" release until Windows Authenticode signing and macOS Developer ID notarization are configured and verified, or until the release clearly states that the installers are unsigned.
 
+## Maintainer Signing Quick Start
+
+Use this path when preparing a signed update after the unsigned `v0.1.0-rc.6` validation release.
+
+### 1. Get signing identities
+
+Windows:
+
+1. Buy or obtain a Windows code-signing certificate from a trusted certificate authority.
+2. Export the certificate as a password-protected `.pfx` file, or install it into the Windows certificate store on the release machine.
+3. Get the timestamp URL from the certificate authority.
+
+macOS:
+
+1. Join the Apple Developer Program.
+2. Create a **Developer ID Application** certificate.
+3. Export it as a password-protected `.p12` file for CI, or install it in the login keychain on a macOS release machine.
+4. Create an App Store Connect API key with notarization access and download the `.p8` private key once.
+
+Never commit certificate files, private keys, API keys or passwords to the repository.
+
+### 2. Configure GitHub repository secrets
+
+Open the GitHub repository, then go to **Settings > Secrets and variables > Actions**.
+
+Add Windows secrets:
+
+- `WINDOWS_CERTIFICATE_BASE64`: base64 text of the `.pfx` file
+- `WINDOWS_CERTIFICATE_PASSWORD`: password for the `.pfx` file
+- `WINDOWS_TIMESTAMP_URL`: timestamp server URL from the certificate authority
+
+Add macOS secrets:
+
+- `APPLE_CERTIFICATE`: base64 text of the `.p12` Developer ID Application certificate
+- `APPLE_CERTIFICATE_PASSWORD`: password for the `.p12` file
+- `APPLE_SIGNING_IDENTITY`: exact identity, such as `Developer ID Application: Publisher Name (TEAMID)`
+- `APPLE_API_ISSUER`: App Store Connect issuer UUID
+- `APPLE_API_KEY`: App Store Connect key ID
+- `APPLE_API_KEY_P8`: full contents of the downloaded `AuthKey_*.p8` file
+
+After all macOS secrets are present, add repository variable:
+
+- `MACOS_SIGNING_ENABLED`: `true`
+
+Keep `MACOS_SIGNING_ENABLED` unset or any value other than `true` until the Apple certificate and notarization key are complete. The workflow intentionally builds unsigned macOS artifacts when this variable is not `true`.
+
+### 3. Run a signed release candidate
+
+1. Create or choose the next release candidate tag, such as `v0.1.0-rc.7`.
+2. Push the tag, or open **Actions > Release Installers > Run workflow**.
+3. Enter the tag.
+4. Keep `prerelease` enabled.
+5. Wait for Windows x64 and macOS Apple Silicon jobs to finish.
+6. Confirm the GitHub release remains marked as a prerelease until signature checks pass.
+
+### 4. Verify downloaded artifacts
+
+Download the release assets from GitHub on clean machines and verify them.
+
+Windows:
+
+```powershell
+signtool verify /pa /v .\WardSen_0.1.0_x64-setup.exe
+signtool verify /pa /v .\WardSen_0.1.0_x64_en-US.msi
+```
+
+macOS:
+
+```bash
+spctl --assess --type open --verbose WardSen_0.1.0_aarch64.dmg
+xcrun stapler validate WardSen_0.1.0_aarch64.dmg
+```
+
+Also compare each installer against the matching `SHA256SUMS-*.txt` file.
+
+### 5. Promote the final release
+
+1. Update the release notes so they no longer call the installers unsigned.
+2. Tag the final release only after verification passes.
+3. Run the release workflow for the final tag, or upload the verified signed assets with `gh release upload --clobber`.
+4. Mark the final release as non-prerelease only after the signed Windows and macOS artifacts are attached.
+
 ## Windows
 
 Windows signing uses Authenticode. Sign the final setup `.exe` and `.msi` artifacts after Tauri builds them.
