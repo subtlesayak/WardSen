@@ -1,6 +1,5 @@
 use std::{
-    env,
-    io,
+    env, io,
     path::PathBuf,
     process::{Child, Command, Stdio},
     sync::Mutex,
@@ -10,31 +9,48 @@ use tauri::{path::BaseDirectory, Manager};
 
 struct ServerProcess(Mutex<Option<Child>>);
 struct ApiToken(String);
+#[derive(Clone)]
+struct ServerLaunchConfig {
+    node_path: PathBuf,
+    server_path: PathBuf,
+}
 
 #[tauri::command]
 fn get_api_token(token: tauri::State<ApiToken>) -> String {
     token.0.clone()
 }
 
+#[tauri::command]
+fn restart_local_service(
+    process: tauri::State<ServerProcess>,
+    config: tauri::State<ServerLaunchConfig>,
+    token: tauri::State<ApiToken>,
+) -> Result<(), String> {
+    restart_server_process(&process, &config, &token.0).map_err(|error| error.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![get_api_token])
+        .invoke_handler(tauri::generate_handler![
+            get_api_token,
+            restart_local_service
+        ])
         .setup(|app| {
-            let server_path = app.path().resolve("server/index.cjs", BaseDirectory::Resource)?;
+            let server_path = app
+                .path()
+                .resolve("server/index.cjs", BaseDirectory::Resource)?;
             let bundled_node_path = bundled_node_path(app);
             let api_token = generate_api_token()?;
             let node_path = resolve_node_executable(bundled_node_path)?;
-            let child = Command::new(node_path)
-                .arg(server_path)
-                .env("WARDSEN_PORT", "4777")
-                .env("WARDSEN_API_TOKEN", &api_token)
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn()?;
+            let config = ServerLaunchConfig {
+                node_path,
+                server_path,
+            };
+            let child = spawn_server_process(&config, &api_token)?;
             app.manage(ApiToken(api_token));
+            app.manage(config);
             app.manage(ServerProcess(Mutex::new(Some(child))));
             Ok(())
         })
@@ -56,9 +72,45 @@ pub fn run() {
         .expect("error while running WardSen desktop application");
 }
 
+fn restart_server_process(
+    process: &ServerProcess,
+    config: &ServerLaunchConfig,
+    api_token: &str,
+) -> io::Result<()> {
+    let mut child_guard = process.0.lock().map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::Other,
+            "WardSen local service process lock was poisoned",
+        )
+    })?;
+    if let Some(mut child) = child_guard.take() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    let child = spawn_server_process(config, api_token)?;
+    *child_guard = Some(child);
+    Ok(())
+}
+
+fn spawn_server_process(config: &ServerLaunchConfig, api_token: &str) -> io::Result<Child> {
+    Command::new(&config.node_path)
+        .arg(&config.server_path)
+        .env("WARDSEN_PORT", "4777")
+        .env("WARDSEN_API_TOKEN", api_token)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+}
+
 fn generate_api_token() -> io::Result<String> {
     let mut bytes = [0_u8; 32];
-    getrandom::fill(&mut bytes).map_err(|error| io::Error::new(io::ErrorKind::Other, format!("failed to generate WardSen API token: {error:?}")))?;
+    getrandom::fill(&mut bytes).map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::Other,
+            format!("failed to generate WardSen API token: {error:?}"),
+        )
+    })?;
     Ok(hex_encode(&bytes))
 }
 
@@ -115,11 +167,15 @@ fn node_candidates(bundled_node_path: Option<PathBuf>) -> Vec<PathBuf> {
 fn bundled_node_path(app: &tauri::App) -> Option<PathBuf> {
     #[cfg(windows)]
     {
-        app.path().resolve("runtime/node.exe", BaseDirectory::Resource).ok()
+        app.path()
+            .resolve("runtime/node.exe", BaseDirectory::Resource)
+            .ok()
     }
 
     #[cfg(not(windows))]
     {
-        app.path().resolve("runtime/node", BaseDirectory::Resource).ok()
+        app.path()
+            .resolve("runtime/node", BaseDirectory::Resource)
+            .ok()
     }
 }

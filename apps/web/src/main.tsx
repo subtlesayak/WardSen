@@ -18,7 +18,7 @@ import {
   UsersRound,
   Vault
 } from "lucide-react";
-import { apiDownload, apiGet, apiSend } from "./api";
+import { apiDownload, apiGet, apiSend, canRestartLocalService, restartLocalService } from "./api";
 import { describeError } from "./errorHelp";
 import "./styles.css";
 
@@ -121,6 +121,7 @@ interface CredentialSearchState {
 interface ApiState {
   status: LoadState;
   error?: string;
+  loadingMessage?: string;
   credentialProviders: ProviderInfo[];
   deliveryProviders: ProviderInfo[];
   accounts: AccountRecord[];
@@ -201,7 +202,7 @@ function useWardSenApi() {
   });
 
   async function refresh(): Promise<boolean> {
-    setState((current) => ({ ...current, status: "loading", error: undefined }));
+    setState((current) => ({ ...current, status: "loading", error: undefined, loadingMessage: "Loading local WardSen data..." }));
     try {
       const [providers, accounts, people, deliveries, batches] = await Promise.all([
         apiGet<{ credentialProviders: ProviderInfo[]; deliveryProviders: ProviderInfo[] }>("/api/providers"),
@@ -217,13 +218,32 @@ function useWardSenApi() {
         accounts,
         people: people.items,
         deliveries: deliveries.items,
-        batches: batches.items
+        batches: batches.items,
+        loadingMessage: undefined
       });
       return true;
     } catch (error) {
-      setState((current) => ({ ...current, status: "error", error: error instanceof Error ? error.message : String(error) }));
+      setState((current) => ({ ...current, status: "error", error: error instanceof Error ? error.message : String(error), loadingMessage: undefined }));
       return false;
     }
+  }
+
+  async function recover(): Promise<boolean> {
+    if (!canRestartLocalService()) return refresh();
+    setState((current) => ({ ...current, status: "loading", error: undefined, loadingMessage: "Restarting WardSen local service..." }));
+    try {
+      await restartLocalService();
+      await sleep(600);
+    } catch (error) {
+      setState((current) => ({
+        ...current,
+        status: "error",
+        error: `WardSen could not restart the local service. Close and reopen WardSen. Restart detail: ${error instanceof Error ? error.message : String(error)}`,
+        loadingMessage: undefined
+      }));
+      return false;
+    }
+    return refresh();
   }
 
   async function action(path: string, init: RequestInit = {}) {
@@ -249,13 +269,15 @@ function useWardSenApi() {
     };
   }, []);
 
-  return { ...state, refresh, action };
+  return { ...state, refresh, recover, action, canRestartLocalService: canRestartLocalService() };
 }
 
 function ApiBanner({ api }: { api: ReturnType<typeof useWardSenApi> }) {
   if (api.status === "ready") return null;
   return (
-    api.status === "loading" ? <div className="notice">Loading local WardSen data...</div> : <ErrorNotice message={api.error} actionLabel="Retry" onAction={api.refresh} />
+    api.status === "loading"
+      ? <div className="notice">{api.loadingMessage ?? "Loading local WardSen data..."}</div>
+      : <ErrorNotice message={api.error} actionLabel={api.canRestartLocalService ? "Restart service and retry" : "Retry"} onAction={api.recover} />
   );
 }
 

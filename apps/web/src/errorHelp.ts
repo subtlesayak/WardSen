@@ -20,7 +20,7 @@ export function describeError(message?: string): ErrorHelp {
     return {
       title: "WardSen could not reach the local service",
       detail,
-      guidance: "Start or restart the WardSen local service, then refresh this screen."
+      guidance: "Use Restart service and retry in the desktop app. If the same message returns, close and reopen WardSen so the bundled local service can start again."
     };
   }
 

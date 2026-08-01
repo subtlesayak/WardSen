@@ -1,12 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import { apiGet, apiSend, apiUrl } from "../apps/web/src/api";
+import { apiGet, apiSend, apiUrl, canRestartLocalService, restartLocalService } from "../apps/web/src/api";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async () => undefined)
 }));
 
 afterEach(() => {
+  vi.clearAllMocks();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -61,6 +62,29 @@ describe("web API helpers", () => {
     expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:4777/api/health", {
       headers: { "x-wardsen-api-token": "desktop-token" }
     });
+  });
+
+  it("can restart the local service when packaged under Tauri", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce(undefined);
+    vi.stubGlobal("window", {
+      location: { protocol: "tauri:", hostname: "localhost" }
+    });
+
+    expect(canRestartLocalService()).toBe(true);
+    await restartLocalService();
+
+    expect(invoke).toHaveBeenCalledWith("restart_local_service");
+  });
+
+  it("does not try to restart the local service from the browser build", async () => {
+    vi.stubGlobal("window", {
+      location: { protocol: "http:", hostname: "127.0.0.1" }
+    });
+
+    expect(canRestartLocalService()).toBe(false);
+    await restartLocalService();
+
+    expect(invoke).not.toHaveBeenCalled();
   });
 
   it("rejects absolute API URLs", () => {

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 describe("Tauri packaging config", () => {
   const config = JSON.parse(readFileSync(path.join(process.cwd(), "apps", "desktop", "src-tauri", "tauri.conf.json"), "utf8"));
+  const rustLauncher = readFileSync(path.join(process.cwd(), "apps", "desktop", "src-tauri", "src", "lib.rs"), "utf8");
 
   it("builds the local API server and web frontend before packaging", () => {
     expect(config.build.beforeBuildCommand).toContain("npm run prepare:desktop-runtime");
@@ -27,6 +28,12 @@ describe("Tauri packaging config", () => {
 
   it("keeps the main desktop window explicitly labelled for lifecycle cleanup", () => {
     expect(config.app.windows[0]).toMatchObject({ label: "main", title: "WardSen" });
+  });
+
+  it("exposes a local-service restart command for desktop recovery", () => {
+    expect(rustLauncher).toContain("restart_local_service");
+    expect(rustLauncher).toContain("restart_server_process");
+    expect(rustLauncher).toMatch(/tauri::generate_handler!\[[\s\S]*get_api_token[\s\S]*restart_local_service[\s\S]*\]/);
   });
 
   it("enforces a desktop content security policy", () => {

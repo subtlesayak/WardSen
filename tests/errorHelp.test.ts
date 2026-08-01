@@ -11,6 +11,15 @@ describe("web error help", () => {
     expect(help.guidance).toContain("rejected");
   });
 
+  it("tells desktop users to restart the local service when fetch fails", () => {
+    const help = describeError("Could not connect to WardSen local service at http://127.0.0.1:4777/api/providers. Browser detail: Failed to fetch");
+
+    expect(help.title).toBe("WardSen could not reach the local service");
+    expect(help.detail).toContain("Failed to fetch");
+    expect(help.guidance).toContain("Restart service and retry");
+    expect(help.guidance).toContain("close and reopen WardSen");
+  });
+
   it("keeps unknown errors visible with generic recovery guidance", () => {
     const help = describeError("Provider command exited with code 1.");
 

@@ -39,6 +39,15 @@ export function apiUrl(path: string): string {
   return path;
 }
 
+export function canRestartLocalService(): boolean {
+  return isTauriOrigin();
+}
+
+export async function restartLocalService(): Promise<void> {
+  if (!canRestartLocalService()) return;
+  await invoke("restart_local_service");
+}
+
 function isTauriOrigin(): boolean {
   if (typeof window === "undefined") return false;
   return window.location.protocol === "tauri:" || window.location.hostname === "tauri.localhost";
@@ -79,6 +88,6 @@ async function fetchLocal(url: string, init?: RequestInit): Promise<Response> {
     return await fetch(url, init);
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(`Could not connect to WardSen local service at ${url}. Start or restart WardSen, then retry. Browser detail: ${detail}`);
+    throw new Error(`Could not connect to WardSen local service at ${url}. Use Restart service and retry in the desktop app, or close and reopen WardSen. Browser detail: ${detail}`);
   }
 }
