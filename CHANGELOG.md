@@ -24,3 +24,4 @@
 - Documented the macOS unsigned-prerelease `"WardSen" is damaged and can't be opened` Gatekeeper recovery step for testers.
 - Added `v0.1.0-rc.14` release notes with copyable provider setup links and in-app terminal recovery commands.
 - Added `v0.1.0-rc.15` release notes and Bitwarden CLI setup help for Windows/macOS users, including native download PATH guidance, arm64/NPM guidance, Chocolatey and `bw --version` verification.
+- Added `v0.1.0-rc.16` release notes and a third-party provider/trademark policy clarifying independent compatibility, user-installed provider tools and no provider endorsement.

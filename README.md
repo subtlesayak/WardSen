@@ -35,13 +35,14 @@ WardSen is an independent open-source project and is not affiliated with, endors
 - [API docs](docs/api.md)
 - [Desktop packaging](docs/desktop-packaging.md)
 - [Installer signing](docs/installer-signing.md)
+- [Third-party provider policy](docs/third-party-provider-policy.md)
 - [Security design](docs/security-design.md)
 - [Threat model](THREAT_MODEL.md)
 - [Release checklist](docs/release-security-checklist.md)
 
 ## Status
 
-`v0.1.0-rc.15` is the latest installer prerelease. It is suitable for developer review, security review and platform packaging validation.
+`v0.1.0-rc.16` is the latest installer prerelease. It is suitable for developer review, security review and platform packaging validation.
 
 Unsigned Windows x64 and macOS Apple Silicon installers are attached to the GitHub prerelease. Windows SmartScreen and macOS Gatekeeper may warn until signing certificates and notarization are configured. See [installer signing](docs/installer-signing.md) before publishing a fully trusted end-user release.
 
@@ -70,6 +71,7 @@ This release contains:
 - Provider setup buttons open official install pages through the packaged desktop app's system-browser opener
 - Provider setup errors include copyable install links and terminal recovery commands
 - Bitwarden CLI setup help now explains Windows and macOS native downloads, PATH, arm64/NPM installs and `bw --version` verification
+- Third-party provider and trademark policy documents that WardSen is independent, user-installed-provider-tool based and not endorsed by supported providers
 - macOS first-install docs cover the unsigned-prerelease `"WardSen" is damaged and can't be opened` Gatekeeper message
 - Windows and macOS prerequisite and desktop packaging scripts
 
@@ -81,7 +83,7 @@ Go to [GitHub Releases](https://github.com/subtlesayak/WardSen/releases) and dow
 
 - Windows: `WardSen_0.1.0_x64-setup.exe` or `WardSen_0.1.0_x64_en-US.msi`
 - macOS Apple Silicon: `WardSen_0.1.0_aarch64.dmg`
-- macOS Intel: not attached to `v0.1.0-rc.15`; maintainers can build it from the manual Intel workflow
+- macOS Intel: not attached to `v0.1.0-rc.16`; maintainers can build it from the manual Intel workflow
 
 Windows first install:
 
@@ -188,7 +190,7 @@ Upload only the installer artifacts to GitHub Releases. Do not ask users to down
 
 ## Signing A Trusted Release
 
-`v0.1.0-rc.15` is intentionally published as an unsigned prerelease. To publish a trusted release later, maintainers need Windows Authenticode signing for `.exe` and `.msi` files, plus Apple Developer ID signing and notarization for macOS `.dmg` files.
+`v0.1.0-rc.16` is intentionally published as an unsigned prerelease. To publish a trusted release later, maintainers need Windows Authenticode signing for `.exe` and `.msi` files, plus Apple Developer ID signing and notarization for macOS `.dmg` files.
 
 High-level signing path:
 
@@ -345,6 +347,14 @@ See `docs/release-security-checklist.md` and `docs/rustsec-audit.md` before publ
 - CLI commands use `spawn` with `shell: false`
 - The desktop launcher starts bundled Node.js first, then absolute trusted runtime paths, never a bare `PATH` lookup
 
-## Provider Requirements
+## Third-Party Provider Policy
 
-WardSen uses official provider tooling only. It does not use browser scraping, accessibility automation, reverse-engineered APIs, unofficial browser extensions or direct parsing of proprietary encrypted vault formats.
+WardSen is an independent compatibility layer. Product and provider names are used only to identify the user-selected service or locally installed provider tool.
+
+WardSen does not claim affiliation with, endorsement by, sponsorship from or approval by Bitwarden, 1Password, Proton, KeePassXC, Keeper or their respective companies.
+
+WardSen does not bundle Bitwarden binaries or provider logos. Users install provider tools such as `bw` themselves from the provider's own download page, package manager listing or documented install path. WardSen only calls those local tools after the user has installed and authenticated them.
+
+WardSen does not use browser scraping, accessibility automation, reverse-engineered private APIs, unofficial browser extensions or direct parsing of proprietary encrypted vault formats.
+
+See [third-party provider policy](docs/third-party-provider-policy.md) for the maintainer rules used before publishing a release.

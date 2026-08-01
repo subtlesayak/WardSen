@@ -32,6 +32,16 @@ Run this checklist before publishing a public WardSen build.
 - Verify macOS signing and notarization with `codesign`, `spctl` and `xcrun stapler validate`.
 - Confirm packaged desktop builds include `runtime/node.exe` on Windows or `runtime/node` on macOS/Linux, or launch Node.js from an absolute trusted runtime path; otherwise mark the release as source-only.
 
+## Third-Party Providers and Trademarks
+
+- Review `docs/third-party-provider-policy.md`.
+- Confirm README and release notes clearly say WardSen is independent and not affiliated with, endorsed by or sponsored by supported providers.
+- Confirm provider names are used only for compatibility, setup instructions or provider selection labels.
+- Confirm no provider logos, screenshots, brand styling or trademark-heavy release artwork were added.
+- Confirm installer artifacts do not bundle provider binaries by default.
+- Confirm provider setup links point to provider-controlled pages or documented package manager commands.
+- Confirm release copy does not imply provider approval, partnership, certification or sponsorship.
+
 ## Bulk Delivery
 
 - Confirm bulk sends show credential name, source vault, delivery provider, recipient count, link mode, expiry and view limit before creation.

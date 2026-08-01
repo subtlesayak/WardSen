@@ -2,7 +2,7 @@
 
 ## Milestone 1: Production-Quality Open-Source Desktop Foundation
 
-Status: implementation complete through Phase 28.
+Status: implementation complete through Phase 29.
 
 ### Completed Phases
 
@@ -239,3 +239,25 @@ Users who downloaded the Bitwarden CLI native executable could still see missing
 - Missing Bitwarden CLI errors explain that Bitwarden recommends NPM for arm64 devices.
 - Missing Bitwarden CLI errors include copyable official terminal commands for NPM and Chocolatey.
 - README and release notes include first-user Bitwarden CLI setup steps for Windows and macOS.
+
+## Completed Phase 29: Third-Party Provider Release Positioning
+
+Status: complete
+
+### Problem
+
+Before publishing another release, WardSen needed clearer public wording that using provider names such as Bitwarden is compatibility labeling only and does not imply endorsement, sponsorship or affiliation.
+
+### Scope
+
+- Add a third-party provider and trademark policy for maintainers.
+- Strengthen README release positioning around independent compatibility and user-installed provider tools.
+- Add provider/trademark checks to the release security checklist.
+- Update release notes, changelog and signing state for the next installer prerelease.
+
+### Acceptance Criteria
+
+- README states WardSen is independent and does not bundle provider binaries by default.
+- Provider policy states provider names are nominative compatibility references only.
+- Release checklist requires trademark/provider wording review before publishing.
+- Release notes disclose the independent compatibility position.
