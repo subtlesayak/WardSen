@@ -22,3 +22,4 @@
 - Added `v0.1.0-rc.12` release notes and provider setup buttons for users who do not know CLI or terminal commands.
 - Added `v0.1.0-rc.13` release notes and fixed provider setup buttons so packaged desktop builds open official install pages through the system browser.
 - Documented the macOS unsigned-prerelease `"WardSen" is damaged and can't be opened` Gatekeeper recovery step for testers.
+- Added `v0.1.0-rc.14` release notes with copyable provider setup links and in-app terminal recovery commands.
