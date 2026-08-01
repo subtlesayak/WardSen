@@ -4,7 +4,9 @@ WardSen release installers should be signed before a public release is published
 
 ## Current Release State
 
-`v0.1.0` is prepared as a source/developer-preview release until signed platform artifacts are attached. Do not publish it as an end-user installer release until the Windows and macOS signing steps below are completed or the release explicitly says the installers are unsigned.
+`v0.1.0-rc.6` is published as an unsigned prerelease with Windows x64 and macOS Apple Silicon installer artifacts attached. Treat it as a validation build, not a fully trusted end-user release.
+
+Do not promote a final `v0.1.0` or "latest" release until Windows Authenticode signing and macOS Developer ID notarization are configured and verified, or until the release clearly states that the installers are unsigned.
 
 ## Windows
 
@@ -174,13 +176,13 @@ npm run release:checksums
 
 WardSen includes a release workflow at `.github/workflows/release-installers.yml`.
 
-Manual release flow:
+Manual release flow for a new RC or signed update:
 
 1. Open the repository on GitHub.
 2. Go to `Actions`.
 3. Select `Release Installers`.
 4. Click `Run workflow`.
-5. Enter a tag such as `v0.1.0`.
+5. Enter a tag such as `v0.1.0-rc.7`.
 6. Keep `prerelease` enabled until signed artifacts have been verified.
 7. Review the draft GitHub release before publishing it.
 
@@ -199,7 +201,7 @@ The workflow builds:
 
 macOS `.app` bundles are produced and verified before upload when signing secrets are configured; the `.dmg` is the release asset intended for users.
 
-Intel Mac builds use the separate manual workflow at `.github/workflows/build-macos-intel.yml`. Use it when you specifically need a macOS x64 DMG for older Intel Macs; it runs on GitHub's `macos-13` runner pool, which can queue for longer than the main release workflow. After it finishes, download the `wardsen-macos-x64` workflow artifact and attach the DMG plus `SHA256SUMS-macos-x64.txt` to the same draft release.
+Intel Mac builds use the separate manual workflow at `.github/workflows/build-macos-intel.yml`. Use it when you specifically need a macOS x64 DMG for older Intel Macs; it runs on GitHub's `macos-13` runner pool, which can queue for longer than the main release workflow. After it finishes, download the `wardsen-macos-x64` workflow artifact and attach the DMG plus `SHA256SUMS-macos-x64.txt` to the matching prerelease.
 
 Configure these GitHub repository secrets before publishing signed installer releases:
 
