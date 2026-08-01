@@ -1,5 +1,7 @@
 use std::{
+    env,
     io,
+    path::PathBuf,
     process::{Child, Command, Stdio},
     sync::Mutex,
 };
@@ -22,7 +24,8 @@ pub fn run() {
         .setup(|app| {
             let server_path = app.path().resolve("server/index.cjs", BaseDirectory::Resource)?;
             let api_token = generate_api_token()?;
-            let child = Command::new("node")
+            let node_path = resolve_node_executable()?;
+            let child = Command::new(node_path)
                 .arg(server_path)
                 .env("WARDSEN_PORT", "4777")
                 .env("WARDSEN_API_TOKEN", &api_token)
@@ -66,4 +69,41 @@ fn hex_encode(bytes: &[u8]) -> String {
         encoded.push(HEX[(byte & 0x0f) as usize] as char);
     }
     encoded
+}
+
+fn resolve_node_executable() -> io::Result<PathBuf> {
+    let candidates = node_candidates();
+    candidates.into_iter().find(|candidate| candidate.is_file()).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "WardSen could not find a trusted Node.js runtime. Install Node.js from nodejs.org or set WARDSEN_NODE_PATH to an absolute node executable path."
+        )
+    })
+}
+
+fn node_candidates() -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Some(explicit) = env::var_os("WARDSEN_NODE_PATH").map(PathBuf::from) {
+        if explicit.is_absolute() {
+            candidates.push(explicit);
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        for root in ["ProgramFiles", "ProgramFiles(x86)"] {
+            if let Some(path) = env::var_os(root).map(PathBuf::from) {
+                candidates.push(path.join("nodejs").join("node.exe"));
+            }
+        }
+    }
+
+    #[cfg(not(windows))]
+    {
+        candidates.push(PathBuf::from("/usr/local/bin/node"));
+        candidates.push(PathBuf::from("/opt/homebrew/bin/node"));
+        candidates.push(PathBuf::from("/usr/bin/node"));
+    }
+
+    candidates
 }

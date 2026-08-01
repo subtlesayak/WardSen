@@ -167,6 +167,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
 
   app.delete("/api/accounts/:id", async (request) => {
     const { id } = idParams.parse(request.params);
+    assertDestructiveConfirmation(request.body, confirmationPhrase("DELETE ACCOUNT", id));
     const account = await findAccount(repository, id);
     await registry.getCredentialProvider(account.providerId).logout(id).catch(() => undefined);
     await repository.deleteAccount(id);
@@ -305,6 +306,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     const { id } = idParams.parse(request.params);
     const query = hardDeleteSchema.parse(request.query);
     if (query.hard) {
+      assertDestructiveConfirmation(request.body, confirmationPhrase("DELETE PERSON", id));
       await repository.deletePerson(id);
       await audit("people.delete", "success", { personId: id });
       return { ok: true, deleted: true };
@@ -394,6 +396,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
 
   app.post("/api/batches/:id/cancel", async (request) => {
     const { id } = idParams.parse(request.params);
+    assertDestructiveConfirmation(request.body, confirmationPhrase("CANCEL BATCH", id));
     const batch = await repository.updateBatch(id, { cancelled: true, completedAt: new Date().toISOString() });
     await audit("batch.cancel", "cancelled", { safeDetails: id });
     return batch;
@@ -511,6 +514,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
 
   app.delete("/api/deliveries/:id", async (request) => {
     const { id } = idParams.parse(request.params);
+    assertDestructiveConfirmation(request.body, confirmationPhrase("REVOKE DELIVERY", id));
     const delivery = await repository.getDelivery(id);
     if (!delivery) throw app.httpErrors.notFound("Delivery not found");
     const provider = registry.getDeliveryProvider(delivery.deliveryProviderId);
@@ -601,6 +605,9 @@ const deliveryQuerySchema = paginationSchema.extend({
 const hardDeleteSchema = z.object({
   hard: z.coerce.boolean().optional()
 });
+const destructiveConfirmationSchema = z.object({
+  confirm: z.string()
+});
 const personSchema = z.object({
   id: z.string().optional(),
   name: z.string().min(1),
@@ -657,4 +664,15 @@ function assertDeliveryAccountMatchesProvider(deliveryProviderId: string, delive
 
 function largeBatchConfirmation(recipientCount: number): string {
   return `SEND ${recipientCount}`;
+}
+
+function confirmationPhrase(action: "DELETE ACCOUNT" | "DELETE PERSON" | "REVOKE DELIVERY" | "CANCEL BATCH", id: string): string {
+  return `${action} ${id}`;
+}
+
+function assertDestructiveConfirmation(body: unknown, expected: string): void {
+  const parsed = destructiveConfirmationSchema.safeParse(body);
+  if (!parsed.success || parsed.data.confirm !== expected) {
+    throw new Error(`Destructive action requires confirmation phrase: ${expected}`);
+  }
 }

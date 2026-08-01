@@ -5,7 +5,7 @@ WardSen uses Tauri 2 for the desktop shell and keeps the API server bound to `12
 ## Runtime Model
 
 1. Tauri loads the built React app from `apps/web/dist`.
-2. On startup, Tauri launches the bundled server artifact `server/index.cjs` with Node.js.
+2. On startup, Tauri launches the bundled server artifact `server/index.cjs` with Node.js from an absolute trusted runtime path.
 3. The web UI detects the Tauri origin and sends API requests to `http://127.0.0.1:4777`.
 4. The server still rejects non-local Host headers and untrusted cross-origin mutations.
 5. When the main window is destroyed, Tauri stops the child server process.
@@ -94,3 +94,11 @@ The Tauri bundle includes:
 - Local API server: `apps/server/dist/index.cjs` as `server/index.cjs`
 
 Node.js is required on the target machine for the current pre-1.0 package. Future release hardening can replace this with a native sidecar binary.
+
+WardSen resolves Node.js from:
+
+- `WARDSEN_NODE_PATH`, when set to an absolute executable path
+- Standard Windows install locations under `Program Files`
+- Standard Unix/macOS locations such as `/usr/local/bin/node`, `/opt/homebrew/bin/node` and `/usr/bin/node`
+
+The desktop launcher does not run a bare `node` command through `PATH`.

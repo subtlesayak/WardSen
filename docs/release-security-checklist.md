@@ -20,12 +20,15 @@ Run this checklist before publishing a public WardSen build.
 
 - Use `npm ci`, not ad hoc dependency installs, on release builders.
 - Run `npm audit --audit-level=high`.
+- Run `cargo audit` from `apps/desktop/src-tauri`.
+- Review `docs/rustsec-audit.md` for known warning-class findings.
 - Generate an SBOM with `npm run sbom` and attach it to release artifacts when practical.
 - Review CodeQL, dependency-review and Dependabot status before tagging.
 - Download provider CLIs from official package managers or verified release artifacts only.
 - Sign desktop release artifacts before publishing end-user installers, or clearly mark the release as unsigned/source-only.
 - Verify signed Windows artifacts with `signtool verify`.
 - Verify macOS signing and notarization with `codesign`, `spctl` and `xcrun stapler validate`.
+- Confirm packaged desktop builds launch Node.js from an absolute trusted runtime path, or mark the release as source-only until a trusted runtime is available.
 
 ## Bulk Delivery
 

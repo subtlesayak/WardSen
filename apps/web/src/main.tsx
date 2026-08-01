@@ -397,7 +397,9 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
                   <button title="Select" onClick={() => setAccessForm((current) => ({ ...current, accountId: vault.id }))}><KeyRound size={16} /></button>
                   <button title="Sync" onClick={() => api.action(`/api/accounts/${vault.id}/sync`)}><RefreshCcw size={16} /></button>
                   <button title="Lock" onClick={() => api.action(`/api/accounts/${vault.id}/lock`)}><Lock size={16} /></button>
-                  <button title="Delete" onClick={() => api.action(`/api/accounts/${vault.id}`, { method: "DELETE" })}><Trash2 size={16} /></button>
+                  <button title="Delete" onClick={() => void confirmDestructiveAction(`DELETE ACCOUNT ${vault.id}`, `Delete vault account "${vault.label}"? This removes local account metadata.`).then((confirmed) => {
+                    if (confirmed) void api.action(`/api/accounts/${vault.id}`, { method: "DELETE", body: JSON.stringify({ confirm: `DELETE ACCOUNT ${vault.id}` }) });
+                  })}><Trash2 size={16} /></button>
                 </div>
               </div>
             ))}
@@ -619,7 +621,9 @@ function People({ api }: { api: ReturnType<typeof useWardSenApi> }) {
                   ) : (
                     <button title="Restore" onClick={() => api.action(`/api/people/${person.id}/restore`)}><RotateCcw size={15} /></button>
                   )}
-                  <button title="Delete permanently" onClick={() => api.action(`/api/people/${person.id}?hard=true`, { method: "DELETE" })}><Trash2 size={15} /></button>
+                  <button title="Delete permanently" onClick={() => void confirmDestructiveAction(`DELETE PERSON ${person.id}`, `Permanently delete "${person.name}"? This cannot be restored from WardSen.`).then((confirmed) => {
+                    if (confirmed) void api.action(`/api/people/${person.id}?hard=true`, { method: "DELETE", body: JSON.stringify({ confirm: `DELETE PERSON ${person.id}` }) });
+                  })}><Trash2 size={15} /></button>
                 </div>
               </div>
             ))}
@@ -861,7 +865,13 @@ function DeliveryTable({ api }: { api: ReturnType<typeof useWardSenApi> }) {
         setMessage({ status: "ready", text: `Retry created for ${delivery.credentialName}.`, url: retried.oneTimeDeliveryUrl });
       }
       if (action === "revoke") {
-        const revoked = await apiSend<DeliveryRecord>(`/api/deliveries/${delivery.id}`, { method: "DELETE" });
+        const confirm = `REVOKE DELIVERY ${delivery.id}`;
+        const confirmed = await confirmDestructiveAction(confirm, `Revoke the provider link for "${delivery.credentialName}"? Recipients may lose access immediately.`);
+        if (!confirmed) {
+          setMessage({ status: "idle" });
+          return;
+        }
+        const revoked = await apiSend<DeliveryRecord>(`/api/deliveries/${delivery.id}`, { method: "DELETE", body: JSON.stringify({ confirm }) });
         setMessage({ status: "ready", text: `${delivery.credentialName}: ${titleStatus(revoked.status)}.` });
       }
       await api.refresh();
@@ -955,7 +965,9 @@ function BatchTable({
           <div className="actions">
             <button title="View batch deliveries" onClick={() => void onSelectBatch(batch.id)}><Search size={15} /></button>
             <button title="Copy batch ID" onClick={() => navigator.clipboard?.writeText(batch.id)}><Copy size={15} /></button>
-            <button title="Cancel batch" disabled={batch.cancelled || Boolean(batch.completedAt)} onClick={() => api.action(`/api/batches/${batch.id}/cancel`)}><Trash2 size={15} /></button>
+            <button title="Cancel batch" disabled={batch.cancelled || Boolean(batch.completedAt)} onClick={() => void confirmDestructiveAction(`CANCEL BATCH ${batch.id}`, `Cancel batch ${batch.id}? Any queued work for this batch will stop.`).then((confirmed) => {
+              if (confirmed) void api.action(`/api/batches/${batch.id}/cancel`, { body: JSON.stringify({ confirm: `CANCEL BATCH ${batch.id}` }) });
+            })}><Trash2 size={15} /></button>
           </div>
         </div>
       ))}
@@ -1026,6 +1038,11 @@ function Status({ value }: { value: string }) {
 
 function titleStatus(value: string) {
   return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+async function confirmDestructiveAction(phrase: string, message: string): Promise<boolean> {
+  const typed = window.prompt(`${message}\n\nType ${phrase} to continue.`);
+  return typed === phrase;
 }
 
 function formatDate(value: string) {

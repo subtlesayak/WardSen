@@ -23,6 +23,7 @@ The packaged desktop app also adds a per-launch local API token between the Taur
 - CLI stdout, stderr and safe API errors are redacted for known password, token, secret, session and key patterns.
 - Bitwarden account data uses isolated CLI profile directories; KeePassXC database passwords are supplied through stdin.
 - SQLite stores metadata only and applies owner-only POSIX file modes where supported. Full local database encryption is not part of the pre-1.0 release.
+- The desktop launcher starts Node.js from an absolute trusted runtime path. Nonstandard Node installs should use `WARDSEN_NODE_PATH`.
 
 ## Delivery Limits
 
@@ -35,3 +36,4 @@ Bulk delivery is intentionally guarded by a confirmation summary and an extra ty
 Bitwarden and KeePassXC adapters depend on the security posture of their official CLIs and local OS account. WardSen treats provider CLI compromise or malware running as the same OS user as out of scope for pre-1.0 releases.
 
 See `docs/release-security-checklist.md` before publishing release artifacts.
+See `docs/rustsec-audit.md` for current RustSec warning-class audit notes.

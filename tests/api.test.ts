@@ -111,7 +111,7 @@ describe("WardSen API", () => {
     });
     expect(updated.json().label).toBe("Company Operations");
 
-    const removed = await app.inject({ method: "DELETE", url: "/api/accounts/ops", headers });
+    const removed = await app.inject({ method: "DELETE", url: "/api/accounts/ops", headers, payload: { confirm: "DELETE ACCOUNT ops" } });
     expect(removed.statusCode).toBe(200);
 
     const audit = await app.inject({ method: "GET", url: "/api/audit-log", headers: { host: "127.0.0.1:4777" } });
@@ -156,7 +156,7 @@ describe("WardSen API", () => {
 
     expect((await app.inject({ method: "DELETE", url: "/api/people/person-1", headers })).json().archived).toBe(true);
     expect((await app.inject({ method: "POST", url: "/api/people/person-1/restore", headers })).statusCode).toBe(200);
-    expect((await app.inject({ method: "DELETE", url: "/api/people/person-1?hard=true", headers })).json().deleted).toBe(true);
+    expect((await app.inject({ method: "DELETE", url: "/api/people/person-1?hard=true", headers, payload: { confirm: "DELETE PERSON person-1" } })).json().deleted).toBe(true);
     await app.close();
   });
 
@@ -172,6 +172,78 @@ describe("WardSen API", () => {
 
     const repositoryBatch = await app.inject({ method: "GET", url: "/api/batches/missing", headers: { host: "127.0.0.1:4777" } });
     expect(repositoryBatch.statusCode).toBe(404);
+    await app.close();
+  });
+
+  it("requires server-side confirmation for destructive actions", async () => {
+    const app = await buildApp({
+      credentialProviders: [new MockCredentialProvider()],
+      deliveryProviders: [new MockDeliveryProvider()]
+    });
+    const headers = { host: "127.0.0.1:4777", origin: "http://127.0.0.1:4777" };
+    await app.inject({ method: "POST", url: "/api/accounts", headers, payload: { id: "source", providerId: "mock-source", label: "Mock source" } });
+    await app.inject({ method: "POST", url: "/api/accounts", headers, payload: { id: "delivery", providerId: "mock-source", label: "Mock delivery" } });
+    await app.inject({ method: "POST", url: "/api/people", headers, payload: { id: "person-1", name: "Mira", email: "mira@example.com" } });
+
+    const accountDelete = await app.inject({ method: "DELETE", url: "/api/accounts/source", headers });
+    expect(accountDelete.statusCode).toBe(400);
+    expect(accountDelete.json().error).toBe("Destructive action requires confirmation phrase: DELETE ACCOUNT source");
+
+    const hardDelete = await app.inject({
+      method: "DELETE",
+      url: "/api/people/person-1?hard=true",
+      headers,
+      payload: { confirm: "DELETE PERSON wrong-id" }
+    });
+    expect(hardDelete.statusCode).toBe(400);
+    expect(hardDelete.json().error).toBe("Destructive action requires confirmation phrase: DELETE PERSON person-1");
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/deliveries",
+      headers,
+      payload: {
+        sourceProviderId: "mock-source",
+        sourceAccountId: "source",
+        sourceItemId: "cms",
+        deliveryProviderId: "mock-delivery",
+        deliveryAccountId: "delivery",
+        expiresAt: new Date(Date.now() + 3600000).toISOString()
+      }
+    });
+    const deliveryId = created.json().id;
+    const revoke = await app.inject({ method: "DELETE", url: `/api/deliveries/${deliveryId}`, headers });
+    expect(revoke.statusCode).toBe(400);
+    expect(revoke.json().error).toBe(`Destructive action requires confirmation phrase: REVOKE DELIVERY ${deliveryId}`);
+
+    const bulk = await app.inject({
+      method: "POST",
+      url: "/api/deliveries/bulk",
+      headers,
+      payload: {
+        sourceProviderId: "mock-source",
+        sourceAccountId: "source",
+        sourceItemId: "cms",
+        deliveryProviderId: "mock-delivery",
+        deliveryAccountId: "delivery",
+        recipients: [{ id: "person-1", name: "Mira", email: "mira@example.com" }],
+        expiresAt: new Date(Date.now() + 3600000).toISOString(),
+        confirmRiskSummary: true
+      }
+    });
+    const batchId = bulk.json().batchId;
+    const cancelWithoutConfirmation = await app.inject({ method: "POST", url: `/api/batches/${batchId}/cancel`, headers });
+    expect(cancelWithoutConfirmation.statusCode).toBe(400);
+    expect(cancelWithoutConfirmation.json().error).toBe(`Destructive action requires confirmation phrase: CANCEL BATCH ${batchId}`);
+
+    const cancelWithConfirmation = await app.inject({
+      method: "POST",
+      url: `/api/batches/${batchId}/cancel`,
+      headers,
+      payload: { confirm: `CANCEL BATCH ${batchId}` }
+    });
+    expect(cancelWithConfirmation.statusCode).toBe(200);
+    expect(cancelWithConfirmation.json().cancelled).toBe(true);
     await app.close();
   });
 
@@ -237,7 +309,7 @@ describe("WardSen API", () => {
     expect(refreshed.accessCount).toBe(1);
     expect(refreshed.lastCheckedAt).toBeTruthy();
     expect((await app.inject({ method: "POST", url: `/api/deliveries/${deliveryId}/retry`, headers })).json().oneTimeDeliveryUrl).toMatch(/^https:\/\/mock.local\/send\//);
-    expect((await app.inject({ method: "DELETE", url: `/api/deliveries/${deliveryId}`, headers })).json().status).toBe("revoked");
+    expect((await app.inject({ method: "DELETE", url: `/api/deliveries/${deliveryId}`, headers, payload: { confirm: `REVOKE DELIVERY ${deliveryId}` } })).json().status).toBe("revoked");
     await app.close();
   });
 
