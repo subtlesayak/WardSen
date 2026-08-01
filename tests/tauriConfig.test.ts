@@ -19,8 +19,9 @@ describe("Tauri packaging config", () => {
     });
   });
 
-  it("uses a stable desktop identifier and explicit Windows icon", () => {
+  it("uses a stable desktop identifier and platform icons", () => {
     expect(config.identifier).toBe("dev.wardsen.desktop");
+    expect(config.bundle.icon).toContain("icons/icon.png");
     expect(config.bundle.icon).toContain("icons/icon.ico");
   });
 
