@@ -66,6 +66,20 @@ require_node_version() {
   exit 1
 }
 
+require_bitwarden_cli() {
+  if command -v bw >/dev/null 2>&1; then
+    return
+  fi
+  echo "Bitwarden CLI was not found. Installing the official @bitwarden/cli package with npm..."
+  npm install -g @bitwarden/cli
+  if command -v bw >/dev/null 2>&1; then
+    return
+  fi
+  echo "Bitwarden CLI was installed with npm, but bw is still not visible on PATH." >&2
+  echo "Open a new Terminal window, or add npm's global bin folder to PATH, then rerun this script." >&2
+  exit 1
+}
+
 require_xcode_tools() {
   if xcode-select -p >/dev/null 2>&1; then
     return
@@ -77,7 +91,7 @@ require_xcode_tools() {
 
 install_provider_prerequisites() {
   require_node_version
-  require_command bw bitwarden-cli
+  require_bitwarden_cli
   if ! command -v keepassxc-cli >/dev/null 2>&1; then
     if command -v brew >/dev/null 2>&1; then
       brew install --cask keepassxc

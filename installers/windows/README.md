@@ -17,7 +17,20 @@ Open PowerShell inside the `WardSen` project folder before running installer com
 powershell -ExecutionPolicy Bypass -File .\installers\windows\windows-install.ps1 -ProvidersOnly
 ```
 
-The script verifies Node.js LTS and the Bitwarden CLI. By default it installs `bw` through `winget`.
+The script verifies Node.js LTS and the Bitwarden CLI. By default it installs `bw` through `winget` when available.
+
+Official Bitwarden CLI options for Windows include the native Windows x64 executable, NPM and Chocolatey:
+
+```powershell
+npm install -g @bitwarden/cli
+choco install bitwarden-cli
+```
+
+If you download the native Windows x64 executable from Bitwarden's guide, extract it into a permanent folder and add that folder to `PATH`. Verify the setup in a new PowerShell or Command Prompt window:
+
+```powershell
+bw --version
+```
 
 For a pinned release-asset download instead, run:
 

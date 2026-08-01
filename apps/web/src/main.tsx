@@ -1078,6 +1078,11 @@ function ErrorNotice({ message, compact = false, actionLabel, onAction }: { mess
       <strong>{help.title}</strong>
       <span>{help.detail}</span>
       <small>{help.guidance}</small>
+      {help.setupNotes?.length ? (
+        <ul className="setupChecklist" aria-label="Setup checklist">
+          {help.setupNotes.map((note) => <li key={note}>{note}</li>)}
+        </ul>
+      ) : null}
       {externalAction ? (
         <div className="noticeActions">
           <button type="button" className="noticeActionLink" onClick={() => {

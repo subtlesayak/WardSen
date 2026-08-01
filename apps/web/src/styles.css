@@ -191,6 +191,19 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
   color: #8a4545;
   font-size: 12px;
 }
+.setupChecklist {
+  display: grid;
+  gap: 6px;
+  margin: 4px 0 2px;
+  padding-left: 18px;
+  color: #7b2f2f;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.setupChecklist li {
+  padding-left: 2px;
+  overflow-wrap: anywhere;
+}
 .noticeActions {
   display: flex;
   flex-wrap: wrap;

@@ -2,7 +2,7 @@
 
 ## Milestone 1: Production-Quality Open-Source Desktop Foundation
 
-Status: implementation complete through Phase 27.
+Status: implementation complete through Phase 28.
 
 ### Completed Phases
 
@@ -214,6 +214,28 @@ Provider setup errors were friendly for users who prefer official download pages
 
 ### Acceptance Criteria
 
-- Missing Bitwarden CLI help shows a copyable `npm install -g @bitwarden/cli` or Homebrew command depending on platform.
+- Missing Bitwarden CLI help shows a copyable `npm install -g @bitwarden/cli` or Chocolatey command depending on platform.
 - Missing KeePassXC help shows a copyable `winget` or Homebrew command depending on platform.
 - Regression tests cover terminal command metadata, rendering hooks and copy behavior.
+
+## Completed Phase 28: Bitwarden CLI Windows/macOS Setup Guidance
+
+Status: complete
+
+### Problem
+
+Users who downloaded the Bitwarden CLI native executable could still see missing `bw` errors because the executable was not installed in a permanent folder on PATH, and macOS Apple Silicon users needed clearer arm64 guidance.
+
+### Scope
+
+- Align in-app Bitwarden CLI help with the official Bitwarden CLI installation page.
+- Replace unsupported Bitwarden Homebrew guidance with official NPM and Chocolatey options.
+- Add beginner-readable Windows and macOS setup notes for native downloads, PATH, arm64/NPM and `bw --version` verification.
+- Update README, changelog, release notes and signing state for the next installer prerelease.
+
+### Acceptance Criteria
+
+- Missing Bitwarden CLI errors explain native Windows/macOS downloads and the PATH requirement.
+- Missing Bitwarden CLI errors explain that Bitwarden recommends NPM for arm64 devices.
+- Missing Bitwarden CLI errors include copyable official terminal commands for NPM and Chocolatey.
+- README and release notes include first-user Bitwarden CLI setup steps for Windows and macOS.

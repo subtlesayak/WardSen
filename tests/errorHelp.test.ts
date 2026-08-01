@@ -26,10 +26,15 @@ describe("web error help", () => {
     expect(help.title).toBe("WardSen could not find a provider tool");
     expect(help.detail).toContain('"bw"');
     expect(help.guidance).toContain("No terminal is required");
+    expect(help.guidance).toContain("PATH");
     expect(help.actionLabel).toBe("Open Bitwarden CLI install guide");
     expect(help.actionHref).toBe("https://bitwarden.com/help/cli/");
+    expect(help.setupNotes?.join("\n")).toContain("Windows x64");
+    expect(help.setupNotes?.join("\n")).toContain("macOS Apple Silicon");
+    expect(help.setupNotes?.join("\n")).toContain("bw --version");
     expect(help.terminalCommands?.map((item) => item.command)).toContain("npm install -g @bitwarden/cli");
-    expect(help.terminalCommands?.map((item) => item.command)).toContain("brew install bitwarden-cli");
+    expect(help.terminalCommands?.map((item) => item.command)).toContain("choco install bitwarden-cli");
+    expect(help.terminalCommands?.map((item) => item.command)).not.toContain("brew install bitwarden-cli");
   });
 
   it("explains when KeePassXC CLI is missing", () => {

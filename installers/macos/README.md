@@ -6,7 +6,7 @@ WardSen's macOS bootstrap script verifies provider prerequisites, starts the dev
 
 - macOS 13 or later
 - Node.js 20.19.0 or newer, or Node.js 22.12.0 or newer
-- Homebrew for automatic prerequisite installation
+- Homebrew for automatic KeePassXC installation
 - Xcode Command Line Tools for desktop packaging
 
 Install Xcode Command Line Tools with:
@@ -41,7 +41,19 @@ Open Terminal inside the `WardSen` project folder before running installer comma
 ./installers/macos/macos-install.sh --providers-only
 ```
 
-The script verifies Node.js LTS and the Bitwarden CLI. It also installs KeePassXC through Homebrew Cask when Homebrew is available, because KeePassXC provider support uses `keepassxc-cli`.
+The script verifies Node.js LTS and the Bitwarden CLI. If `bw` is missing, it installs the official `@bitwarden/cli` package with NPM. It also installs KeePassXC through Homebrew Cask when Homebrew is available, because KeePassXC provider support uses `keepassxc-cli`.
+
+Official Bitwarden CLI options for macOS include the native macOS x64 executable and NPM. Bitwarden recommends NPM for arm64 devices such as Apple Silicon Macs:
+
+```bash
+npm install -g @bitwarden/cli
+```
+
+If you download the native macOS x64 executable from Bitwarden's guide, put it in a permanent folder that is on `PATH`. Verify the setup in a new Terminal window:
+
+```bash
+bw --version
+```
 
 ## Desktop Package
 

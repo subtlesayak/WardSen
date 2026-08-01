@@ -41,7 +41,7 @@ WardSen is an independent open-source project and is not affiliated with, endors
 
 ## Status
 
-`v0.1.0-rc.14` is the latest installer prerelease. It is suitable for developer review, security review and platform packaging validation.
+`v0.1.0-rc.15` is the latest installer prerelease. It is suitable for developer review, security review and platform packaging validation.
 
 Unsigned Windows x64 and macOS Apple Silicon installers are attached to the GitHub prerelease. Windows SmartScreen and macOS Gatekeeper may warn until signing certificates and notarization are configured. See [installer signing](docs/installer-signing.md) before publishing a fully trusted end-user release.
 
@@ -69,6 +69,7 @@ This release contains:
 - Provider setup errors include install/download buttons for users who do not know terminal commands
 - Provider setup buttons open official install pages through the packaged desktop app's system-browser opener
 - Provider setup errors include copyable install links and terminal recovery commands
+- Bitwarden CLI setup help now explains Windows and macOS native downloads, PATH, arm64/NPM installs and `bw --version` verification
 - macOS first-install docs cover the unsigned-prerelease `"WardSen" is damaged and can't be opened` Gatekeeper message
 - Windows and macOS prerequisite and desktop packaging scripts
 
@@ -80,7 +81,7 @@ Go to [GitHub Releases](https://github.com/subtlesayak/WardSen/releases) and dow
 
 - Windows: `WardSen_0.1.0_x64-setup.exe` or `WardSen_0.1.0_x64_en-US.msi`
 - macOS Apple Silicon: `WardSen_0.1.0_aarch64.dmg`
-- macOS Intel: not attached to `v0.1.0-rc.14`; maintainers can build it from the manual Intel workflow
+- macOS Intel: not attached to `v0.1.0-rc.15`; maintainers can build it from the manual Intel workflow
 
 Windows first install:
 
@@ -112,6 +113,53 @@ Optional checksum verification:
 
 Release users do not need the `WardSen` source folder, `npm ci`, Git, Rust or a terminal. They may still need provider tools such as the Bitwarden CLI or KeePassXC, depending on which vault provider they want to connect.
 
+### Bitwarden CLI Setup For Release Users
+
+WardSen uses Bitwarden through the official `bw` command-line tool. Installing WardSen alone does not install `bw`.
+
+Beginner-friendly Windows path:
+
+1. In WardSen, when the missing Bitwarden tool message appears, click **Open Bitwarden CLI install guide**.
+2. On Bitwarden's page, choose **Native Executable** and download **Windows x64**.
+3. Extract the downloaded ZIP into a permanent folder, for example `C:\Tools\Bitwarden CLI`.
+4. Add that folder to your Windows `PATH`.
+5. Close and reopen WardSen.
+6. To verify, open **Command Prompt** or **PowerShell** and run:
+
+```powershell
+bw --version
+```
+
+Windows users who already have Node.js can use the in-app **Copy terminal command** button and run:
+
+```powershell
+npm install -g @bitwarden/cli
+```
+
+Windows users who already have Chocolatey can run:
+
+```powershell
+choco install bitwarden-cli
+```
+
+Beginner-friendly macOS path:
+
+1. In WardSen, when the missing Bitwarden tool message appears, click **Open Bitwarden CLI install guide**.
+2. On Bitwarden's page, choose **Native Executable** and download **macOS x64** if you are on an Intel Mac.
+3. Put the downloaded executable in a permanent folder that is on your `PATH`.
+4. Close and reopen WardSen.
+5. To verify, open **Terminal** and run:
+
+```bash
+bw --version
+```
+
+For macOS Apple Silicon or other arm64 devices, Bitwarden recommends NPM for the CLI. Install Node.js first, then use the in-app **Copy terminal command** button or run:
+
+```bash
+npm install -g @bitwarden/cli
+```
+
 ## Release Artifact Structure
 
 Maintainers build installers from the source checkout. End users only receive the final installer file.
@@ -140,7 +188,7 @@ Upload only the installer artifacts to GitHub Releases. Do not ask users to down
 
 ## Signing A Trusted Release
 
-`v0.1.0-rc.14` is intentionally published as an unsigned prerelease. To publish a trusted release later, maintainers need Windows Authenticode signing for `.exe` and `.msi` files, plus Apple Developer ID signing and notarization for macOS `.dmg` files.
+`v0.1.0-rc.15` is intentionally published as an unsigned prerelease. To publish a trusted release later, maintainers need Windows Authenticode signing for `.exe` and `.msi` files, plus Apple Developer ID signing and notarization for macOS `.dmg` files.
 
 High-level signing path:
 
@@ -162,7 +210,7 @@ Install these before running WardSen:
 - Git
 - Node.js 20.19.0 or newer, or Node.js 22.12.0 or newer
 - npm, included with Node.js
-- Bitwarden CLI, named `bw`, for Bitwarden vault and Send support
+- Bitwarden CLI, named `bw`, for Bitwarden vault and Send support. Official options include native Windows/macOS x64 executables, NPM and Chocolatey on Windows; Bitwarden recommends NPM for arm64 devices.
 - KeePassXC, optional, for KeePassXC vault support
 - Rust and platform build tools, only when building a desktop installer
 

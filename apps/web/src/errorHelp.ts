@@ -4,6 +4,7 @@ export interface ErrorHelp {
   guidance: string;
   actionLabel?: string;
   actionHref?: string;
+  setupNotes?: string[];
   terminalCommands?: TerminalCommandHelp[];
 }
 
@@ -49,6 +50,7 @@ export function describeError(message?: string): ErrorHelp {
       guidance: providerHelp.guidance,
       actionLabel: providerHelp.actionLabel,
       actionHref: providerHelp.actionHref,
+      setupNotes: providerHelp.setupNotes,
       terminalCommands: providerHelp.terminalCommands
     };
   }
@@ -81,22 +83,28 @@ function cleanMessage(message?: string) {
   return value ? value : "No additional detail was returned.";
 }
 
-function providerToolHelp(lowerDetail: string): Pick<ErrorHelp, "guidance" | "actionLabel" | "actionHref" | "terminalCommands"> {
+function providerToolHelp(lowerDetail: string): Pick<ErrorHelp, "guidance" | "actionLabel" | "actionHref" | "setupNotes" | "terminalCommands"> {
   if (lowerDetail.includes('"bw"')) {
     return {
-      guidance: "Install the Bitwarden command-line tool, then close and reopen WardSen before retrying. No terminal is required if you use the official installer/download guide. Advanced users can also install with npm, Chocolatey or Homebrew.",
+      guidance: "Install the Bitwarden command-line tool, then close and reopen WardSen before retrying. No terminal is required if you use the official download guide, but the downloaded bw executable must be available on PATH.",
       actionLabel: "Open Bitwarden CLI install guide",
       actionHref: "https://bitwarden.com/help/cli/",
+      setupNotes: [
+        "Windows: download the Windows x64 native executable, extract it into a permanent folder, add that folder to PATH, then close and reopen WardSen.",
+        "macOS Intel: download the macOS x64 native executable, allow it to run, add its folder to PATH, then close and reopen WardSen.",
+        "macOS Apple Silicon or other arm64 devices: use NPM, because Bitwarden recommends installing the CLI with npm on arm64.",
+        "To verify setup, open Terminal, PowerShell or Command Prompt and run bw --version."
+      ],
       terminalCommands: [
         {
-          label: "Windows PowerShell or Command Prompt",
+          label: "Windows or macOS with Node.js",
           command: "npm install -g @bitwarden/cli",
-          note: "Use this if Node.js is installed. Close and reopen WardSen after it finishes."
+          note: "Use this if Node.js is installed. This is the recommended route for macOS Apple Silicon and other arm64 devices."
         },
         {
-          label: "macOS Terminal with Homebrew",
-          command: "brew install bitwarden-cli",
-          note: "Use this on macOS if Homebrew is installed. Close and reopen WardSen after it finishes."
+          label: "Windows with Chocolatey",
+          command: "choco install bitwarden-cli",
+          note: "Use this only if Chocolatey is installed. Close and reopen WardSen after it finishes."
         }
       ]
     };
