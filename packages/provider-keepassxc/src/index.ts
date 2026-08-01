@@ -8,6 +8,7 @@ import type {
   ProviderUnlockInput,
   SensitiveCredential
 } from "@wardsen/core";
+import { AccountSessionManager } from "@wardsen/core";
 import { runCliCommand, type CliCommandInput, type CliCommandResult } from "@wardsen/security";
 
 export type KeePassXCCommandRunner = (input: CliCommandInput) => Promise<CliCommandResult>;
@@ -15,6 +16,7 @@ export type KeePassXCCommandRunner = (input: CliCommandInput) => Promise<CliComm
 export interface KeePassXCProviderOptions {
   executable?: string;
   runCommand?: KeePassXCCommandRunner;
+  sessions?: AccountSessionManager;
 }
 
 export class KeePassXCCredentialProvider implements CredentialProvider {
@@ -23,14 +25,17 @@ export class KeePassXCCredentialProvider implements CredentialProvider {
   private readonly databases = new Map<string, { databasePath: string; password?: string; keyFilePath?: string }>();
   private readonly executable: string;
   private readonly runCommand: KeePassXCCommandRunner;
+  private readonly sessions: AccountSessionManager;
 
   constructor(options: KeePassXCProviderOptions | string = {}) {
     if (typeof options === "string") {
       this.executable = options;
       this.runCommand = runCliCommand;
+      this.sessions = new AccountSessionManager();
     } else {
       this.executable = options.executable ?? "keepassxc-cli";
       this.runCommand = options.runCommand ?? runCliCommand;
+      this.sessions = options.sessions ?? new AccountSessionManager();
     }
   }
 
@@ -61,14 +66,17 @@ export class KeePassXCCredentialProvider implements CredentialProvider {
       password: input.password,
       keyFilePath: input.keyFilePath
     });
+    this.sessions.markUnlocked(accountId, this.id);
   }
 
   async lock(accountId: string): Promise<void> {
     this.databases.delete(accountId);
+    this.sessions.markLocked(accountId);
   }
 
   async logout(accountId: string): Promise<void> {
     this.databases.delete(accountId);
+    this.sessions.markLoggedOut(accountId);
   }
 
   async sync(_accountId: string): Promise<void> {
@@ -76,23 +84,29 @@ export class KeePassXCCredentialProvider implements CredentialProvider {
   }
 
   async search(accountId: string, query: string, pagination: PaginationInput): Promise<CredentialSummary[]> {
-    const db = this.requireDb(accountId);
-    const result = await this.run([...buildDatabaseArgs("search", db.databasePath, db.keyFilePath), query], db.password, [db.password ?? ""]);
-    const rows = result.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-    const start = (Math.max(1, pagination.page) - 1) * pagination.pageSize;
-    return rows.slice(start, start + pagination.pageSize).map((entryPath) => ({
-      id: entryPath,
-      accountId,
-      providerId: this.id,
-      title: entryPath.split("/").pop() ?? entryPath,
-      itemType: "login"
-    }));
+    this.requireDb(accountId);
+    return await this.sessions.withOperation(accountId, this.id, async () => {
+      const db = this.requireDb(accountId);
+      const result = await this.run([...buildDatabaseArgs("search", db.databasePath, db.keyFilePath), query], db.password, [db.password ?? ""]);
+      const rows = result.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+      const start = (Math.max(1, pagination.page) - 1) * pagination.pageSize;
+      return rows.slice(start, start + pagination.pageSize).map((entryPath) => ({
+        id: entryPath,
+        accountId,
+        providerId: this.id,
+        title: entryPath.split("/").pop() ?? entryPath,
+        itemType: "login" as const
+      }));
+    });
   }
 
   async getCredential(accountId: string, itemId: string): Promise<SensitiveCredential> {
-    const db = this.requireDb(accountId);
-    const result = await this.run(["show", "--show-protected", ...databasePathArgs(db.databasePath, db.keyFilePath), itemId], db.password, [db.password ?? ""]);
-    return parseKeePassShow(itemId, result.stdout);
+    this.requireDb(accountId);
+    return await this.sessions.withOperation(accountId, this.id, async () => {
+      const db = this.requireDb(accountId);
+      const result = await this.run(["show", "--show-protected", ...databasePathArgs(db.databasePath, db.keyFilePath), itemId], db.password, [db.password ?? ""]);
+      return parseKeePassShow(itemId, result.stdout);
+    });
   }
 
   private requireDb(accountId: string) {

@@ -241,7 +241,9 @@ See `docs/release-security-checklist.md` before publishing public release artifa
 - No third-party frontend scripts
 - Sensitive credentials never return to the frontend
 - Session tokens are kept in memory only
+- Packaged desktop sessions use a per-launch local API token
 - SQLite stores metadata, never passwords, TOTP secrets, secure notes, master passwords, access passwords or raw CLI output
+- SQLite metadata files use owner-only POSIX modes where supported; full local database encryption is planned after the pre-1.0 release
 - CLI commands use `spawn` with `shell: false`
 
 ## Provider Requirements

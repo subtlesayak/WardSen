@@ -1,7 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { AccountSessionManager } from "@wardsen/core";
 
 describe("AccountSessionManager", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("isolates sessions by account and provider", () => {
     const sessions = new AccountSessionManager();
     sessions.ensure("a", "bitwarden");
@@ -27,6 +31,7 @@ describe("AccountSessionManager", () => {
   it("serializes operations for the same account", async () => {
     const sessions = new AccountSessionManager();
     sessions.ensure("a", "bitwarden");
+    sessions.markUnlocked("a", "bitwarden", "token-a");
     const events: string[] = [];
     let releaseFirst!: () => void;
     const firstRelease = new Promise<void>((resolve) => {
@@ -53,6 +58,8 @@ describe("AccountSessionManager", () => {
     const sessions = new AccountSessionManager();
     sessions.ensure("a", "bitwarden");
     sessions.ensure("b", "bitwarden");
+    sessions.markUnlocked("a", "bitwarden", "token-a");
+    sessions.markUnlocked("b", "bitwarden", "token-b");
     const events: string[] = [];
     let releaseFirst!: () => void;
     const firstRelease = new Promise<void>((resolve) => {
@@ -72,5 +79,19 @@ describe("AccountSessionManager", () => {
     expect(events).toEqual(["a:start", "b:start"]);
     releaseFirst();
     await first;
+  });
+
+  it("locks inactive sessions using account-specific timeouts", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+    const sessions = new AccountSessionManager();
+    sessions.markUnlocked("short", "bitwarden", "token-short");
+    sessions.markUnlocked("long", "bitwarden", "token-long");
+
+    const locked = sessions.lockInactive(new Date("2026-01-01T00:02:00.000Z"), (accountId) => (accountId === "short" ? 1 : 15));
+
+    expect(locked).toEqual(["short"]);
+    expect(() => sessions.getSessionToken("short", "bitwarden")).toThrow();
+    expect(sessions.getSessionToken("long", "bitwarden")).toBe("token-long");
   });
 });

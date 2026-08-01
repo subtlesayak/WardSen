@@ -18,7 +18,7 @@ import {
   UsersRound,
   Vault
 } from "lucide-react";
-import { apiGet, apiSend, apiUrl } from "./api";
+import { apiDownload, apiGet, apiSend } from "./api";
 import { describeError } from "./errorHelp";
 import "./styles.css";
 
@@ -200,7 +200,7 @@ function useWardSenApi() {
     batches: []
   });
 
-  async function refresh() {
+  async function refresh(): Promise<boolean> {
     setState((current) => ({ ...current, status: "loading", error: undefined }));
     try {
       const [providers, accounts, people, deliveries, batches] = await Promise.all([
@@ -219,8 +219,10 @@ function useWardSenApi() {
         deliveries: deliveries.items,
         batches: batches.items
       });
+      return true;
     } catch (error) {
       setState((current) => ({ ...current, status: "error", error: error instanceof Error ? error.message : String(error) }));
+      return false;
     }
   }
 
@@ -230,7 +232,21 @@ function useWardSenApi() {
   }
 
   useEffect(() => {
-    void refresh();
+    let cancelled = false;
+    async function loadWithStartupRetries() {
+      const delays = [0, 400, 1000, 2000, 4000];
+      for (const delay of delays) {
+        if (cancelled) return;
+        if (delay > 0) await sleep(delay);
+        if (cancelled) return;
+        const ok = await refresh();
+        if (ok) return;
+      }
+    }
+    void loadWithStartupRetries();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return { ...state, refresh, action };
@@ -239,7 +255,7 @@ function useWardSenApi() {
 function ApiBanner({ api }: { api: ReturnType<typeof useWardSenApi> }) {
   if (api.status === "ready") return null;
   return (
-    api.status === "loading" ? <div className="notice">Loading local WardSen data...</div> : <ErrorNotice message={api.error} />
+    api.status === "loading" ? <div className="notice">Loading local WardSen data...</div> : <ErrorNotice message={api.error} actionLabel="Retry" onAction={api.refresh} />
   );
 }
 
@@ -544,6 +560,14 @@ function People({ api }: { api: ReturnType<typeof useWardSenApi> }) {
     }
   }
 
+  async function exportPeople() {
+    try {
+      await apiDownload("/api/people/export", "wardsen-people.csv");
+    } catch (error) {
+      setMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
   return (
     <div className="grid">
       {message.status === "error" && <ErrorNotice message={message.text} />}
@@ -558,12 +582,12 @@ function People({ api }: { api: ReturnType<typeof useWardSenApi> }) {
         <button className="primary full"><UsersRound size={16} /> Save person</button>
       </form>
       <form className="panel formGrid" onSubmit={importPeople}>
-        <PanelTitle icon={Archive} title="CSV Import" action="Export" onAction={() => window.open(apiUrl("/api/people/export"), "_blank", "noopener,noreferrer")} />
+        <PanelTitle icon={Archive} title="CSV Import" action="Export" onAction={exportPeople} />
         <label className="spanAll">CSV<textarea value={csv} onChange={(event) => setCsv(event.target.value)} placeholder="name,email,phone,groupName,role&#10;Mira,mira@example.com,+1,Ops,Admin" /></label>
         <button className="primary full"><Archive size={16} /> Import CSV</button>
       </form>
       <section className="panel">
-        <PanelTitle icon={UsersRound} title="People Directory" action="Export CSV" onAction={() => window.open(apiUrl("/api/people/export"), "_blank", "noopener,noreferrer")} />
+        <PanelTitle icon={UsersRound} title="People Directory" action="Export CSV" onAction={exportPeople} />
         <div className="filters">
           <input value={filters.search} onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))} placeholder="Search people, groups, phone or email" />
           <select value={filters.groupName} onChange={(event) => setFilters((current) => ({ ...current, groupName: event.target.value }))}>
@@ -575,7 +599,7 @@ function People({ api }: { api: ReturnType<typeof useWardSenApi> }) {
             <option value="inactive">Inactive</option>
             <option value="all">All</option>
           </select>
-          <button onClick={() => window.open(apiUrl("/api/people/export"), "_blank", "noopener,noreferrer")}><Archive size={16} /> Export CSV</button>
+          <button type="button" onClick={exportPeople}><Archive size={16} /> Export CSV</button>
         </div>
         {filteredPeople.length === 0 ? <EmptyState text="No people match the current filters." /> : (
           <div className="rows">
@@ -680,6 +704,7 @@ function DeliveryComposer({ api, selectedCredential }: { api: ReturnType<typeof 
   const [submit, setSubmit] = useState<{ status: "idle" | "loading" | "ready" | "error"; message?: string; url?: string }>({ status: "idle" });
   const deliveryProviderId = form.deliveryProviderId || api.deliveryProviders[0]?.id || "";
   const deliveryAccountId = form.deliveryAccountId || selectedCredential?.accountId || api.accounts[0]?.id || "";
+  const capabilities = api.deliveryProviders.find((provider) => provider.id === deliveryProviderId)?.capabilities ?? {};
   const activePeople = api.people.filter((person) => person.active);
   const recipient = activePeople.find((person) => person.id === form.personId);
   const bulkSummary = selectedCredential
@@ -714,10 +739,10 @@ function DeliveryComposer({ api, selectedCredential }: { api: ReturnType<typeof 
         deliveryProviderId,
         deliveryAccountId,
         expiresAt,
-        viewLimit: form.viewLimit || undefined,
-        viewOnce: form.viewOnce,
-        hideText: form.hideText,
-        accessPassword: form.accessPassword || undefined,
+        viewLimit: capabilities.arbitraryViewLimit ? form.viewLimit || undefined : undefined,
+        viewOnce: capabilities.viewOnce ? form.viewOnce : undefined,
+        hideText: capabilities.hideText ? form.hideText : undefined,
+        accessPassword: capabilities.accessPassword ? form.accessPassword || undefined : undefined,
         deliveryMethod: form.deliveryMethod
       };
       if (form.mode === "bulk") {
@@ -787,15 +812,15 @@ function DeliveryComposer({ api, selectedCredential }: { api: ReturnType<typeof 
         <option value="72">3 days</option>
         <option value="168">7 days</option>
       </select></label>
-      <label>View limit<input value={form.viewLimit} onChange={(event) => setForm((current) => ({ ...current, viewLimit: event.target.value }))} placeholder="Blank for unlimited" /></label>
+      <label>View limit<input value={form.viewLimit} disabled={!capabilities.arbitraryViewLimit} onChange={(event) => setForm((current) => ({ ...current, viewLimit: event.target.value }))} placeholder="Blank for unlimited" /></label>
       <label>Method<select value={form.deliveryMethod} onChange={(event) => setForm((current) => ({ ...current, deliveryMethod: event.target.value as "copy" | "whatsapp" | "email" }))}>
         <option value="copy">Copy link</option>
         <option value="email">Email</option>
         <option value="whatsapp">WhatsApp</option>
       </select></label>
-      <label className="check"><input checked={form.viewOnce} type="checkbox" onChange={(event) => setForm((current) => ({ ...current, viewOnce: event.target.checked }))} /> View once</label>
-      <label className="check"><input checked={form.hideText} type="checkbox" onChange={(event) => setForm((current) => ({ ...current, hideText: event.target.checked }))} /> Hide text in provider link</label>
-      <label>Access password<input value={form.accessPassword} onChange={(event) => setForm((current) => ({ ...current, accessPassword: event.target.value }))} placeholder="Optional provider password" type="password" /></label>
+      <label className="check"><input checked={capabilities.viewOnce ? form.viewOnce : false} disabled={!capabilities.viewOnce} type="checkbox" onChange={(event) => setForm((current) => ({ ...current, viewOnce: event.target.checked }))} /> View once</label>
+      <label className="check"><input checked={capabilities.hideText ? form.hideText : false} disabled={!capabilities.hideText} type="checkbox" onChange={(event) => setForm((current) => ({ ...current, hideText: event.target.checked }))} /> Hide text in provider link</label>
+      <label>Access password<input value={capabilities.accessPassword ? form.accessPassword : ""} disabled={!capabilities.accessPassword} onChange={(event) => setForm((current) => ({ ...current, accessPassword: event.target.value }))} placeholder="Optional provider password" type="password" /></label>
       {form.mode === "bulk" && selectedCredential && (
         <div className="riskSummary">
           <strong>Bulk confirmation summary</strong>
@@ -983,13 +1008,14 @@ function EmptyState({ text }: { text: string }) {
   return <div className="empty">{text}</div>;
 }
 
-function ErrorNotice({ message, compact = false }: { message?: string; compact?: boolean }) {
+function ErrorNotice({ message, compact = false, actionLabel, onAction }: { message?: string; compact?: boolean; actionLabel?: string; onAction?: () => void }) {
   const help = describeError(message);
   return (
     <div className={compact ? "notice error compact errorHelp" : "notice error errorHelp"} role="alert">
       <strong>{help.title}</strong>
       <span>{help.detail}</span>
       <small>{help.guidance}</small>
+      {actionLabel && onAction ? <button type="button" onClick={onAction}>{actionLabel}</button> : null}
     </div>
   );
 }
@@ -1004,6 +1030,10 @@ function titleStatus(value: string) {
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function accountLabel(accounts: AccountRecord[], accountId: string) {

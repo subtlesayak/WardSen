@@ -14,12 +14,15 @@ WardSen is designed for localhost use only. Do not expose it through public doma
 
 WardSen rejects non-local Host headers and cross-origin state-changing requests. Browser clients should use the bundled desktop/web entry points instead of embedding WardSen API calls into unrelated sites.
 
+The packaged desktop app also adds a per-launch local API token between the Tauri shell and the local service. If token errors appear, close all WardSen windows and reopen the desktop app so the frontend and service share the same session token.
+
 ## Secret Handling
 
 - Credential secrets are fetched on demand and are not stored in SQLite.
 - Provider session tokens live in memory and are cleared on lock, logout and server shutdown.
 - CLI stdout, stderr and safe API errors are redacted for known password, token, secret, session and key patterns.
 - Bitwarden account data uses isolated CLI profile directories; KeePassXC database passwords are supplied through stdin.
+- SQLite stores metadata only and applies owner-only POSIX file modes where supported. Full local database encryption is not part of the pre-1.0 release.
 
 ## Delivery Limits
 

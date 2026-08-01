@@ -13,13 +13,18 @@ export interface DeliveryQuery extends PaginationInput {
   batchId?: string;
 }
 
+export type PersonUpsertInput = Omit<PersonRecord, "id" | "createdAt" | "updatedAt" | "active"> & {
+  id?: string;
+  active?: boolean;
+};
+
 export interface WardSenRepository {
   listAccounts(): Promise<AccountRecord[]>;
   upsertAccount(input: Omit<AccountRecord, "createdAt" | "updatedAt" | "status"> & { status?: AccountRecord["status"] }): Promise<AccountRecord>;
   deleteAccount(id: string): Promise<void>;
   listPeople(query: PeopleQuery): Promise<PaginatedResult<PersonRecord>>;
   getPerson(id: string): Promise<PersonRecord | undefined>;
-  upsertPerson(input: Omit<PersonRecord, "id" | "createdAt" | "updatedAt"> & { id?: string }): Promise<PersonRecord>;
+  upsertPerson(input: PersonUpsertInput): Promise<PersonRecord>;
   archivePerson(id: string): Promise<void>;
   restorePerson(id: string): Promise<void>;
   deletePerson(id: string): Promise<void>;
@@ -87,7 +92,7 @@ export class InMemoryWardSenRepository implements WardSenRepository {
     return this.people.get(id);
   }
 
-  async upsertPerson(input: Omit<PersonRecord, "id" | "createdAt" | "updatedAt"> & { id?: string }): Promise<PersonRecord> {
+  async upsertPerson(input: PersonUpsertInput): Promise<PersonRecord> {
     const now = new Date().toISOString();
     const id = input.id ?? nanoid();
     const existing = this.people.get(id);

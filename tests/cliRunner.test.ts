@@ -21,8 +21,27 @@ describe("CLI runner", () => {
     expect(result.stdout).not.toContain("abc123");
   });
 
+  it("passes explicit env without inheriting unrelated parent secrets", async () => {
+    process.env.WARDSEN_SECRET_PROBE = "parent-secret";
+    try {
+      const result = await runCliCommand({
+        executable: process.execPath,
+        args: ["-e", "console.log(`${process.env.WARDSEN_ALLOWED_TEST ?? 'missing'}:${process.env.WARDSEN_SECRET_PROBE ?? 'not-inherited'}`)"],
+        env: { WARDSEN_ALLOWED_TEST: "allowed" }
+      });
+      expect(result.stdout.trim()).toBe("allowed:not-inherited");
+    } finally {
+      delete process.env.WARDSEN_SECRET_PROBE;
+    }
+  });
+
   it("redacts safe error messages with explicit secrets", () => {
     const message = safeErrorMessage(new Error("failed password=hunter2 session=token-1 raw-token"), ["raw-token"]);
     expect(message).toBe("failed password=[REDACTED] session=[REDACTED] [REDACTED]");
+  });
+
+  it("redacts colon and JSON-style secret fields", () => {
+    const message = safeErrorMessage(new Error('Password: hunter2 {"totp":"123456","accessPassword":"send-pass"}'));
+    expect(message).toBe('Password: [REDACTED] {"totp":"[REDACTED]","accessPassword":"[REDACTED]"}');
   });
 });

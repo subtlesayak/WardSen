@@ -16,11 +16,19 @@ export function describeError(message?: string): ErrorHelp {
     };
   }
 
-  if (lower.includes("failed to fetch") || lower.includes("load failed") || lower.includes("networkerror")) {
+  if (lower.includes("failed to fetch") || lower.includes("load failed") || lower.includes("networkerror") || lower.includes("could not connect to wardsen local service")) {
     return {
       title: "WardSen could not reach the local service",
       detail,
       guidance: "Start or restart the WardSen local service, then refresh this screen."
+    };
+  }
+
+  if (lower.includes("desktop api token")) {
+    return {
+      title: "WardSen desktop session is not trusted",
+      detail,
+      guidance: "Close all WardSen windows, reopen the desktop app, then retry. The local service only accepts requests from the matching desktop session."
     };
   }
 

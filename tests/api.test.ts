@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { AccountSessionManager } from "@wardsen/core";
 import type {
   ConnectionResult,
   CredentialProvider,
@@ -17,11 +18,16 @@ import type {
 import { buildApp } from "../apps/server/src/app";
 
 describe("WardSen API", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("serves health only through local host requests", async () => {
     const app = await buildApp();
     const response = await app.inject({ method: "GET", url: "/api/health", headers: { host: "127.0.0.1:4777" } });
     expect(response.statusCode).toBe(200);
     expect(response.json().telemetry).toBe(false);
+    expect(response.headers["content-security-policy"]).toContain("default-src 'self'");
     await app.close();
   });
 
@@ -30,6 +36,21 @@ describe("WardSen API", () => {
     const response = await app.inject({ method: "GET", url: "/api/health", headers: { host: "wardsen.example.test" } });
     expect(response.statusCode).toBe(403);
     expect(response.json().error).toBe("WardSen only accepts local requests");
+    await app.close();
+  });
+
+  it("requires the desktop API token when configured", async () => {
+    const app = await buildApp({ apiToken: "desktop-token" });
+    const missing = await app.inject({ method: "GET", url: "/api/health", headers: { host: "127.0.0.1:4777" } });
+    expect(missing.statusCode).toBe(401);
+    expect(missing.json().error).toContain("desktop API token");
+
+    const accepted = await app.inject({
+      method: "GET",
+      url: "/api/health",
+      headers: { host: "127.0.0.1:4777", "x-wardsen-api-token": "desktop-token" }
+    });
+    expect(accepted.statusCode).toBe(200);
     await app.close();
   });
 
@@ -377,11 +398,33 @@ describe("WardSen API", () => {
     expect(response.json().error).toBe("Large bulk delivery requires confirmation phrase: SEND 26");
     await app.close();
   });
+
+  it("auto-locks inactive accounts using their configured timeout", async () => {
+    const sessions = new AccountSessionManager();
+    const provider = new LockTrackingCredentialProvider();
+    const app = await buildApp({ sessions, credentialProviders: [provider] });
+    const headers = { host: "127.0.0.1:4777", origin: "http://127.0.0.1:4777" };
+    await app.inject({
+      method: "POST",
+      url: "/api/accounts",
+      headers,
+      payload: { id: "source", providerId: "lock-tracking", label: "Lock tracking", autoLockMinutes: 1 }
+    });
+    sessions.markUnlocked("source", "lock-tracking", "token");
+    ageSession(sessions, "source", new Date(Date.now() - 2 * 60 * 1000));
+
+    const response = await app.inject({ method: "GET", url: "/api/accounts", headers: { host: "127.0.0.1:4777" } });
+
+    expect(response.statusCode).toBe(200);
+    expect(provider.locked).toEqual(["source"]);
+    expect(() => sessions.getSessionToken("source", "lock-tracking")).toThrow();
+    await app.close();
+  });
 });
 
 class MockCredentialProvider implements CredentialProvider {
-  readonly id = "mock-source";
-  readonly displayName = "Mock Source";
+  readonly id: string = "mock-source";
+  readonly displayName: string = "Mock Source";
   async getCapabilities(): Promise<CredentialProviderCapabilities> {
     return { searchItems: true, multipleAccounts: true, customServers: false, localVaults: false, synchronization: false, locking: false };
   }
@@ -436,4 +479,20 @@ class MockDeliveryProvider implements DeliveryProvider {
   async getStatus(_accountId: string, deliveryId: string): Promise<DeliveryStatus> {
     return { deliveryId, status: "active", accessCount: 1 };
   }
+}
+
+class LockTrackingCredentialProvider extends MockCredentialProvider {
+  readonly id = "lock-tracking";
+  readonly displayName = "Lock Tracking";
+  readonly locked: string[] = [];
+  async lock(accountId: string): Promise<void> {
+    this.locked.push(accountId);
+  }
+}
+
+function ageSession(sessions: AccountSessionManager, accountId: string, lastActivityAt: Date) {
+  const exposed = sessions as unknown as { sessions: Map<string, { lastActivityAt?: Date }> };
+  const session = exposed.sessions.get(accountId);
+  if (!session) throw new Error(`Missing test session: ${accountId}`);
+  session.lastActivityAt = lastActivityAt;
 }

@@ -140,14 +140,15 @@ interface BitwardenItem {
 
 function normalizeSummary(accountId: string, item: BitwardenItem): CredentialSummary {
   const firstUrl = item.login?.uris?.find((uri) => uri.uri)?.uri;
+  const hostname = firstUrl ? safeHostname(firstUrl) : undefined;
   return {
     id: item.id,
     accountId,
     providerId: "bitwarden",
     title: item.name,
     username: item.login?.username,
-    domain: firstUrl ? safeHostname(firstUrl) : undefined,
-    uriPreview: firstUrl,
+    domain: hostname,
+    uriPreview: hostname,
     itemType: item.type === 1 ? "login" : "other"
   };
 }

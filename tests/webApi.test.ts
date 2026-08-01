@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { invoke } from "@tauri-apps/api/core";
 import { apiGet, apiSend, apiUrl } from "../apps/web/src/api";
+
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(async () => undefined)
+}));
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -41,5 +46,24 @@ describe("web API helpers", () => {
     vi.stubGlobal("window", { location: { protocol: "tauri:", hostname: "localhost" } });
 
     expect(apiUrl("/api/health")).toBe("http://127.0.0.1:4777/api/health");
+  });
+
+  it("adds the desktop API token when packaged under Tauri", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.mocked(invoke).mockResolvedValueOnce("desktop-token");
+    vi.stubGlobal("window", {
+      location: { protocol: "tauri:", hostname: "localhost" }
+    });
+
+    await apiGet("/api/health");
+
+    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:4777/api/health", {
+      headers: { "x-wardsen-api-token": "desktop-token" }
+    });
+  });
+
+  it("rejects absolute API URLs", () => {
+    expect(() => apiUrl("https://example.com/api/health")).toThrow("WardSen API paths must be local application paths");
   });
 });

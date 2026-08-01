@@ -25,6 +25,8 @@ import { parsePeopleCsv, peopleToCsv } from "./csv";
 export interface BuildAppOptions {
   repository?: WardSenRepository;
   profileRoot?: string;
+  sessions?: AccountSessionManager;
+  apiToken?: string;
   credentialProviders?: CredentialProvider[];
   deliveryProviders?: DeliveryProvider[];
 }
@@ -37,12 +39,13 @@ export async function buildApp(options: BuildAppOptions = {}) {
     bodyLimit: 128 * 1024
   });
   const repository = options.repository ?? new InMemoryWardSenRepository();
-  const sessions = new AccountSessionManager();
+  const sessions = options.sessions ?? new AccountSessionManager();
+  const apiToken = options.apiToken ?? process.env.WARDSEN_API_TOKEN;
   const registry = new ProviderRegistry();
   const profileRoot = options.profileRoot ?? path.join(process.cwd(), ".wardsen-profiles");
   const bitwarden = new BitwardenCredentialProvider({ profileRoot, sessions });
   registry.registerCredentialProvider(bitwarden);
-  registry.registerCredentialProvider(new KeePassXCCredentialProvider());
+  registry.registerCredentialProvider(new KeePassXCCredentialProvider({ sessions }));
   registry.registerCredentialProvider(onePasswordProvider);
   registry.registerCredentialProvider(protonPassProvider);
   registry.registerCredentialProvider(keeperProvider);
@@ -59,7 +62,20 @@ export async function buildApp(options: BuildAppOptions = {}) {
   }
 
   await app.register(sensible);
-  await app.register(helmet, { contentSecurityPolicy: false });
+  await app.register(helmet, {
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        baseUri: ["'self'"],
+        connectSrc: ["'self'", "http://127.0.0.1:4777"],
+        frameAncestors: ["'none'"],
+        imgSrc: ["'self'", "data:"],
+        objectSrc: ["'none'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"]
+      }
+    }
+  });
   await app.register(rateLimit, { max: 120, timeWindow: "1 minute" });
 
   app.addHook("onRequest", async (request, reply) => {
@@ -67,9 +83,14 @@ export async function buildApp(options: BuildAppOptions = {}) {
       await reply.code(403).send({ error: "WardSen only accepts local requests" });
       return;
     }
+    if (!isAuthorizedLocalApiRequest(request.headers["x-wardsen-api-token"], apiToken)) {
+      await reply.code(401).send({ error: "WardSen local service rejected this request because the desktop API token was missing or invalid. Restart WardSen from the desktop app, then retry." });
+      return;
+    }
     if (["POST", "PUT", "DELETE", "PATCH"].includes(request.method)) {
       assertSameOrigin(request);
     }
+    await enforceAutoLock();
   });
 
   app.setErrorHandler(async (error, _request, reply) => {
@@ -500,6 +521,9 @@ export async function buildApp(options: BuildAppOptions = {}) {
   });
 
   app.addHook("onClose", async () => {
+    for (const account of await repository.listAccounts()) {
+      await registry.getCredentialProvider(account.providerId).lock(account.id).catch(() => undefined);
+    }
     sessions.lockAll();
   });
 
@@ -512,6 +536,24 @@ export async function buildApp(options: BuildAppOptions = {}) {
   ) {
     await repository.appendAuditLog({ action, outcome, ...fields });
   }
+
+  async function enforceAutoLock() {
+    const accounts = await repository.listAccounts();
+    const accountsById = new Map(accounts.map((account) => [account.id, account]));
+    const lockedIds = sessions.lockInactive(new Date(), (accountId) => accountsById.get(accountId)?.autoLockMinutes ?? 15);
+    for (const id of lockedIds) {
+      const account = accountsById.get(id);
+      if (!account) continue;
+      await registry.getCredentialProvider(account.providerId).lock(id).catch(() => undefined);
+      await audit("account.auto_lock", "success", { sourceAccountId: id });
+    }
+  }
+}
+
+function isAuthorizedLocalApiRequest(header: string | string[] | undefined, apiToken?: string): boolean {
+  if (!apiToken) return true;
+  const value = Array.isArray(header) ? header[0] : header;
+  return value === apiToken;
 }
 
 const paginationSchema = z.object({

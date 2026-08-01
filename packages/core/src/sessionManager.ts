@@ -45,6 +45,7 @@ export class AccountSessionManager {
     if (!session) return;
     delete session.sessionToken;
     delete session.unlockedAt;
+    delete session.lastActivityAt;
     session.status = "locked";
   }
 
@@ -53,6 +54,7 @@ export class AccountSessionManager {
     if (!session) return;
     delete session.sessionToken;
     delete session.unlockedAt;
+    delete session.lastActivityAt;
     session.status = "logged_out";
   }
 
@@ -67,7 +69,7 @@ export class AccountSessionManager {
 
   async withOperation<T>(accountId: string, expectedProviderId: string, operation: () => Promise<T>): Promise<T> {
     const session = this.sessions.get(accountId);
-    if (!session || session.providerId !== expectedProviderId) {
+    if (!session || session.providerId !== expectedProviderId || session.status !== "unlocked") {
       throw new Error("Account session is not initialized");
     }
     const previous = this.operationTails.get(accountId) ?? Promise.resolve();
@@ -91,12 +93,14 @@ export class AccountSessionManager {
     }
   }
 
-  lockInactive(now = new Date()): string[] {
+  lockInactive(now = new Date(), autoLockMinutesFor: (accountId: string) => number = () => 15): string[] {
     const locked: string[] = [];
     for (const session of this.sessions.values()) {
       if (session.status !== "unlocked" || !session.lastActivityAt) continue;
+      if (session.activeOperations > 0) continue;
       const inactiveMs = now.getTime() - session.lastActivityAt.getTime();
-      if (inactiveMs >= 15 * 60 * 1000) {
+      const autoLockMinutes = Math.max(1, autoLockMinutesFor(session.accountId));
+      if (inactiveMs >= autoLockMinutes * 60 * 1000) {
         this.markLocked(session.accountId);
         locked.push(session.accountId);
       }

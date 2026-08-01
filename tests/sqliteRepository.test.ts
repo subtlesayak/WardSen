@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -52,5 +52,29 @@ describe("SqliteWardSenRepository", () => {
     const audit = await repo.listAuditLog({ page: 1, pageSize: 10 });
     expect(audit.items[0].safeDetails).toBe("redacted provider error");
     repo.close();
+  });
+
+  it("defaults saved people to active when active is omitted", async () => {
+    tempDir = mkdtempSync(path.join(os.tmpdir(), "wardsen-sqlite-"));
+    const repo = new SqliteWardSenRepository(path.join(tempDir, "wardsen.sqlite"));
+
+    const person = await repo.upsertPerson({ name: "Nia" });
+    const activePeople = await repo.listPeople({ page: 1, pageSize: 10, active: true });
+
+    expect(person.active).toBe(true);
+    expect(activePeople.items.map((item) => item.id)).toContain(person.id);
+    repo.close();
+  });
+
+  it("hardens SQLite file permissions where POSIX modes are supported", async () => {
+    if (process.platform === "win32") return;
+    tempDir = mkdtempSync(path.join(os.tmpdir(), "wardsen-sqlite-"));
+    const databasePath = path.join(tempDir, "wardsen.sqlite");
+    const repo = new SqliteWardSenRepository(databasePath);
+    await repo.appendAuditLog({ action: "test", outcome: "success" });
+    repo.close();
+
+    expect(statSync(tempDir).mode & 0o777).toBe(0o700);
+    expect(statSync(databasePath).mode & 0o777).toBe(0o600);
   });
 });

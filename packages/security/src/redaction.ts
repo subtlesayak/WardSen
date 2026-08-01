@@ -1,7 +1,7 @@
-const SECRET_PATTERN = /(password|token|secret|session|key)=([^\s]+)/gi;
+const SECRET_PATTERN = /((?:"?(?:accessPassword|masterPassword|password|token|secret|session|key|totp)"?\s*[:=]\s*))(["']?)([^"',;}\s]+)\2/gi;
 
 export function redactSecrets(value: string, extraSecrets: string[] = []): string {
-  let redacted = value.replace(SECRET_PATTERN, "$1=[REDACTED]");
+  let redacted = value.replace(SECRET_PATTERN, (_match, prefix: string, quote: string) => `${prefix}${quote}[REDACTED]${quote}`);
   for (const secret of extraSecrets.filter(Boolean)) {
     redacted = redacted.split(secret).join("[REDACTED]");
   }

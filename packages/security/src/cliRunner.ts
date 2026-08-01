@@ -39,7 +39,7 @@ export async function runCliCommand(input: CliCommandInput): Promise<CliCommandR
   return await new Promise<CliCommandResult>((resolve, reject) => {
     const child = spawn(input.executable, input.args, {
       cwd: input.cwd,
-      env: { ...process.env, ...input.env },
+      env: buildChildEnvironment(input.env),
       shell: false,
       windowsHide: true,
       stdio: input.interactive ? "pipe" : ["pipe", "pipe", "pipe"]
@@ -105,4 +105,47 @@ function validateCommand(input: CliCommandInput): void {
   if (input.timeoutMs !== undefined && (!Number.isInteger(input.timeoutMs) || input.timeoutMs <= 0)) {
     throw new Error("Invalid CLI timeout");
   }
+}
+
+const INHERITED_ENV_KEYS = [
+  "APPDATA",
+  "COMSPEC",
+  "HOME",
+  "HOMEDRIVE",
+  "HOMEPATH",
+  "LANG",
+  "LOCALAPPDATA",
+  "PATH",
+  "PATHEXT",
+  "PROCESSOR_ARCHITECTURE",
+  "ProgramData",
+  "ProgramFiles",
+  "ProgramFiles(x86)",
+  "SystemDrive",
+  "SystemRoot",
+  "TEMP",
+  "TMP",
+  "USERPROFILE",
+  "WINDIR",
+  "http_proxy",
+  "https_proxy",
+  "no_proxy",
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "NO_PROXY"
+];
+
+function buildChildEnvironment(explicit: Record<string, string> = {}): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const key of INHERITED_ENV_KEYS) {
+    const inherited = getEnvValue(key);
+    if (inherited !== undefined) env[key] = inherited;
+  }
+  return { ...env, ...explicit };
+}
+
+function getEnvValue(key: string): string | undefined {
+  if (process.env[key] !== undefined) return process.env[key];
+  const found = Object.keys(process.env).find((candidate) => candidate.toLowerCase() === key.toLowerCase());
+  return found ? process.env[found] : undefined;
 }

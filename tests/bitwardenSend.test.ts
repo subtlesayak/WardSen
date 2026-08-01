@@ -22,7 +22,6 @@ describe("Bitwarden Send delivery provider", () => {
       deliveryAccountId: "acct-1",
       expiresAt,
       viewLimit: 2,
-      accessPassword: "send-password",
       hideText: true,
       sourceCredential: {
         title: "Production Admin",
@@ -50,14 +49,29 @@ describe("Bitwarden Send delivery provider", () => {
       "2026-08-01T12:00:00.000Z",
       "--maxAccessCount",
       "2",
-      "--hidden",
-      "--password",
-      "send-password"
+      "--hidden"
     ]);
     expect(calls[0].stdin).toContain("Password: credential-password");
     expect(calls[0].stdin).toContain("TOTP: 123456");
     expect(calls[0].env?.BW_SESSION).toBe("session-token");
-    expect(calls[0].redact).toEqual(expect.arrayContaining(["session-token", calls[0].stdin, "send-password"]));
+    expect(calls[0].redact).toEqual(expect.arrayContaining(["session-token", calls[0].stdin]));
+  });
+
+  it("does not support access passwords because bw exposes them through process args", async () => {
+    const provider = new BitwardenSendDeliveryProvider({
+      getSessionToken: () => "session-token",
+      runCommand: async () => ok()
+    });
+
+    await expect(provider.getCapabilities()).resolves.toMatchObject({ accessPassword: false });
+    await expect(
+      provider.createDelivery({
+        deliveryAccountId: "acct-1",
+        expiresAt: new Date("2026-08-01T12:00:00.000Z"),
+        accessPassword: "send-password",
+        sourceCredential: { title: "Admin", urls: [] }
+      })
+    ).rejects.toThrow("access passwords are disabled");
   });
 
   it("maps disabled sends as revoked and past expiries as expired", async () => {

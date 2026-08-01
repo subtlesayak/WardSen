@@ -34,7 +34,7 @@ export class BitwardenSendDeliveryProvider implements DeliveryProvider {
       arbitraryViewLimit: true,
       viewOnce: false,
       customExpiry: true,
-      accessPassword: true,
+      accessPassword: false,
       hideText: true,
       revokeLink: true,
       accessCount: true
@@ -49,6 +49,9 @@ export class BitwardenSendDeliveryProvider implements DeliveryProvider {
   async createDelivery(input: CreateDeliveryInput): Promise<DeliveryResult> {
     const accountId = input.deliveryAccountId;
     if (!accountId) throw new Error("Bitwarden Send delivery account is required");
+    if (input.accessPassword) {
+      throw new Error("Bitwarden Send access passwords are disabled because the Bitwarden CLI requires this secret as a process argument.");
+    }
     const text = formatCredentialText(input.sourceCredential);
     const args = [
       "send",
@@ -61,8 +64,7 @@ export class BitwardenSendDeliveryProvider implements DeliveryProvider {
     ];
     if (input.viewLimit !== undefined) args.push("--maxAccessCount", String(input.viewLimit));
     if (input.hideText) args.push("--hidden");
-    if (input.accessPassword) args.push("--password", input.accessPassword);
-    const result = await this.run(accountId, args, text, [text, input.accessPassword ?? ""]);
+    const result = await this.run(accountId, args, text, [text]);
     const parsed = safeJsonObject(result.stdout, "Bitwarden Send create response");
     const id = optionalString(parsed.id);
     const url = optionalString(parsed.accessUrl) ?? optionalString(parsed.url);

@@ -1,22 +1,27 @@
-import { mkdirSync } from "node:fs";
+import { chmodSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { SQLInputValue } from "node:sqlite";
 import type { AccountRecord, AuditLogRecord, DeliveryBatchRecord, DeliveryRecord, PaginatedResult, PaginationInput, PersonRecord } from "@wardsen/core";
 import { migrations } from "./migrations";
-import type { DeliveryQuery, PeopleQuery, WardSenRepository } from "./repositories";
+import type { DeliveryQuery, PeopleQuery, PersonUpsertInput, WardSenRepository } from "./repositories";
 
 export class SqliteWardSenRepository implements WardSenRepository {
   private readonly db: DatabaseSync;
+  private readonly databasePath: string;
 
   constructor(databasePath: string) {
+    this.databasePath = databasePath;
     mkdirSync(path.dirname(databasePath), { recursive: true });
+    hardenFileMode(path.dirname(databasePath), 0o700);
     this.db = new DatabaseSync(databasePath);
     this.db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
     this.applyMigrations();
+    hardenDatabaseFiles(databasePath);
   }
 
   close(): void {
+    hardenDatabaseFiles(this.databasePath);
     this.db.close();
   }
 
@@ -99,9 +104,10 @@ export class SqliteWardSenRepository implements WardSenRepository {
     return row ? personFromRow(row) : undefined;
   }
 
-  async upsertPerson(input: Omit<PersonRecord, "id" | "createdAt" | "updatedAt"> & { id?: string }): Promise<PersonRecord> {
+  async upsertPerson(input: PersonUpsertInput): Promise<PersonRecord> {
     const now = new Date().toISOString();
     const id = input.id ?? crypto.randomUUID();
+    const active = input.active ?? true;
     const existing = this.db.prepare("SELECT * FROM people WHERE id = ?").get(id) as PersonRow | undefined;
     this.db.prepare(`
       INSERT INTO people (id, name, phone, email, group_name, role, notes, active, created_at, updated_at)
@@ -123,11 +129,11 @@ export class SqliteWardSenRepository implements WardSenRepository {
       input.groupName ?? null,
       input.role ?? null,
       input.notes ?? null,
-      input.active ? 1 : 0,
+      active ? 1 : 0,
       existing?.created_at ?? now,
       now
     );
-    return { ...input, id, active: input.active, createdAt: existing?.created_at ?? now, updatedAt: now };
+    return { ...input, id, active, createdAt: existing?.created_at ?? now, updatedAt: now };
   }
 
   async archivePerson(id: string): Promise<void> {
@@ -329,6 +335,22 @@ export class SqliteWardSenRepository implements WardSenRepository {
         throw error;
       }
     }
+  }
+}
+
+function hardenDatabaseFiles(databasePath: string): void {
+  hardenFileMode(databasePath, 0o600);
+  hardenFileMode(`${databasePath}-wal`, 0o600);
+  hardenFileMode(`${databasePath}-shm`, 0o600);
+}
+
+function hardenFileMode(targetPath: string, mode: number): void {
+  if (process.platform === "win32") return;
+  try {
+    chmodSync(targetPath, mode);
+  } catch (error) {
+    const code = typeof error === "object" && error && "code" in error ? error.code : undefined;
+    if (code !== "ENOENT") throw error;
   }
 }
 

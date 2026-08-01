@@ -80,7 +80,7 @@ describe("Bitwarden credential provider", () => {
         title: "Email",
         username: "hello",
         domain: "mail.example.com",
-        uriPreview: "https://mail.example.com/login",
+        uriPreview: "mail.example.com",
         itemType: "login"
       },
       {
@@ -90,7 +90,7 @@ describe("Bitwarden credential provider", () => {
         title: "Admin",
         username: undefined,
         domain: undefined,
-        uriPreview: "not a url",
+        uriPreview: undefined,
         itemType: "other"
       }
     ]);
