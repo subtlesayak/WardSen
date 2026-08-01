@@ -12,3 +12,4 @@
 - Added localhost-only API, React interface, SQLite persistence, batch/audit metadata, security docs, installer entrypoints and tests.
 - Added clearer cross-origin error help, package updates, installer runtime checks and release artifact documentation.
 - Fixed desktop recovery when the bundled local service is unreachable: the banner now restarts the service before retrying instead of repeating the same failed fetch.
+- Added desktop service diagnostics for failed recovery, including process state, port reachability, bundled runtime presence, server bundle presence and short service output.
