@@ -57,8 +57,16 @@ export class BitwardenCredentialProvider implements CredentialProvider {
     const args = ["login"];
     if (input.username) args.push(input.username);
     if (input.sso) args.push("--sso");
+    const env: Record<string, string> = {};
+    if (input.password) {
+      env.WARDSEN_BW_PASSWORD = input.password;
+      args.push("--passwordenv", "WARDSEN_BW_PASSWORD");
+    }
+    if (input.verificationCode) {
+      args.push("--method", bitwardenVerificationMethod(input.verificationMethod), "--code", input.verificationCode);
+    }
     if (input.serverUrl) await this.run(accountId, ["config", "server", input.serverUrl]);
-    await this.run(accountId, args, loginStdin(input), 45_000, [input.password ?? "", input.verificationCode ?? ""]);
+    await this.run(accountId, args, undefined, 45_000, [input.password ?? "", input.verificationCode ?? ""], env);
   }
 
   async unlock(accountId: string, input: ProviderUnlockInput): Promise<void> {
@@ -126,10 +134,10 @@ export class BitwardenCredentialProvider implements CredentialProvider {
   }
 }
 
-function loginStdin(input: ProviderLoginInput): string | undefined {
-  const values = [input.password, input.verificationCode].filter((value): value is string => Boolean(value));
-  if (!values.length) return undefined;
-  return `${values.join("\n")}\n`;
+function bitwardenVerificationMethod(method: ProviderLoginInput["verificationMethod"]): string {
+  if (method === "authenticator") return "0";
+  if (method === "yubikey") return "3";
+  return "1";
 }
 
 function resolveBitwardenExecutable(): string {

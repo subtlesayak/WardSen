@@ -54,6 +54,8 @@ describe("web UI regression guards", () => {
     expect(webSource).toContain("verificationCodeRef");
     expect(webSource).toContain("unlockDisabledForVerification");
     expect(webSource).toContain("Submit code and login");
+    expect(webSource).toContain("Code type");
+    expect(webSource).toContain("Email / new-device code");
     expect(webSource).toContain("Unlock is available after Bitwarden login finishes");
     expect(webSource).toContain("disabled={unlockDisabledForVerification}");
     expect(webSource).toContain("Bitwarden is waiting for this code");

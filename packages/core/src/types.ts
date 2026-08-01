@@ -33,6 +33,7 @@ export interface ProviderLoginInput {
   username?: string;
   password?: string;
   verificationCode?: string;
+  verificationMethod?: "email" | "authenticator" | "yubikey";
   serverUrl?: string;
   sso?: boolean;
 }

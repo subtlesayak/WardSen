@@ -41,12 +41,34 @@ describe("Bitwarden credential provider", () => {
 
     expect(calls.map((call) => call.args)).toEqual([
       ["config", "server", "https://vault.example.test"],
-      ["login", "user@example.com"]
+      ["login", "user@example.com", "--passwordenv", "WARDSEN_BW_PASSWORD", "--method", "1", "--code", "123456"]
     ]);
     expect(calls.every((call) => call.env?.BITWARDENCLI_APPDATA_DIR === path.join("profiles", "acct-1"))).toBe(true);
-    expect(calls[1].stdin).toBe("vault-password\n123456\n");
+    expect(calls[1].stdin).toBeUndefined();
+    expect(calls[1].env?.WARDSEN_BW_PASSWORD).toBe("vault-password");
     expect(calls[1].redact).toContain("vault-password");
     expect(calls[1].redact).toContain("123456");
+  });
+
+  it("maps Bitwarden verification code types to CLI method ids", async () => {
+    const calls: CliCommandInput[] = [];
+    const provider = new BitwardenCredentialProvider({
+      profileRoot: "profiles",
+      runCommand: async (input) => {
+        calls.push(input);
+        return ok();
+      }
+    });
+
+    await provider.login("acct-1", {
+      username: "user@example.com",
+      password: "vault-password",
+      verificationCode: "654321",
+      verificationMethod: "authenticator"
+    });
+
+    expect(calls.at(-1)?.args).toEqual(["login", "user@example.com", "--passwordenv", "WARDSEN_BW_PASSWORD", "--method", "0", "--code", "654321"]);
+    expect(calls.at(-1)?.env?.WARDSEN_BW_PASSWORD).toBe("vault-password");
   });
 
   it("uses a configured local Bitwarden CLI path when available", async () => {

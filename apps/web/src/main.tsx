@@ -336,6 +336,7 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
     accountId: "",
     password: "",
     verificationCode: "",
+    verificationMethod: "email",
     databasePath: "",
     keyFilePath: "",
     sso: false
@@ -385,7 +386,7 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
     if (action === "login" && account.providerId === "bitwarden" && verificationNeeded && !accessForm.verificationCode.trim()) {
       setMessage({
         status: "error",
-        text: "Bitwarden verification code is required. Enter the code from your Bitwarden email or authenticator app, then select Login."
+        text: "Bitwarden verification code is required. Enter the code from your Bitwarden email or authenticator app, choose the matching Code type, then select Submit code and login."
       });
       verificationCodeRef.current?.focus();
       return;
@@ -411,6 +412,7 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
           serverUrl: account.serverUrl,
           password: accessForm.password || undefined,
           verificationCode: accessForm.verificationCode || undefined,
+          verificationMethod: accessForm.verificationMethod || undefined,
           databasePath: accessForm.databasePath || undefined,
           keyFilePath: accessForm.keyFilePath || undefined,
           sso: accessForm.sso
@@ -468,7 +470,19 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
               aria-describedby="bitwarden-verification-help"
               aria-invalid={verificationNeeded && !accessForm.verificationCode.trim()}
             />
-            <small id="bitwarden-verification-help" className="fieldInstruction">{verificationNeeded ? "Bitwarden is waiting for this code. Check your email or authenticator app, enter it here, then select Login." : "Only needed when Bitwarden emails a new-device code or asks for two-step verification."}</small>
+            <small id="bitwarden-verification-help" className="fieldInstruction">{verificationNeeded ? "Bitwarden is waiting for this code. Keep Email / new-device selected for Bitwarden email codes, then select Submit code and login." : "Only needed when Bitwarden emails a new-device code or asks for two-step verification."}</small>
+          </label>
+        ) : null}
+        {selectedAccountIsBitwarden ? (
+          <label>Code type
+            <select
+              value={accessForm.verificationMethod}
+              onChange={(event) => setAccessForm((current) => ({ ...current, verificationMethod: event.target.value }))}
+            >
+              <option value="email">Email / new-device code</option>
+              <option value="authenticator">Authenticator app</option>
+              <option value="yubikey">YubiKey</option>
+            </select>
           </label>
         ) : null}
         <label>Database path<input value={accessForm.databasePath} onChange={(event) => setAccessForm((current) => ({ ...current, databasePath: event.target.value }))} placeholder="KeePassXC .kdbx path" /></label>

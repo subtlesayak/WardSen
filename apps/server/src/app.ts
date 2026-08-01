@@ -623,6 +623,7 @@ const loginSchema = z.object({
   username: z.string().optional(),
   password: z.string().optional(),
   verificationCode: z.string().optional(),
+  verificationMethod: z.enum(["email", "authenticator", "yubikey"]).optional(),
   serverUrl: z.string().url().optional(),
   sso: z.boolean().optional()
 });

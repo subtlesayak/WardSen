@@ -4,7 +4,7 @@ WardSen release installers should be signed before a public release is published
 
 ## Current Release State
 
-`v0.1.0-rc.21` is published as an unsigned prerelease with Windows x64 and macOS Apple Silicon installer artifacts attached. Treat it as a validation build, not a fully trusted end-user release.
+`v0.1.0-rc.22` is published as an unsigned prerelease with Windows x64 and macOS Apple Silicon installer artifacts attached. Treat it as a validation build, not a fully trusted end-user release.
 
 Do not promote a final `v0.1.0` or "latest" release until Windows Authenticode signing and macOS Developer ID notarization are configured and verified, or until the release clearly states that the installers are unsigned.
 
@@ -18,7 +18,7 @@ This is a tester workaround, not a substitute for signing and notarization.
 
 ## Maintainer Signing Quick Start
 
-Use this path when preparing a signed update after the unsigned `v0.1.0-rc.21` validation release.
+Use this path when preparing a signed update after the unsigned `v0.1.0-rc.22` validation release.
 
 ### 1. Get signing identities
 
@@ -64,7 +64,7 @@ Keep `MACOS_SIGNING_ENABLED` unset or any value other than `true` until the Appl
 
 ### 3. Run a signed release candidate
 
-1. Create or choose the next release candidate tag, such as `v0.1.0-rc.21`.
+1. Create or choose the next release candidate tag, such as `v0.1.0-rc.22`.
 2. Push the tag, or open **Actions > Release Installers > Run workflow**.
 3. Enter the tag.
 4. Keep `prerelease` enabled.
@@ -272,7 +272,7 @@ Manual release flow for a new RC or signed update:
 2. Go to `Actions`.
 3. Select `Release Installers`.
 4. Click `Run workflow`.
-5. Enter a tag such as `v0.1.0-rc.21`.
+5. Enter a tag such as `v0.1.0-rc.22`.
 6. Keep `prerelease` enabled until signed artifacts have been verified.
 7. Review the draft GitHub release before publishing it.
 
