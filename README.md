@@ -233,7 +233,7 @@ npm run desktop:build
 The server binds to `127.0.0.1:4777`. The Vite interface binds to `127.0.0.1:5173`.
 
 See `docs/api.md` for the local API surface.
-See `docs/desktop-packaging.md` for Tauri packaging details, `docs/installer-signing.md` for platform signing, `installers/windows/README.md` for Windows setup and `installers/macos/README.md` for macOS setup.
+See `docs/desktop-packaging.md` for Tauri packaging details, `docs/installer-signing.md` for platform signing, `installers/windows/README.md` for Windows setup and `installers/macos/README.md` for macOS setup. The `Release Installers` GitHub Actions workflow can build Windows and macOS artifacts from a release tag or manual run.
 See `docs/release-security-checklist.md` and `docs/rustsec-audit.md` before publishing public release artifacts.
 
 ## Security Principles

@@ -162,3 +162,40 @@ Suggested checksum command:
 ```bash
 npm run release:checksums
 ```
+
+## GitHub Actions Release Build
+
+WardSen includes a release workflow at `.github/workflows/release-installers.yml`.
+
+Manual release flow:
+
+1. Open the repository on GitHub.
+2. Go to `Actions`.
+3. Select `Release Installers`.
+4. Click `Run workflow`.
+5. Enter a tag such as `v0.1.0`.
+6. Keep `prerelease` enabled until signed artifacts have been verified.
+7. Review the draft GitHub release before publishing it.
+
+Tag release flow:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The workflow builds:
+
+- Windows x64 `.exe` and `.msi` artifacts on `windows-latest`
+- macOS Intel `.dmg` release assets on `macos-13`
+- macOS Apple Silicon `.dmg` release assets on `macos-14`
+- Per-runner checksum files, such as `SHA256SUMS-windows-x64.txt`
+
+macOS `.app` bundles are produced and verified before upload when signing secrets are configured; the `.dmg` is the release asset intended for users.
+
+Configure these GitHub repository secrets before publishing signed installer releases:
+
+- Windows: `WINDOWS_CERTIFICATE_BASE64`, `WINDOWS_CERTIFICATE_PASSWORD`, `WINDOWS_TIMESTAMP_URL`
+- macOS: `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_API_ISSUER`, `APPLE_API_KEY`, `APPLE_API_KEY_P8`
+
+If signing secrets are not configured, the workflow can still produce developer-preview artifacts, but those artifacts must remain draft/prerelease or be clearly marked unsigned.
