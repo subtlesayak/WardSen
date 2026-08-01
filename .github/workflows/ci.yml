@@ -35,6 +35,7 @@ jobs:
       - run: npm ci
       - run: npm run build:server
       - run: npm run build:web
+      - run: npm run prepare:desktop-runtime
       - run: cargo check
         working-directory: apps/desktop/src-tauri
 
@@ -50,6 +51,7 @@ jobs:
       - run: npm ci
       - run: npm run build:server
       - run: npm run build:web
+      - run: npm run prepare:desktop-runtime
       - run: cargo check
         working-directory: apps/desktop/src-tauri
 
