@@ -201,7 +201,7 @@ The workflow builds:
 
 macOS `.app` bundles are produced and verified before upload when signing secrets are configured; the `.dmg` is the release asset intended for users.
 
-Intel Mac builds use the separate manual workflow at `.github/workflows/build-macos-intel.yml`. Use it when you specifically need a macOS x64 DMG for older Intel Macs; it runs on GitHub's `macos-13` runner pool, which can queue for longer than the main release workflow. After it finishes, download the `wardsen-macos-x64` workflow artifact and attach the DMG plus `SHA256SUMS-macos-x64.txt` to the matching prerelease.
+Intel Mac builds use the separate manual workflow at `.github/workflows/build-macos-intel.yml`. Use it when you specifically need a macOS x64 DMG for older Intel Macs; it runs on GitHub's `macos-13` runner pool, which can queue for longer than the main release workflow. Enter the source ref to build and the existing release tag to update. After it finishes, the workflow uploads the `wardsen-macos-x64` workflow artifact and attaches the DMG plus `SHA256SUMS-macos-x64.txt` to the matching prerelease when that release exists.
 
 Configure these GitHub repository secrets before publishing signed installer releases:
 
