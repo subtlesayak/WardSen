@@ -48,4 +48,15 @@ describe("web UI regression guards", () => {
     expect(styles).toMatch(/\.setupChecklist\s*{/);
     expect(styles).toMatch(/\.terminalHelp\s*{/);
   });
+
+  it("turns Bitwarden verification prompts into an inline recovery step", () => {
+    expect(webSource).toContain("verificationNeeded");
+    expect(webSource).toContain("verificationCodeRef");
+    expect(webSource).toContain("Submit code and login");
+    expect(webSource).toContain("Bitwarden is waiting for this code");
+    expect(webSource).toContain("help.technicalDetail");
+    expect(styles).toMatch(/\.attentionField\s*{/);
+    expect(styles).toMatch(/\.fieldInstruction\s*{/);
+    expect(styles).toMatch(/\.technicalDetail\s*{/);
+  });
 });

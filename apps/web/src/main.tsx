@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Archive,
@@ -340,10 +340,17 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
     keyFilePath: "",
     sso: false
   });
+  const [verificationNeeded, setVerificationNeeded] = useState(false);
+  const verificationCodeRef = useRef<HTMLInputElement>(null);
   const [message, setMessage] = useState<{ status: "idle" | "loading" | "ready" | "error"; text?: string }>({ status: "idle" });
   const providerLabel = (id: string) => api.credentialProviders.find((provider) => provider.id === id)?.displayName ?? id;
   const selectedAccount = api.accounts.find((account) => account.id === accessForm.accountId) ?? api.accounts[0];
   const providerId = accountForm.providerId || api.credentialProviders[0]?.id || "bitwarden";
+  const selectedAccountIsBitwarden = selectedAccount?.providerId === "bitwarden";
+
+  useEffect(() => {
+    if (verificationNeeded) verificationCodeRef.current?.focus();
+  }, [verificationNeeded]);
 
   async function createAccount(event: React.FormEvent) {
     event.preventDefault();
@@ -374,6 +381,14 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
       setMessage({ status: "error", text: "Create or select an account first." });
       return;
     }
+    if (action === "login" && account.providerId === "bitwarden" && verificationNeeded && !accessForm.verificationCode.trim()) {
+      setMessage({
+        status: "error",
+        text: "Bitwarden verification code is required. Enter the code from your Bitwarden email or authenticator app, then select Login."
+      });
+      verificationCodeRef.current?.focus();
+      return;
+    }
     setMessage({ status: "loading", text: `${titleStatus(action)} running for ${account.label}...` });
     try {
       if (action === "status") {
@@ -392,10 +407,18 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
           sso: accessForm.sso
         })
       });
+      setVerificationNeeded(false);
+      setAccessForm((current) => ({ ...current, verificationCode: "" }));
       setMessage({ status: "ready", text: `${titleStatus(action)} completed for ${account.label}.` });
       await api.refresh();
     } catch (error) {
-      setMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
+      const text = error instanceof Error ? error.message : String(error);
+      const help = describeError(text);
+      if (help.kind === "bitwardenVerification") {
+        setVerificationNeeded(true);
+        window.setTimeout(() => verificationCodeRef.current?.focus(), 0);
+      }
+      setMessage({ status: "error", text });
     }
   }
 
@@ -417,16 +440,33 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
       </form>
       <section className="panel formGrid">
         <PanelTitle icon={KeyRound} title="Account Access" action="Status" onAction={() => void accountAccess("status")} />
-        <label>Account<select value={selectedAccount?.id ?? ""} onChange={(event) => setAccessForm((current) => ({ ...current, accountId: event.target.value }))}>
+        <label>Account<select value={selectedAccount?.id ?? ""} onChange={(event) => {
+          setVerificationNeeded(false);
+          setAccessForm((current) => ({ ...current, accountId: event.target.value, verificationCode: "" }));
+        }}>
           {api.accounts.map((account) => <option key={account.id} value={account.id}>{account.label}</option>)}
         </select></label>
         <label>Password<input value={accessForm.password} onChange={(event) => setAccessForm((current) => ({ ...current, password: event.target.value }))} placeholder="Master password or database password" type="password" /></label>
-        <label>Verification code<input value={accessForm.verificationCode} onChange={(event) => setAccessForm((current) => ({ ...current, verificationCode: event.target.value }))} placeholder="Bitwarden email or two-step code" inputMode="numeric" autoComplete="one-time-code" /></label>
+        {selectedAccountIsBitwarden ? (
+          <label className={verificationNeeded ? "attentionField" : undefined}>Verification code
+            <input
+              ref={verificationCodeRef}
+              value={accessForm.verificationCode}
+              onChange={(event) => setAccessForm((current) => ({ ...current, verificationCode: event.target.value }))}
+              placeholder="Email or authenticator code"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              aria-describedby="bitwarden-verification-help"
+              aria-invalid={verificationNeeded && !accessForm.verificationCode.trim()}
+            />
+            <small id="bitwarden-verification-help" className="fieldInstruction">{verificationNeeded ? "Bitwarden is waiting for this code. Check your email or authenticator app, enter it here, then select Login." : "Only needed when Bitwarden emails a new-device code or asks for two-step verification."}</small>
+          </label>
+        ) : null}
         <label>Database path<input value={accessForm.databasePath} onChange={(event) => setAccessForm((current) => ({ ...current, databasePath: event.target.value }))} placeholder="KeePassXC .kdbx path" /></label>
         <label>Key file path<input value={accessForm.keyFilePath} onChange={(event) => setAccessForm((current) => ({ ...current, keyFilePath: event.target.value }))} placeholder="Optional KeePassXC key file" /></label>
         <label className="check"><input checked={accessForm.sso} type="checkbox" onChange={(event) => setAccessForm((current) => ({ ...current, sso: event.target.checked }))} /> Login with SSO</label>
         <div className="buttonRow">
-          <button type="button" onClick={() => void accountAccess("login")}><ShieldCheck size={16} /> Login</button>
+          <button type="button" onClick={() => void accountAccess("login")}><ShieldCheck size={16} /> {verificationNeeded ? "Submit code and login" : "Login"}</button>
           <button type="button" className="primary" onClick={() => void accountAccess("unlock")}><KeyRound size={16} /> Unlock</button>
         </div>
       </section>
@@ -1081,6 +1121,12 @@ function ErrorNotice({ message, compact = false, actionLabel, onAction }: { mess
       <strong>{help.title}</strong>
       <span>{help.detail}</span>
       <small>{help.guidance}</small>
+      {help.technicalDetail ? (
+        <details className="technicalDetail">
+          <summary>Show technical detail</summary>
+          <code>{help.technicalDetail}</code>
+        </details>
+      ) : null}
       {help.setupNotes?.length ? (
         <ul className="setupChecklist" aria-label="Setup checklist">
           {help.setupNotes.map((note) => <li key={note}>{note}</li>)}

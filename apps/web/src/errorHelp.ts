@@ -1,7 +1,9 @@
 export interface ErrorHelp {
+  kind?: "bitwardenVerification";
   title: string;
   detail: string;
   guidance: string;
+  technicalDetail?: string;
   actionLabel?: string;
   actionHref?: string;
   setupNotes?: string[];
@@ -58,9 +60,11 @@ export function describeError(message?: string): ErrorHelp {
   if (lower.includes("provider command") && lower.includes("timed out")) {
     if (lower.includes("enter otp") || lower.includes("new device verification") || lower.includes("verification required")) {
       return {
+        kind: "bitwardenVerification",
         title: "Bitwarden needs a verification code",
-        detail,
-        guidance: "Enter the Bitwarden email or two-step verification code in WardSen's Verification code field, keep the master password filled in, then click Login again."
+        detail: "Bitwarden asked for an email or two-step verification code before it can finish this login.",
+        guidance: "Check your Bitwarden email or authenticator app, enter the code in Verification code, keep the master password filled in, then select Login.",
+        technicalDetail: detail
       };
     }
     return {

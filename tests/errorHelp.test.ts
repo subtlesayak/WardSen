@@ -61,9 +61,12 @@ describe("web error help", () => {
   it("turns Bitwarden new-device timeouts into verification-code help", () => {
     const help = describeError('Provider command "bw login" timed out after 45 seconds. Detail: New device verification required. Enter OTP sent to login email.');
 
+    expect(help.kind).toBe("bitwardenVerification");
     expect(help.title).toBe("Bitwarden needs a verification code");
-    expect(help.guidance).toContain("Verification code field");
-    expect(help.guidance).toContain("click Login again");
+    expect(help.detail).toContain("asked for an email or two-step verification code");
+    expect(help.guidance).toContain("Verification code");
+    expect(help.guidance).toContain("select Login");
+    expect(help.technicalDetail).toContain("Provider command");
   });
 
   it("preserves provider command failure detail", () => {
