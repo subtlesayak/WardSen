@@ -2,7 +2,7 @@
 
 ## Milestone 1: Production-Quality Open-Source Desktop Foundation
 
-Status: implementation complete through Phase 24.
+Status: implementation complete through Phase 25.
 
 ### Completed Phases
 
@@ -154,3 +154,24 @@ Provider setup guidance still assumed users understood CLI tools, terminal comma
 - Missing Bitwarden CLI errors include a clear official install-guide action.
 - Missing KeePassXC CLI errors include a clear official download action.
 - Error guidance says no terminal is required for the primary install path.
+
+## Completed Phase 25: Desktop Provider Setup Link Opening
+
+Status: complete
+
+### Problem
+
+Provider setup buttons looked clickable in packaged desktop builds, but clicking them could do nothing because they relied on normal web links inside the desktop WebView.
+
+### Scope
+
+- Add the official Tauri opener JavaScript package.
+- Route provider install/download actions through the desktop system-browser opener.
+- Add a Tauri capability granting the main window the opener default permission.
+- Keep a browser fallback for local web development.
+
+### Acceptance Criteria
+
+- Clicking provider setup actions in the desktop app invokes the Tauri opener API.
+- The desktop capability grants `opener:default` to the main window.
+- If automatic opening fails, the error panel shows a copyable install URL.

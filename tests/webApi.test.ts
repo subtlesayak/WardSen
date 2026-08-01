@@ -1,9 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import { apiGet, apiSend, apiUrl, canRestartLocalService, getLocalServiceStatus, restartLocalService } from "../apps/web/src/api";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { apiGet, apiSend, apiUrl, canRestartLocalService, getLocalServiceStatus, openExternalUrl, restartLocalService } from "../apps/web/src/api";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async () => undefined)
+}));
+
+vi.mock("@tauri-apps/plugin-opener", () => ({
+  openUrl: vi.fn(async () => undefined)
 }));
 
 afterEach(() => {
@@ -103,6 +108,35 @@ describe("web API helpers", () => {
     await expect(getLocalServiceStatus()).resolves.toEqual(status);
 
     expect(invoke).toHaveBeenCalledWith("local_service_status");
+  });
+
+  it("opens help links through the Tauri opener in the desktop app", async () => {
+    vi.stubGlobal("window", {
+      location: { protocol: "tauri:", hostname: "localhost" }
+    });
+
+    await openExternalUrl("https://bitwarden.com/help/cli/");
+
+    expect(openUrl).toHaveBeenCalledWith("https://bitwarden.com/help/cli/");
+  });
+
+  it("opens help links with a browser fallback in the web build", async () => {
+    const open = vi.fn(() => ({ closed: false }));
+    const assign = vi.fn();
+    vi.stubGlobal("window", {
+      location: { protocol: "http:", hostname: "127.0.0.1", assign },
+      open
+    });
+
+    await openExternalUrl("https://keepassxc.org/download/");
+
+    expect(open).toHaveBeenCalledWith("https://keepassxc.org/download/", "_blank", "noopener,noreferrer");
+    expect(assign).not.toHaveBeenCalled();
+    expect(openUrl).not.toHaveBeenCalled();
+  });
+
+  it("rejects non-web external links", async () => {
+    await expect(openExternalUrl("file:///C:/Windows/System32/calc.exe")).rejects.toThrow("HTTP or HTTPS");
   });
 
   it("rejects absolute API URLs", () => {

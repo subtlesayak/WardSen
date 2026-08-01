@@ -20,3 +20,4 @@
 - Replaced difficult typed destructive prompts in the UI with a normal confirmation dialog while keeping server-side destructive confirmation phrases.
 - Added `v0.1.0-rc.11` release notes and missing provider-tool guidance so raw `spawn bw ENOENT` failures become install/PATH help.
 - Added `v0.1.0-rc.12` release notes and provider setup buttons for users who do not know CLI or terminal commands.
+- Added `v0.1.0-rc.13` release notes and fixed provider setup buttons so packaged desktop builds open official install pages through the system browser.

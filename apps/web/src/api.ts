@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
 
 export interface LocalServiceStatus {
   running: boolean;
@@ -61,6 +62,23 @@ export async function restartLocalService(): Promise<void> {
 export async function getLocalServiceStatus(): Promise<LocalServiceStatus | undefined> {
   if (!canRestartLocalService()) return undefined;
   return invoke<LocalServiceStatus>("local_service_status");
+}
+
+export async function openExternalUrl(url: string): Promise<void> {
+  const parsed = new URL(url);
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new Error("WardSen can only open HTTP or HTTPS help links.");
+  }
+
+  if (isTauriOrigin()) {
+    await openUrl(parsed.toString());
+    return;
+  }
+
+  const opened = window.open(parsed.toString(), "_blank", "noopener,noreferrer");
+  if (!opened) {
+    window.location.assign(parsed.toString());
+  }
 }
 
 function isTauriOrigin(): boolean {

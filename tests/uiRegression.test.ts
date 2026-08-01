@@ -31,8 +31,9 @@ describe("web UI regression guards", () => {
     expect(styles).toMatch(/\.notice\.error\s*{[\s\S]*position:\s*sticky;[\s\S]*top:\s*12px;[\s\S]*z-index:\s*3;/);
   });
 
-  it("renders provider help actions as links inside error toasts", () => {
+  it("renders provider help actions as opener-backed controls inside error toasts", () => {
     expect(webSource).toContain("noticeActionLink");
+    expect(webSource).toContain("openExternalUrl");
     expect(webSource).toContain("help.actionHref");
     expect(styles).toMatch(/\.noticeActionLink\s*{/);
   });

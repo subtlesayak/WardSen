@@ -198,12 +198,15 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
   width: max-content;
   min-height: 38px;
   padding: 0 12px;
+  border: 0;
   border-radius: 8px;
   color: #17342b;
   background: #eef4f1;
+  font-family: inherit;
   font-size: 14px;
   font-weight: 700;
   text-decoration: none;
+  cursor: pointer;
 }
 .noticeActionLink:hover {
   background: #e2ece8;

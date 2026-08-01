@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 describe("Tauri packaging config", () => {
   const config = JSON.parse(readFileSync(path.join(process.cwd(), "apps", "desktop", "src-tauri", "tauri.conf.json"), "utf8"));
+  const capability = JSON.parse(readFileSync(path.join(process.cwd(), "apps", "desktop", "src-tauri", "capabilities", "default.json"), "utf8"));
   const rustLauncher = readFileSync(path.join(process.cwd(), "apps", "desktop", "src-tauri", "src", "lib.rs"), "utf8");
 
   it("builds the local API server and web frontend before packaging", () => {
@@ -49,5 +50,10 @@ describe("Tauri packaging config", () => {
 
   it("does not expose the Tauri API globally", () => {
     expect(config.app.withGlobalTauri).not.toBe(true);
+  });
+
+  it("allows the main window to open trusted help links in the system browser", () => {
+    expect(capability.windows).toContain("main");
+    expect(capability.permissions).toContain("opener:default");
   });
 });
