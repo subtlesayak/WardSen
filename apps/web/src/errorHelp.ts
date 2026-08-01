@@ -63,7 +63,7 @@ export function describeError(message?: string): ErrorHelp {
         kind: "bitwardenVerification",
         title: "Bitwarden needs a verification code",
         detail: "Bitwarden asked for an email or two-step verification code before it can finish this login.",
-        guidance: "Check your Bitwarden email or authenticator app, enter the code in Verification code, keep the master password filled in, then select Login.",
+        guidance: "Check your Bitwarden email or authenticator app, enter the code in Verification code, keep the master password filled in, then select Submit code and login.",
         technicalDetail: detail
       };
     }

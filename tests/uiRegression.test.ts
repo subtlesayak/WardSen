@@ -52,10 +52,14 @@ describe("web UI regression guards", () => {
   it("turns Bitwarden verification prompts into an inline recovery step", () => {
     expect(webSource).toContain("verificationNeeded");
     expect(webSource).toContain("verificationCodeRef");
+    expect(webSource).toContain("unlockDisabledForVerification");
     expect(webSource).toContain("Submit code and login");
+    expect(webSource).toContain("Unlock is available after Bitwarden login finishes");
+    expect(webSource).toContain("disabled={unlockDisabledForVerification}");
     expect(webSource).toContain("Bitwarden is waiting for this code");
     expect(webSource).toContain("help.technicalDetail");
     expect(styles).toMatch(/\.attentionField\s*{/);
+    expect(styles).toMatch(/\.buttonHint\s*{/);
     expect(styles).toMatch(/\.fieldInstruction\s*{/);
     expect(styles).toMatch(/\.technicalDetail\s*{/);
   });

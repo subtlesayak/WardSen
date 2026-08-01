@@ -381,6 +381,13 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
   gap: 8px;
   padding: 0 14px;
 }
+.buttonHint {
+  flex: 1 1 100%;
+  color: #63766f;
+  font-size: 12px;
+  line-height: 1.35;
+  text-align: right;
+}
 .pager {
   display: flex;
   align-items: center;

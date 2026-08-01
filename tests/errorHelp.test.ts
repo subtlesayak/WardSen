@@ -65,7 +65,7 @@ describe("web error help", () => {
     expect(help.title).toBe("Bitwarden needs a verification code");
     expect(help.detail).toContain("asked for an email or two-step verification code");
     expect(help.guidance).toContain("Verification code");
-    expect(help.guidance).toContain("select Login");
+    expect(help.guidance).toContain("Submit code and login");
     expect(help.technicalDetail).toContain("Provider command");
   });
 
