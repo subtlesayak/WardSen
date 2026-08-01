@@ -1087,9 +1087,8 @@ function titleStatus(value: string) {
   return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-async function confirmDestructiveAction(phrase: string, message: string): Promise<boolean> {
-  const typed = window.prompt(`${message}\n\nType ${phrase} to continue.`);
-  return typed === phrase;
+async function confirmDestructiveAction(_phrase: string, message: string): Promise<boolean> {
+  return window.confirm(`${message}\n\nWardSen will ask the local service to confirm this action.`);
 }
 
 function formatDate(value: string) {
