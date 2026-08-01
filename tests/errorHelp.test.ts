@@ -25,8 +25,19 @@ describe("web error help", () => {
 
     expect(help.title).toBe("WardSen could not find a provider tool");
     expect(help.detail).toContain('"bw"');
-    expect(help.guidance).toContain("Install the missing provider CLI");
-    expect(help.guidance).toContain("PATH");
+    expect(help.guidance).toContain("No terminal is required");
+    expect(help.actionLabel).toBe("Open Bitwarden CLI install guide");
+    expect(help.actionHref).toBe("https://bitwarden.com/help/cli/");
+  });
+
+  it("explains when KeePassXC CLI is missing", () => {
+    const help = describeError('Provider command "keepassxc-cli" was not found.');
+
+    expect(help.title).toBe("WardSen could not find a provider tool");
+    expect(help.detail).toContain('"keepassxc-cli"');
+    expect(help.guidance).toContain("No terminal is required");
+    expect(help.actionLabel).toBe("Open KeePassXC download");
+    expect(help.actionHref).toBe("https://keepassxc.org/download/");
   });
 
   it("keeps unknown errors visible with generic recovery guidance", () => {

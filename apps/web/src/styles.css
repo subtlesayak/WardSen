@@ -191,12 +191,30 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
   color: #8a4545;
   font-size: 12px;
 }
+.noticeActionLink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: max-content;
+  min-height: 38px;
+  padding: 0 12px;
+  border-radius: 8px;
+  color: #17342b;
+  background: #eef4f1;
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+}
+.noticeActionLink:hover {
+  background: #e2ece8;
+}
 .notice.compact {
   display: grid;
   gap: 10px;
   margin-bottom: 0;
 }
-.notice.compact button {
+.notice.compact button,
+.notice.compact .noticeActionLink {
   display: inline-flex;
   align-items: center;
   justify-content: center;

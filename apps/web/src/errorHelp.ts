@@ -2,6 +2,8 @@ export interface ErrorHelp {
   title: string;
   detail: string;
   guidance: string;
+  actionLabel?: string;
+  actionHref?: string;
 }
 
 export function describeError(message?: string): ErrorHelp {
@@ -33,10 +35,13 @@ export function describeError(message?: string): ErrorHelp {
   }
 
   if (lower.includes("provider command") && lower.includes("was not found")) {
+    const providerHelp = providerToolHelp(lower);
     return {
       title: "WardSen could not find a provider tool",
       detail,
-      guidance: "Install the missing provider CLI, make sure it is available on PATH, then close and reopen WardSen before retrying."
+      guidance: providerHelp.guidance,
+      actionLabel: providerHelp.actionLabel,
+      actionHref: providerHelp.actionHref
     };
   }
 
@@ -66,4 +71,24 @@ export function describeError(message?: string): ErrorHelp {
 function cleanMessage(message?: string) {
   const value = message?.trim();
   return value ? value : "No additional detail was returned.";
+}
+
+function providerToolHelp(lowerDetail: string): Pick<ErrorHelp, "guidance" | "actionLabel" | "actionHref"> {
+  if (lowerDetail.includes('"bw"')) {
+    return {
+      guidance: "Install the Bitwarden command-line tool, then close and reopen WardSen before retrying. No terminal is required if you use the official installer/download guide. Advanced users can also install with npm, Chocolatey or Homebrew.",
+      actionLabel: "Open Bitwarden CLI install guide",
+      actionHref: "https://bitwarden.com/help/cli/"
+    };
+  }
+  if (lowerDetail.includes('"keepassxc-cli"')) {
+    return {
+      guidance: "Install KeePassXC, then close and reopen WardSen before retrying. No terminal is required if you use the official Windows or macOS download.",
+      actionLabel: "Open KeePassXC download",
+      actionHref: "https://keepassxc.org/download/"
+    };
+  }
+  return {
+    guidance: "Install the missing provider tool, then close and reopen WardSen before retrying. If your organization manages apps for you, ask IT to install the provider tool on this computer."
+  };
 }

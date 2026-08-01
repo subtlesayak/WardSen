@@ -1074,6 +1074,7 @@ function ErrorNotice({ message, compact = false, actionLabel, onAction }: { mess
       <strong>{help.title}</strong>
       <span>{help.detail}</span>
       <small>{help.guidance}</small>
+      {help.actionLabel && help.actionHref ? <a className="noticeActionLink" href={help.actionHref} target="_blank" rel="noreferrer">{help.actionLabel}</a> : null}
       {actionLabel && onAction ? <button type="button" onClick={onAction}>{actionLabel}</button> : null}
     </div>
   );

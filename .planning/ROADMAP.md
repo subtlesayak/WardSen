@@ -2,7 +2,7 @@
 
 ## Milestone 1: Production-Quality Open-Source Desktop Foundation
 
-Status: implementation complete through Phase 21.
+Status: implementation complete through Phase 24.
 
 ### Completed Phases
 
@@ -93,3 +93,64 @@ The next installer build needs release notes and install-facing documentation th
 - README status identifies `v0.1.0-rc.10` as the latest installer prerelease.
 - Release notes include the UI fixes in the installer build.
 - Changelog records the RC10 user-visible changes.
+
+## Completed Phase 22: Missing Provider Tool Guidance
+
+Status: complete
+
+### Problem
+
+Packaged users could see raw Node process errors such as `spawn bw ENOENT` when a required provider tool was not installed or not visible to WardSen.
+
+### Scope
+
+- Wrap missing provider executable failures in the shared CLI runner.
+- Show provider-tool-specific frontend help instead of raw spawn errors.
+- Add regression tests for missing CLI errors and frontend classification.
+
+### Acceptance Criteria
+
+- Missing `bw` and other provider executables produce actionable safe errors.
+- Frontend error help identifies missing provider tools.
+- Tests pass under `npm run check`, `npm test` and `npm run build`.
+
+## Completed Phase 23: Sticky Error Toasts
+
+Status: complete
+
+### Problem
+
+Action errors could scroll out of view while the user continued working down the page, hiding the cause and recovery step.
+
+### Scope
+
+- Make error notices sticky inside the scrollable workspace.
+- Preserve existing compact error/retry behavior.
+- Add regression coverage for sticky error styling.
+
+### Acceptance Criteria
+
+- Error notices stay visible while workspace content scrolls.
+- Browser QA verifies the sticky notice remains in view after scrolling.
+- Regression tests cover the sticky error rule.
+
+## Completed Phase 24: Non-Terminal Provider Setup
+
+Status: complete
+
+### Problem
+
+Provider setup guidance still assumed users understood CLI tools, terminal commands and PATH.
+
+### Scope
+
+- Add primary install/download actions for known missing provider tools.
+- Link Bitwarden users to the official Bitwarden CLI install guide.
+- Link KeePassXC users to the official KeePassXC download page.
+- Keep terminal commands out of the primary recovery path.
+
+### Acceptance Criteria
+
+- Missing Bitwarden CLI errors include a clear official install-guide action.
+- Missing KeePassXC CLI errors include a clear official download action.
+- Error guidance says no terminal is required for the primary install path.

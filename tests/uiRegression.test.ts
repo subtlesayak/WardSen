@@ -30,4 +30,10 @@ describe("web UI regression guards", () => {
   it("keeps error help visible as a floating toast while workspace content scrolls", () => {
     expect(styles).toMatch(/\.notice\.error\s*{[\s\S]*position:\s*sticky;[\s\S]*top:\s*12px;[\s\S]*z-index:\s*3;/);
   });
+
+  it("renders provider help actions as links inside error toasts", () => {
+    expect(webSource).toContain("noticeActionLink");
+    expect(webSource).toContain("help.actionHref");
+    expect(styles).toMatch(/\.noticeActionLink\s*{/);
+  });
 });
