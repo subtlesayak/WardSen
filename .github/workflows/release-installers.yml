@@ -84,7 +84,12 @@ jobs:
         if: runner.os == 'macOS'
         env:
           APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          MACOS_SIGNING_ENABLED: ${{ vars.MACOS_SIGNING_ENABLED }}
         run: |
+          if [ "$MACOS_SIGNING_ENABLED" != "true" ]; then
+            echo "MACOS_SIGNING_ENABLED is not true; skipping notarization key preparation."
+            exit 0
+          fi
           if [ -n "$APPLE_API_KEY_P8" ]; then
             mkdir -p "$RUNNER_TEMP/private_keys"
             key_path="$RUNNER_TEMP/private_keys/AuthKey_${{ secrets.APPLE_API_KEY }}.p8"
@@ -93,13 +98,24 @@ jobs:
           fi
 
       - name: Build installer
+        if: runner.os != 'macOS'
         run: npm run tauri:build -- ${{ matrix.build_args }}
+
+      - name: Build macOS installer
+        if: runner.os == 'macOS'
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          MACOS_SIGNING_ENABLED: ${{ vars.MACOS_SIGNING_ENABLED }}
+        run: |
+          if [ "$MACOS_SIGNING_ENABLED" != "true" ]; then
+            echo "MACOS_SIGNING_ENABLED is not true; building unsigned macOS artifacts."
+            unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_API_ISSUER APPLE_API_KEY APPLE_API_KEY_PATH
+          fi
+          npm run tauri:build -- ${{ matrix.build_args }}
 
       - name: Build Windows MSI
         if: runner.os == 'Windows'
@@ -149,9 +165,14 @@ jobs:
         if: runner.os == 'macOS'
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          MACOS_SIGNING_ENABLED: ${{ vars.MACOS_SIGNING_ENABLED }}
         run: |
+          if [ "$MACOS_SIGNING_ENABLED" != "true" ]; then
+            echo "MACOS_SIGNING_ENABLED is not true; leaving macOS artifacts unsigned."
+            exit 0
+          fi
           if [ -z "$APPLE_SIGNING_IDENTITY" ]; then
-            echo "APPLE_SIGNING_IDENTITY is not configured; leaving macOS artifacts unsigned."
+            echo "APPLE_SIGNING_IDENTITY is not configured."
             exit 0
           fi
           ./installers/macos/verify-macos-artifacts.sh

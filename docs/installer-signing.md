@@ -198,4 +198,6 @@ Configure these GitHub repository secrets before publishing signed installer rel
 - Windows: `WINDOWS_CERTIFICATE_BASE64`, `WINDOWS_CERTIFICATE_PASSWORD`, `WINDOWS_TIMESTAMP_URL`
 - macOS: `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_API_ISSUER`, `APPLE_API_KEY`, `APPLE_API_KEY_P8`
 
+Set repository variable `MACOS_SIGNING_ENABLED` to `true` only after the macOS signing and notarization secrets are complete and verified. When the variable is unset or any other value, the workflow builds unsigned macOS RC artifacts instead of trying to import partial certificate material.
+
 If signing secrets are not configured, the workflow can still produce developer-preview artifacts, but those artifacts must remain draft/prerelease or be clearly marked unsigned.
