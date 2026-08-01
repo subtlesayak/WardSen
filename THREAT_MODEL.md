@@ -27,7 +27,7 @@
 - Session tokens are in-memory only and removed on lock/logout/shutdown.
 - Database passwords, master passwords and delivery payloads are passed through stdin where provider CLIs allow it.
 - The packaged desktop app adds a per-launch local API token between the Tauri shell and backend service.
-- The desktop shell resolves Node.js to an absolute trusted runtime path before launching the local backend.
+- The desktop shell prefers bundled Node.js and otherwise resolves Node.js to an absolute trusted runtime path before launching the local backend.
 - Bitwarden Send status refresh records access counts, expiry changes and revocation state without storing credential content.
 - Unsupported provider capabilities fail explicitly.
 

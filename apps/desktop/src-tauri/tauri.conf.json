@@ -6,6 +6,7 @@
   "build": {
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build:server && npm run build:web",
+    "beforeBundleCommand": "npm run prepare:desktop-runtime",
     "devUrl": "http://127.0.0.1:5173",
     "frontendDist": "../../web/dist"
   },
@@ -30,7 +31,8 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "../../server/dist/index.cjs": "server/index.cjs"
+      "../../server/dist/index.cjs": "server/index.cjs",
+      "gen/runtime": "runtime"
     },
     "license": "Apache-2.0",
     "copyright": "Copyright 2026 WardSen contributors"

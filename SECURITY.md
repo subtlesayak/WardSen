@@ -23,7 +23,7 @@ The packaged desktop app also adds a per-launch local API token between the Taur
 - CLI stdout, stderr and safe API errors are redacted for known password, token, secret, session and key patterns.
 - Bitwarden account data uses isolated CLI profile directories; KeePassXC database passwords are supplied through stdin.
 - SQLite stores metadata only and applies owner-only POSIX file modes where supported. Full local database encryption is not part of the pre-1.0 release.
-- The desktop launcher starts Node.js from an absolute trusted runtime path. Nonstandard Node installs should use `WARDSEN_NODE_PATH`.
+- The desktop launcher starts bundled Node.js first, then absolute trusted runtime paths. Nonstandard Node installs should use `WARDSEN_NODE_PATH`.
 
 ## Delivery Limits
 

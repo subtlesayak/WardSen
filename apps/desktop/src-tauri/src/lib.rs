@@ -23,8 +23,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![get_api_token])
         .setup(|app| {
             let server_path = app.path().resolve("server/index.cjs", BaseDirectory::Resource)?;
+            let bundled_node_path = bundled_node_path(app);
             let api_token = generate_api_token()?;
-            let node_path = resolve_node_executable()?;
+            let node_path = resolve_node_executable(bundled_node_path)?;
             let child = Command::new(node_path)
                 .arg(server_path)
                 .env("WARDSEN_PORT", "4777")
@@ -71,18 +72,21 @@ fn hex_encode(bytes: &[u8]) -> String {
     encoded
 }
 
-fn resolve_node_executable() -> io::Result<PathBuf> {
-    let candidates = node_candidates();
+fn resolve_node_executable(bundled_node_path: Option<PathBuf>) -> io::Result<PathBuf> {
+    let candidates = node_candidates(bundled_node_path);
     candidates.into_iter().find(|candidate| candidate.is_file()).ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::NotFound,
-            "WardSen could not find a trusted Node.js runtime. Install Node.js from nodejs.org or set WARDSEN_NODE_PATH to an absolute node executable path."
+            "WardSen could not find a trusted Node.js runtime. Reinstall WardSen, install Node.js from nodejs.org, or set WARDSEN_NODE_PATH to an absolute node executable path."
         )
     })
 }
 
-fn node_candidates() -> Vec<PathBuf> {
+fn node_candidates(bundled_node_path: Option<PathBuf>) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
+    if let Some(path) = bundled_node_path {
+        candidates.push(path);
+    }
     if let Some(explicit) = env::var_os("WARDSEN_NODE_PATH").map(PathBuf::from) {
         if explicit.is_absolute() {
             candidates.push(explicit);
@@ -106,4 +110,16 @@ fn node_candidates() -> Vec<PathBuf> {
     }
 
     candidates
+}
+
+fn bundled_node_path(app: &tauri::App) -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        app.path().resolve("runtime/node.exe", BaseDirectory::Resource).ok()
+    }
+
+    #[cfg(not(windows))]
+    {
+        app.path().resolve("runtime/node", BaseDirectory::Resource).ok()
+    }
 }

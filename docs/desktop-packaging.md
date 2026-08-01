@@ -5,10 +5,12 @@ WardSen uses Tauri 2 for the desktop shell and keeps the API server bound to `12
 ## Runtime Model
 
 1. Tauri loads the built React app from `apps/web/dist`.
-2. On startup, Tauri launches the bundled server artifact `server/index.cjs` with Node.js from an absolute trusted runtime path.
-3. The web UI detects the Tauri origin and sends API requests to `http://127.0.0.1:4777`.
-4. The server still rejects non-local Host headers and untrusted cross-origin mutations.
-5. When the main window is destroyed, Tauri stops the child server process.
+2. Before bundling, WardSen stages the release-machine Node.js executable under `apps/desktop/src-tauri/gen/runtime`.
+3. On startup, Tauri launches the bundled server artifact `server/index.cjs` with the bundled Node.js runtime when present.
+4. If the bundled runtime is unavailable, WardSen falls back to `WARDSEN_NODE_PATH` and then trusted system install locations.
+5. The web UI detects the Tauri origin and sends API requests to `http://127.0.0.1:4777`.
+6. The server still rejects non-local Host headers and untrusted cross-origin mutations.
+7. When the main window is destroyed, Tauri stops the child server process.
 
 ## Build Commands
 
@@ -92,11 +94,13 @@ The Tauri bundle includes:
 
 - React frontend: `apps/web/dist`
 - Local API server: `apps/server/dist/index.cjs` as `server/index.cjs`
+- Node.js runtime: `apps/desktop/src-tauri/gen/runtime/node.exe` as `runtime/node.exe` on Windows, or `apps/desktop/src-tauri/gen/runtime/node` as `runtime/node` on macOS/Linux
 
-Node.js is required on the target machine for the current pre-1.0 package. Future release hardening can replace this with a native sidecar binary.
+Release packages stage Node.js from the release machine before bundling. `apps/desktop/src-tauri/gen/` is generated and ignored by Git; do not commit the runtime binary.
 
 WardSen resolves Node.js from:
 
+- Bundled desktop resource `runtime/node.exe` on Windows or `runtime/node` on macOS/Linux, when present
 - `WARDSEN_NODE_PATH`, when set to an absolute executable path
 - Standard Windows install locations under `Program Files`
 - Standard Unix/macOS locations such as `/usr/local/bin/node`, `/opt/homebrew/bin/node` and `/usr/bin/node`

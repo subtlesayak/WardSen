@@ -127,6 +127,12 @@ spctl --assess --type execute --verbose "apps/desktop/src-tauri/target/release/b
 xcrun stapler validate "apps/desktop/src-tauri/target/release/bundle/dmg/WardSen_0.1.0_aarch64.dmg"
 ```
 
+Helper verification:
+
+```bash
+./installers/macos/verify-macos-artifacts.sh
+```
+
 ### CI Secrets
 
 Recommended secret names:

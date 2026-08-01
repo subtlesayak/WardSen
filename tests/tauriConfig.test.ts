@@ -8,11 +8,13 @@ describe("Tauri packaging config", () => {
   it("builds the local API server and web frontend before packaging", () => {
     expect(config.build.beforeBuildCommand).toContain("npm run build:server");
     expect(config.build.beforeBuildCommand).toContain("npm run build:web");
+    expect(config.build.beforeBundleCommand).toBe("npm run prepare:desktop-runtime");
   });
 
-  it("bundles the local API server as a desktop resource", () => {
+  it("bundles the local API server and Node runtime as desktop resources", () => {
     expect(config.bundle.resources).toMatchObject({
-      "../../server/dist/index.cjs": "server/index.cjs"
+      "../../server/dist/index.cjs": "server/index.cjs",
+      "gen/runtime": "runtime"
     });
   });
 

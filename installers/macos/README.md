@@ -44,6 +44,24 @@ npm run desktop:build
 
 Tauri writes macOS artifacts under `apps/desktop/src-tauri/target/release/bundle`.
 
+## Signing, Notarization and Verification
+
+Set the Tauri signing and notarization environment variables before packaging:
+
+```bash
+export APPLE_SIGNING_IDENTITY="Developer ID Application: Publisher Name (TEAMID)"
+export APPLE_API_ISSUER="00000000-0000-0000-0000-000000000000"
+export APPLE_API_KEY="ABC123DEFG"
+export APPLE_API_KEY_PATH="$HOME/private_keys/AuthKey_ABC123DEFG.p8"
+./installers/macos/macos-install.sh --package-desktop
+```
+
+Verify the signed app bundle and stapled DMG artifacts:
+
+```bash
+./installers/macos/verify-macos-artifacts.sh
+```
+
 ## Development Start
 
 Run this from inside the `WardSen` folder:

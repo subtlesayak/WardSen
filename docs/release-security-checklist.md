@@ -29,7 +29,7 @@ Run this checklist before publishing a public WardSen build.
 - Sign desktop release artifacts before publishing end-user installers, or clearly mark the release as unsigned/source-only.
 - Verify signed Windows artifacts with `signtool verify`.
 - Verify macOS signing and notarization with `codesign`, `spctl` and `xcrun stapler validate`.
-- Confirm packaged desktop builds launch Node.js from an absolute trusted runtime path, or mark the release as source-only until a trusted runtime is available.
+- Confirm packaged desktop builds include `runtime/node.exe` on Windows or `runtime/node` on macOS/Linux, or launch Node.js from an absolute trusted runtime path; otherwise mark the release as source-only.
 
 ## Bulk Delivery
 

@@ -122,7 +122,7 @@ On Windows, install Node.js LTS and Git first. The WardSen Windows helper can in
 
 On macOS, install Node.js LTS, Git and Homebrew first. The WardSen macOS helper can install provider tools through Homebrew.
 
-Packaged desktop builds currently require Node.js on the target machine. WardSen looks for Node.js in standard trusted install locations, such as `C:\Program Files\nodejs\node.exe` on Windows, before starting its local service. For a custom runtime location, set `WARDSEN_NODE_PATH` to the absolute path of the Node executable before launching WardSen.
+Packaged desktop builds stage the release machine's Node.js executable into the installer at build time. If that bundled runtime is unavailable, WardSen looks for Node.js in standard trusted install locations, such as `C:\Program Files\nodejs\node.exe` on Windows or `/usr/local/bin/node` on macOS, before starting its local service. For a custom runtime location, set `WARDSEN_NODE_PATH` to the absolute path of the Node executable before launching WardSen.
 
 ### 2. Get the code
 
@@ -247,7 +247,7 @@ See `docs/release-security-checklist.md` and `docs/rustsec-audit.md` before publ
 - SQLite stores metadata, never passwords, TOTP secrets, secure notes, master passwords, access passwords or raw CLI output
 - SQLite metadata files use owner-only POSIX modes where supported; full local database encryption is planned after the pre-1.0 release
 - CLI commands use `spawn` with `shell: false`
-- The desktop launcher starts Node.js from an absolute trusted runtime path, not a bare `PATH` lookup
+- The desktop launcher starts bundled Node.js first, then absolute trusted runtime paths, never a bare `PATH` lookup
 
 ## Provider Requirements
 
