@@ -18,7 +18,7 @@ import {
   UsersRound,
   Vault
 } from "lucide-react";
-import { apiDownload, apiGet, apiSend, canRestartLocalService, getLocalServiceStatus, openExternalUrl, restartLocalService, type LocalServiceStatus } from "./api";
+import { apiDownload, apiGet, apiSend, canRestartLocalService, copyExternalUrl, getLocalServiceStatus, openExternalUrl, restartLocalService, type LocalServiceStatus } from "./api";
 import { describeError } from "./errorHelp";
 import { appVersion } from "./version";
 import "./styles.css";
@@ -1070,20 +1070,35 @@ function EmptyState({ text }: { text: string }) {
 function ErrorNotice({ message, compact = false, actionLabel, onAction }: { message?: string; compact?: boolean; actionLabel?: string; onAction?: () => void }) {
   const help = describeError(message);
   const [actionError, setActionError] = useState<string | undefined>();
+  const [copyStatus, setCopyStatus] = useState<string | undefined>();
   const externalAction = help.actionLabel && help.actionHref ? { label: help.actionLabel, href: help.actionHref } : undefined;
   return (
     <div className={compact ? "notice error compact errorHelp" : "notice error errorHelp"} role="alert">
       <strong>{help.title}</strong>
       <span>{help.detail}</span>
       <small>{help.guidance}</small>
-      {externalAction ? <button type="button" className="noticeActionLink" onClick={() => {
-        setActionError(undefined);
-        void openExternalUrl(externalAction.href).catch((error: unknown) => {
-          const detail = error instanceof Error ? error.message : String(error);
-          setActionError(`Could not open the install page automatically. Copy this link into your browser: ${externalAction.href}. Detail: ${detail}`);
-        });
-      }}>{externalAction.label}</button> : null}
+      {externalAction ? (
+        <div className="noticeActions">
+          <button type="button" className="noticeActionLink" onClick={() => {
+            setActionError(undefined);
+            void openExternalUrl(externalAction.href).catch((error: unknown) => {
+              const detail = error instanceof Error ? error.message : String(error);
+              setActionError(`Could not open the install page automatically. Copy this link into another browser: ${externalAction.href}. Detail: ${detail}`);
+            });
+          }}>{externalAction.label}</button>
+          <button type="button" className="noticeActionLink secondary" onClick={() => {
+            setCopyStatus(undefined);
+            void copyExternalUrl(externalAction.href)
+              .then(() => setCopyStatus("Install link copied. Paste it into another browser if Edge closes unexpectedly."))
+              .catch((error: unknown) => {
+                const detail = error instanceof Error ? error.message : String(error);
+                setCopyStatus(`Copy was blocked. Manually copy this link: ${externalAction.href}. Detail: ${detail}`);
+              });
+          }}><Copy size={15} /> Copy install link</button>
+        </div>
+      ) : null}
       {actionError ? <small>{actionError}</small> : null}
+      {copyStatus ? <small>{copyStatus}</small> : null}
       {actionLabel && onAction ? <button type="button" onClick={onAction}>{actionLabel}</button> : null}
     </div>
   );

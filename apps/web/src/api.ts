@@ -81,6 +81,30 @@ export async function openExternalUrl(url: string): Promise<void> {
   }
 }
 
+export async function copyExternalUrl(url: string): Promise<void> {
+  const parsed = new URL(url);
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new Error("WardSen can only copy HTTP or HTTPS help links.");
+  }
+
+  const text = parsed.toString();
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const input = document.createElement("input");
+  input.value = text;
+  input.readOnly = true;
+  input.style.position = "fixed";
+  input.style.left = "-9999px";
+  document.body.appendChild(input);
+  input.select();
+  const copied = document.execCommand("copy");
+  input.remove();
+  if (!copied) throw new Error("Clipboard copy was blocked by the browser.");
+}
+
 function isTauriOrigin(): boolean {
   if (typeof window === "undefined") return false;
   return window.location.protocol === "tauri:" || window.location.hostname === "tauri.localhost";

@@ -2,7 +2,7 @@
 
 ## Milestone 1: Production-Quality Open-Source Desktop Foundation
 
-Status: implementation complete through Phase 25.
+Status: implementation complete through Phase 26.
 
 ### Completed Phases
 
@@ -175,3 +175,24 @@ Provider setup buttons looked clickable in packaged desktop builds, but clicking
 - Clicking provider setup actions in the desktop app invokes the Tauri opener API.
 - The desktop capability grants `opener:default` to the main window.
 - If automatic opening fails, the error panel shows a copyable install URL.
+
+## Completed Phase 26: Browser-Crash-Resilient Provider Help
+
+Status: complete
+
+### Problem
+
+Windows can accept a desktop request to open an install guide even when the user's default browser later crashes, hangs or consumes excessive memory. WardSen cannot reliably catch that after the system-browser handoff succeeds.
+
+### Scope
+
+- Keep the system-browser open action for normal provider setup.
+- Add a visible copy-link action beside provider install/download actions.
+- Validate copied help links and reject non-web URLs.
+- Add regression coverage so provider setup errors always expose both open and copy paths.
+
+### Acceptance Criteria
+
+- Missing provider-tool help shows `Copy install link` next to the open-guide action.
+- Copying provider setup links works even when the default browser is unreliable.
+- Tests pass under `npm run check`, `npm test` and `npm run build`.

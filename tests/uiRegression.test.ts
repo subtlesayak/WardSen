@@ -32,9 +32,13 @@ describe("web UI regression guards", () => {
   });
 
   it("renders provider help actions as opener-backed controls inside error toasts", () => {
+    expect(webSource).toContain("noticeActions");
     expect(webSource).toContain("noticeActionLink");
     expect(webSource).toContain("openExternalUrl");
+    expect(webSource).toContain("copyExternalUrl");
+    expect(webSource).toContain("Copy install link");
     expect(webSource).toContain("help.actionHref");
+    expect(styles).toMatch(/\.noticeActions\s*{/);
     expect(styles).toMatch(/\.noticeActionLink\s*{/);
   });
 });

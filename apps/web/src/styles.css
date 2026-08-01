@@ -191,10 +191,16 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
   color: #8a4545;
   font-size: 12px;
 }
+.noticeActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 .noticeActionLink {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 8px;
   width: max-content;
   min-height: 38px;
   padding: 0 12px;
@@ -210,6 +216,14 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
 }
 .noticeActionLink:hover {
   background: #e2ece8;
+}
+.noticeActionLink.secondary {
+  color: #7b2f2f;
+  background: #fff5f3;
+  box-shadow: inset 0 0 0 1px rgba(123, 47, 47, 0.14);
+}
+.noticeActionLink.secondary:hover {
+  background: #fdecea;
 }
 .notice.compact {
   display: grid;

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { apiGet, apiSend, apiUrl, canRestartLocalService, getLocalServiceStatus, openExternalUrl, restartLocalService } from "../apps/web/src/api";
+import { apiGet, apiSend, apiUrl, canRestartLocalService, copyExternalUrl, getLocalServiceStatus, openExternalUrl, restartLocalService } from "../apps/web/src/api";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async () => undefined)
@@ -137,6 +137,19 @@ describe("web API helpers", () => {
 
   it("rejects non-web external links", async () => {
     await expect(openExternalUrl("file:///C:/Windows/System32/calc.exe")).rejects.toThrow("HTTP or HTTPS");
+  });
+
+  it("copies help links for users whose default browser cannot open", async () => {
+    const writeText = vi.fn(async () => undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+
+    await copyExternalUrl("https://bitwarden.com/help/cli/");
+
+    expect(writeText).toHaveBeenCalledWith("https://bitwarden.com/help/cli/");
+  });
+
+  it("rejects non-web copy links", async () => {
+    await expect(copyExternalUrl("file:///C:/Windows/System32/calc.exe")).rejects.toThrow("HTTP or HTTPS");
   });
 
   it("rejects absolute API URLs", () => {
