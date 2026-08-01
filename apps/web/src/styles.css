@@ -58,6 +58,17 @@ textarea {
 .brand { display: flex; align-items: center; gap: 12px; }
 .brand strong { display: block; font-size: 20px; line-height: 1.1; }
 .brand span, .disclaimer { color: #a8bfb6; font-size: 12px; line-height: 1.5; }
+.brand .brandVersion {
+  display: inline-flex;
+  width: max-content;
+  margin-top: 4px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  color: #dff3ec;
+  background: #1b3b31;
+  font-size: 11px;
+  line-height: 1.4;
+}
 .brandMark {
   display: grid;
   place-items: center;
@@ -95,6 +106,23 @@ nav { display: grid; gap: 6px; }
 h1, h2, p { margin: 0; }
 h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
 .topbar p { max-width: 720px; margin-top: 8px; color: #5f716b; line-height: 1.5; }
+.topbarActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.versionBadge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: 999px;
+  color: #31564a;
+  background: #dff3ec;
+  font-size: 12px;
+  font-weight: 700;
+}
 .primary {
   display: inline-flex;
   align-items: center;

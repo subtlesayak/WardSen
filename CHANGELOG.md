@@ -13,3 +13,5 @@
 - Added clearer cross-origin error help, package updates, installer runtime checks and release artifact documentation.
 - Fixed desktop recovery when the bundled local service is unreachable: the banner now restarts the service before retrying instead of repeating the same failed fetch.
 - Added desktop service diagnostics for failed recovery, including process state, port reachability, bundled runtime presence, server bundle presence and short service output.
+- Added a visible app version label in the desktop interface so screenshots identify the installed build.
+- Fixed Windows packaged local-service startup by normalizing bundled Node paths, selecting a writable data directory, creating SQLite/profile folders before startup and allowing trusted desktop preflight requests before token-authenticated API calls.

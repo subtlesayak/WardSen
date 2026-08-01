@@ -35,6 +35,9 @@ describe("Tauri packaging config", () => {
     expect(rustLauncher).toContain("local_service_status");
     expect(rustLauncher).toContain("restart_server_process");
     expect(rustLauncher).toContain("collect_child_output");
+    expect(rustLauncher).toContain("WARDSEN_DATA_DIR");
+    expect(rustLauncher).toContain("LOCALAPPDATA");
+    expect(rustLauncher).toContain("WardSen");
     expect(rustLauncher).toMatch(/tauri::generate_handler!\[[\s\S]*get_api_token[\s\S]*restart_local_service[\s\S]*local_service_status[\s\S]*\]/);
   });
 

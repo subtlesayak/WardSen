@@ -83,6 +83,20 @@ export async function buildApp(options: BuildAppOptions = {}) {
       await reply.code(403).send({ error: "WardSen only accepts local requests" });
       return;
     }
+    const origin = firstHeaderValue(request.headers.origin);
+    if (origin) {
+      const corsAllowed = isAllowedLocalCorsOrigin(origin, request.headers.host);
+      if (corsAllowed) {
+        applyCorsHeaders(reply, origin);
+      } else if (request.method === "OPTIONS") {
+        await reply.code(403).send({ error: "WardSen blocked a cross-origin request from an untrusted origin." });
+        return;
+      }
+    }
+    if (request.method === "OPTIONS") {
+      await reply.code(204).send();
+      return;
+    }
     if (!isAuthorizedLocalApiRequest(request.headers["x-wardsen-api-token"], apiToken)) {
       await reply.code(401).send({ error: "WardSen local service rejected this request because the desktop API token was missing or invalid. Restart WardSen from the desktop app, then retry." });
       return;
@@ -558,6 +572,30 @@ function isAuthorizedLocalApiRequest(header: string | string[] | undefined, apiT
   if (!apiToken) return true;
   const value = Array.isArray(header) ? header[0] : header;
   return value === apiToken;
+}
+
+function firstHeaderValue(header: string | string[] | undefined): string | undefined {
+  return Array.isArray(header) ? header[0] : header;
+}
+
+function applyCorsHeaders(reply: { header: (name: string, value: string) => unknown }, origin: string): void {
+  reply.header("access-control-allow-origin", origin);
+  reply.header("vary", "Origin");
+  reply.header("access-control-allow-methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+  reply.header("access-control-allow-headers", "content-type,x-wardsen-api-token");
+  reply.header("access-control-max-age", "600");
+}
+
+function isAllowedLocalCorsOrigin(origin: string, host?: string): boolean {
+  try {
+    const parsed = new URL(origin);
+    if ((parsed.protocol === "tauri:" && parsed.hostname === "localhost") || parsed.hostname === "tauri.localhost") {
+      return true;
+    }
+    return Boolean(host && ["http:", "https:"].includes(parsed.protocol) && parsed.host === host);
+  } catch {
+    return false;
+  }
 }
 
 const paginationSchema = z.object({

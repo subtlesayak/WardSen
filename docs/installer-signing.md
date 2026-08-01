@@ -4,13 +4,13 @@ WardSen release installers should be signed before a public release is published
 
 ## Current Release State
 
-`v0.1.0-rc.8` is published as an unsigned prerelease with Windows x64 and macOS Apple Silicon installer artifacts attached. Treat it as a validation build, not a fully trusted end-user release.
+`v0.1.0-rc.9` is published as an unsigned prerelease with Windows x64 and macOS Apple Silicon installer artifacts attached. Treat it as a validation build, not a fully trusted end-user release.
 
 Do not promote a final `v0.1.0` or "latest" release until Windows Authenticode signing and macOS Developer ID notarization are configured and verified, or until the release clearly states that the installers are unsigned.
 
 ## Maintainer Signing Quick Start
 
-Use this path when preparing a signed update after the unsigned `v0.1.0-rc.8` validation release.
+Use this path when preparing a signed update after the unsigned `v0.1.0-rc.9` validation release.
 
 ### 1. Get signing identities
 

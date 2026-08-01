@@ -19,6 +19,7 @@ permissions:
 
 env:
   NODE_VERSION: "22"
+  VITE_WARDSEN_RELEASE_TAG: ${{ inputs.release_tag }}
   WARDSEN_BUNDLE_ROOT: apps/desktop/src-tauri/target/x86_64-apple-darwin/release/bundle
 
 jobs:

@@ -1,6 +1,7 @@
 use std::{
-    env, io,
+    env, fs, io,
     io::Read,
+    io::Write,
     net::{SocketAddr, TcpStream},
     path::PathBuf,
     process::{Child, Command, Stdio},
@@ -22,6 +23,8 @@ struct ApiToken(String);
 struct ServerLaunchConfig {
     node_path: PathBuf,
     server_path: PathBuf,
+    data_dir: PathBuf,
+    log_path: PathBuf,
 }
 
 #[derive(Serialize)]
@@ -68,25 +71,36 @@ pub fn run() {
             local_service_status
         ])
         .setup(|app| {
-            let server_path = app
-                .path()
-                .resolve("server/index.cjs", BaseDirectory::Resource)?;
-            let bundled_node_path = bundled_node_path(app);
+            let server_path = resolve_server_bundle(app);
+            let bundled_node_path = resolve_bundled_node(app);
             let api_token = generate_api_token()?;
             let node_path = resolve_node_executable(bundled_node_path)?;
+            let data_dir = resolve_data_dir(app)?;
+            let log_path = data_dir.join("wardsen-service.log");
             let config = ServerLaunchConfig {
                 node_path,
                 server_path,
+                data_dir,
+                log_path,
             };
-            let child = spawn_server_process(&config, &api_token)?;
-            app.manage(ApiToken(api_token));
-            app.manage(config);
-            app.manage(ServerProcess {
-                child: Mutex::new(Some(child)),
+            let process = ServerProcess {
+                child: Mutex::new(None),
                 last_error: Mutex::new(None),
                 last_exit: Mutex::new(None),
                 last_output: Mutex::new(None),
-            });
+            };
+            match spawn_server_process(&config, &api_token) {
+                Ok(child) => {
+                    set_mutex_value(&process.child, Some(child))?;
+                }
+                Err(error) => {
+                    set_mutex_value(&process.last_error, Some(error.to_string()))?;
+                    let _ = append_launch_log(&config, &format!("spawn failed: {error}"));
+                }
+            }
+            app.manage(ApiToken(api_token));
+            app.manage(config);
+            app.manage(process);
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -139,13 +153,31 @@ fn restart_server_process(
 }
 
 fn spawn_server_process(config: &ServerLaunchConfig, api_token: &str) -> io::Result<Child> {
-    Command::new(&config.node_path)
-        .arg(&config.server_path)
+    let node_path = normalize_child_path(&config.node_path);
+    let server_path = normalize_child_path(&config.server_path);
+    let data_dir = normalize_child_path(&config.data_dir);
+    append_launch_log(
+        config,
+        &format!(
+            "spawning node={} server={} data={}",
+            node_path.display(),
+            server_path.display(),
+            data_dir.display()
+        ),
+    )?;
+    let log_file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&config.log_path)?;
+    Command::new(&node_path)
+        .arg(&server_path)
+        .current_dir(&data_dir)
         .env("WARDSEN_PORT", "4777")
         .env("WARDSEN_API_TOKEN", api_token)
+        .env("WARDSEN_DATA_DIR", &data_dir)
         .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stdout(Stdio::from(log_file.try_clone()?))
+        .stderr(Stdio::from(log_file))
         .spawn()
 }
 
@@ -166,8 +198,9 @@ fn service_status(
                 Some(status) => {
                     let output = collect_child_output(child);
                     set_mutex_value(&process.last_exit, Some(format_exit_status(status)))?;
-                    if output.is_some() {
-                        set_mutex_value(&process.last_output, output)?;
+                    let output = output.or_else(|| read_log_tail(&config.log_path, 1200));
+                    if let Some(output) = output {
+                        set_mutex_value(&process.last_output, Some(output))?;
                     }
                     *child_guard = None;
                 }
@@ -185,7 +218,8 @@ fn service_status(
         server_bundle_found: config.server_path.is_file(),
         last_error: clone_mutex_value(&process.last_error)?,
         last_exit: clone_mutex_value(&process.last_exit)?,
-        last_output: clone_mutex_value(&process.last_output)?,
+        last_output: clone_mutex_value(&process.last_output)?
+            .or_else(|| read_log_tail(&config.log_path, 1200)),
     })
 }
 
@@ -252,6 +286,30 @@ fn truncate_for_ui(value: &str, limit: usize) -> String {
     truncated
 }
 
+fn append_launch_log(config: &ServerLaunchConfig, message: &str) -> io::Result<()> {
+    fs::create_dir_all(&config.data_dir)?;
+    let mut log_file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&config.log_path)?;
+    writeln!(log_file, "{message}")?;
+    Ok(())
+}
+
+fn read_log_tail(path: &PathBuf, limit: usize) -> Option<String> {
+    fs::read_to_string(path)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| {
+            let count = value.chars().count();
+            if count <= limit {
+                value.trim().to_string()
+            } else {
+                value.chars().skip(count - limit).collect::<String>()
+            }
+        })
+}
+
 fn generate_api_token() -> io::Result<String> {
     let mut bytes = [0_u8; 32];
     getrandom::fill(&mut bytes).map_err(|error| {
@@ -313,18 +371,100 @@ fn node_candidates(bundled_node_path: Option<PathBuf>) -> Vec<PathBuf> {
     candidates
 }
 
-fn bundled_node_path(app: &tauri::App) -> Option<PathBuf> {
+fn resolve_server_bundle(app: &tauri::App) -> PathBuf {
+    let candidates = path_candidates(app, "server/index.cjs");
+    let fallback = candidates
+        .first()
+        .cloned()
+        .unwrap_or_else(|| PathBuf::from("server/index.cjs"));
+    candidates
+        .into_iter()
+        .find(|candidate| candidate.is_file())
+        .unwrap_or(fallback)
+}
+
+fn resolve_bundled_node(app: &tauri::App) -> Option<PathBuf> {
     #[cfg(windows)]
     {
-        app.path()
-            .resolve("runtime/node.exe", BaseDirectory::Resource)
-            .ok()
+        find_first_existing_path(path_candidates(app, "runtime/node.exe"))
     }
 
     #[cfg(not(windows))]
     {
-        app.path()
-            .resolve("runtime/node", BaseDirectory::Resource)
-            .ok()
+        find_first_existing_path(path_candidates(app, "runtime/node"))
     }
+}
+
+fn resolve_data_dir(app: &tauri::App) -> io::Result<PathBuf> {
+    let mut candidates = Vec::new();
+
+    #[cfg(windows)]
+    {
+        if let Some(local_app_data) = env::var_os("LOCALAPPDATA").map(PathBuf::from) {
+            candidates.push(local_app_data.join("WardSen").join("data"));
+        }
+    }
+
+    if let Ok(path) = app.path().app_data_dir() {
+        candidates.push(path.join("wardsen-data"));
+    }
+    if let Ok(exe_path) = env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            candidates.push(exe_dir.join(".wardsen-data"));
+        }
+    }
+
+    let mut failures = Vec::new();
+    for candidate in candidates {
+        match ensure_writable_dir(&candidate) {
+            Ok(()) => return Ok(candidate),
+            Err(error) => failures.push(format!("{}: {error}", candidate.display())),
+        }
+    }
+
+    Err(io::Error::new(
+        io::ErrorKind::PermissionDenied,
+        format!(
+            "WardSen could not prepare a writable local data directory. Checked: {}",
+            failures.join("; ")
+        ),
+    ))
+}
+
+fn ensure_writable_dir(path: &PathBuf) -> io::Result<()> {
+    fs::create_dir_all(path)?;
+    let probe_path = path.join(".wardsen-write-test");
+    fs::write(&probe_path, b"ok")?;
+    let _ = fs::remove_file(probe_path);
+    Ok(())
+}
+
+fn find_first_existing_path(candidates: Vec<PathBuf>) -> Option<PathBuf> {
+    candidates.into_iter().find(|candidate| candidate.is_file())
+}
+
+fn path_candidates(app: &tauri::App, relative_path: &str) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Ok(path) = app.path().resolve(relative_path, BaseDirectory::Resource) {
+        candidates.push(path);
+    }
+    if let Ok(exe_path) = env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            candidates.push(exe_dir.join(relative_path));
+            candidates.push(exe_dir.join("resources").join(relative_path));
+        }
+    }
+    candidates
+}
+
+fn normalize_child_path(path: &PathBuf) -> PathBuf {
+    #[cfg(windows)]
+    {
+        let value = path.display().to_string();
+        if let Some(stripped) = value.strip_prefix(r"\\?\") {
+            return PathBuf::from(stripped);
+        }
+    }
+
+    path.clone()
 }

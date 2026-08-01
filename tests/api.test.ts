@@ -54,6 +54,32 @@ describe("WardSen API", () => {
     await app.close();
   });
 
+  it("allows trusted desktop preflight before token-authenticated requests", async () => {
+    const app = await buildApp({ apiToken: "desktop-token" });
+    const preflight = await app.inject({
+      method: "OPTIONS",
+      url: "/api/providers",
+      headers: {
+        host: "127.0.0.1:4777",
+        origin: "tauri://localhost",
+        "access-control-request-method": "GET",
+        "access-control-request-headers": "x-wardsen-api-token"
+      }
+    });
+    expect(preflight.statusCode).toBe(204);
+    expect(preflight.headers["access-control-allow-origin"]).toBe("tauri://localhost");
+    expect(preflight.headers["access-control-allow-headers"]).toContain("x-wardsen-api-token");
+
+    const accepted = await app.inject({
+      method: "GET",
+      url: "/api/providers",
+      headers: { host: "127.0.0.1:4777", origin: "tauri://localhost", "x-wardsen-api-token": "desktop-token" }
+    });
+    expect(accepted.statusCode).toBe(200);
+    expect(accepted.headers["access-control-allow-origin"]).toBe("tauri://localhost");
+    await app.close();
+  });
+
   it("rejects cross-origin state-changing requests", async () => {
     const app = await buildApp();
     const response = await app.inject({

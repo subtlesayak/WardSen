@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { apiDownload, apiGet, apiSend, canRestartLocalService, getLocalServiceStatus, restartLocalService, type LocalServiceStatus } from "./api";
 import { describeError } from "./errorHelp";
+import { appVersion } from "./version";
 import "./styles.css";
 
 type NavItem = "Overview" | "Vaults" | "Credentials" | "People" | "Deliveries" | "Settings";
@@ -153,6 +154,7 @@ function App() {
           <div>
             <strong>WardSen</strong>
             <span>Local dispatch hub</span>
+            <span className="brandVersion">{appVersion}</span>
           </div>
         </div>
         <nav>
@@ -175,7 +177,10 @@ function App() {
             <h1>{active}</h1>
             <p>WardSen is a local-first credential dispatch hub for password managers and secure-sharing providers.</p>
           </div>
-          <button className="primary" onClick={() => api.refresh()}><RefreshCcw size={16} /> Refresh</button>
+          <div className="topbarActions">
+            <span className="versionBadge" title="WardSen app version">{appVersion}</span>
+            <button className="primary" onClick={() => api.refresh()}><RefreshCcw size={16} /> Refresh</button>
+          </div>
         </header>
 
         <ApiBanner api={api} />
