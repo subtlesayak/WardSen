@@ -114,6 +114,13 @@ Expected output folder:
 apps/desktop/src-tauri/target/release/bundle/
 ```
 
+Targeted CI builds use target-specific bundle folders such as:
+
+```text
+apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/
+apps/desktop/src-tauri/target/x86_64-apple-darwin/release/bundle/
+```
+
 ### Verify Signing
 
 ```bash
@@ -187,11 +194,12 @@ git push origin v0.1.0
 The workflow builds:
 
 - Windows x64 `.exe` and `.msi` artifacts on `windows-latest`
-- macOS Intel `.dmg` release assets on `macos-13`
 - macOS Apple Silicon `.dmg` release assets on `macos-14`
 - Per-runner checksum files, such as `SHA256SUMS-windows-x64.txt`
 
 macOS `.app` bundles are produced and verified before upload when signing secrets are configured; the `.dmg` is the release asset intended for users.
+
+Intel Mac builds use the separate manual workflow at `.github/workflows/build-macos-intel.yml`. Use it when you specifically need a macOS x64 DMG for older Intel Macs; it runs on GitHub's `macos-13` runner pool, which can queue for longer than the main release workflow. After it finishes, download the `wardsen-macos-x64` workflow artifact and attach the DMG plus `SHA256SUMS-macos-x64.txt` to the same draft release.
 
 Configure these GitHub repository secrets before publishing signed installer releases:
 

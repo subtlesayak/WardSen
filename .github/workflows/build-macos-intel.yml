@@ -1,0 +1,109 @@
+name: Build macOS Intel DMG
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch, tag or commit to build, for example v0.1.0"
+        required: true
+        default: "main"
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "22"
+  WARDSEN_BUNDLE_ROOT: apps/desktop/src-tauri/target/x86_64-apple-darwin/release/bundle
+
+jobs:
+  build:
+    name: Build macos-x64
+    runs-on: macos-13
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Add Rust target
+        run: rustup target add x86_64-apple-darwin
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check TypeScript
+        run: npm run check
+
+      - name: Test
+        run: npm test
+
+      - name: Prepare Apple notarization key
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          MACOS_SIGNING_ENABLED: ${{ vars.MACOS_SIGNING_ENABLED }}
+        run: |
+          if [ "$MACOS_SIGNING_ENABLED" != "true" ]; then
+            echo "MACOS_SIGNING_ENABLED is not true; skipping notarization key preparation."
+            exit 0
+          fi
+          if [ -n "$APPLE_API_KEY_P8" ]; then
+            mkdir -p "$RUNNER_TEMP/private_keys"
+            key_path="$RUNNER_TEMP/private_keys/AuthKey_${{ secrets.APPLE_API_KEY }}.p8"
+            printf '%s' "$APPLE_API_KEY_P8" > "$key_path"
+            echo "APPLE_API_KEY_PATH=$key_path" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build macOS Intel installer
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          MACOS_SIGNING_ENABLED: ${{ vars.MACOS_SIGNING_ENABLED }}
+        run: |
+          if [ "$MACOS_SIGNING_ENABLED" != "true" ]; then
+            echo "MACOS_SIGNING_ENABLED is not true; building unsigned macOS Intel artifacts."
+            unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_API_ISSUER APPLE_API_KEY APPLE_API_KEY_PATH
+          fi
+          npm run tauri:build -- --target x86_64-apple-darwin
+
+      - name: Verify macOS signing and notarization
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          MACOS_SIGNING_ENABLED: ${{ vars.MACOS_SIGNING_ENABLED }}
+        run: |
+          if [ "$MACOS_SIGNING_ENABLED" != "true" ]; then
+            echo "MACOS_SIGNING_ENABLED is not true; leaving macOS Intel artifacts unsigned."
+            exit 0
+          fi
+          if [ -z "$APPLE_SIGNING_IDENTITY" ]; then
+            echo "APPLE_SIGNING_IDENTITY is not configured."
+            exit 0
+          fi
+          ./installers/macos/verify-macos-artifacts.sh "$WARDSEN_BUNDLE_ROOT"
+
+      - name: Generate checksums
+        run: npm run release:checksums
+
+      - name: Rename checksum file
+        run: cp "$WARDSEN_BUNDLE_ROOT/SHA256SUMS.txt" "$WARDSEN_BUNDLE_ROOT/SHA256SUMS-macos-x64.txt"
+
+      - name: Upload macOS Intel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wardsen-macos-x64
+          path: |
+            apps/desktop/src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
+            apps/desktop/src-tauri/target/x86_64-apple-darwin/release/bundle/SHA256SUMS-*.txt
+          if-no-files-found: error
