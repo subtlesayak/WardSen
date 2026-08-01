@@ -2,7 +2,7 @@
 
 ## Milestone 1: Production-Quality Open-Source Desktop Foundation
 
-Status: implementation complete through Phase 19.
+Status: implementation complete through Phase 21.
 
 ### Completed Phases
 
@@ -53,3 +53,43 @@ WardSen now has the main product foundation, but the attached risk review identi
 ### Source
 
 Added from the user-provided "Biggest risks for WardSen" risk review.
+
+## Completed Phase 20: UI Responsiveness Regression Guards
+
+Status: complete
+
+### Problem
+
+The first installer QA pass exposed UI friction and layout regressions: destructive confirmations were too hard to complete, content could force sideways overflow, and the left navigation could move with the page at desktop/tablet widths.
+
+### Scope
+
+- Guard destructive UI actions so they use an easier confirmation dialog while the backend still receives explicit confirmation phrases.
+- Guard desktop shell CSS so the sidebar remains anchored and the workspace owns vertical scrolling.
+- Guard responsive wrapping rules for metric grids, form grids and record rows.
+
+### Acceptance Criteria
+
+- `tests/uiRegression.test.ts` proves the UI no longer uses a typed destructive prompt helper.
+- `tests/uiRegression.test.ts` proves the desktop shell uses independent sidebar/workspace scrolling.
+- `tests/uiRegression.test.ts` proves compact viewports can wrap key content instead of overflowing horizontally.
+
+## Completed Phase 21: RC10 Release Communication
+
+Status: complete
+
+### Problem
+
+The next installer build needs release notes and install-facing documentation that match the build users will download, especially for the responsive layout and confirmation-flow fixes.
+
+### Scope
+
+- Update release notes to `v0.1.0-rc.10`.
+- Add RC10 notes for anchored sidebar, responsive workspace and easier destructive confirmations.
+- Refresh README status/release references from RC9 to RC10.
+
+### Acceptance Criteria
+
+- README status identifies `v0.1.0-rc.10` as the latest installer prerelease.
+- Release notes include the UI fixes in the installer build.
+- Changelog records the RC10 user-visible changes.

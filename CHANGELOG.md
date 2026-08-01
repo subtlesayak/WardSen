@@ -15,3 +15,6 @@
 - Added desktop service diagnostics for failed recovery, including process state, port reachability, bundled runtime presence, server bundle presence and short service output.
 - Added a visible app version label in the desktop interface so screenshots identify the installed build.
 - Fixed Windows packaged local-service startup by normalizing bundled Node paths, selecting a writable data directory, creating SQLite/profile folders before startup and allowing trusted desktop preflight requests before token-authenticated API calls.
+- Added `v0.1.0-rc.10` release notes for the responsive layout and destructive-confirmation fixes.
+- Fixed desktop/tablet layout so the left sidebar stays anchored while the workspace scrolls independently.
+- Replaced difficult typed destructive prompts in the UI with a normal confirmation dialog while keeping server-side destructive confirmation phrases.
