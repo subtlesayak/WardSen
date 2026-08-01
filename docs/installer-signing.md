@@ -38,6 +38,12 @@ signtool sign /n "Publisher Name" /fd SHA256 /tr "https://timestamp.example.com"
 signtool sign /n "Publisher Name" /fd SHA256 /tr "https://timestamp.example.com" /td SHA256 "apps\desktop\src-tauri\target\release\bundle\msi\WardSen_0.1.0_x64.msi"
 ```
 
+WardSen also includes a helper that signs every `.exe` and `.msi` under the bundle folder and then verifies each artifact:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\installers\windows\sign-windows-artifacts.ps1 -PublisherName "Publisher Name" -TimestampUrl "https://timestamp.example.com"
+```
+
 ### Sign With a PFX File
 
 ```powershell
@@ -45,11 +51,24 @@ signtool sign /f ".\certs\wardsen-code-signing.pfx" /p "$env:WINDOWS_CERTIFICATE
 signtool sign /f ".\certs\wardsen-code-signing.pfx" /p "$env:WINDOWS_CERTIFICATE_PASSWORD" /fd SHA256 /tr "https://timestamp.example.com" /td SHA256 "apps\desktop\src-tauri\target\release\bundle\msi\WardSen_0.1.0_x64.msi"
 ```
 
+Helper equivalent:
+
+```powershell
+$env:WINDOWS_CERTIFICATE_PASSWORD = "..."
+powershell -ExecutionPolicy Bypass -File .\installers\windows\sign-windows-artifacts.ps1 -PfxPath ".\certs\wardsen-code-signing.pfx" -TimestampUrl "https://timestamp.example.com"
+```
+
 ### Verify
 
 ```powershell
 signtool verify /pa /v "apps\desktop\src-tauri\target\release\bundle\nsis\WardSen_0.1.0_x64-setup.exe"
 signtool verify /pa /v "apps\desktop\src-tauri\target\release\bundle\msi\WardSen_0.1.0_x64.msi"
+```
+
+Helper equivalent:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\installers\windows\verify-windows-artifacts.ps1
 ```
 
 ### CI Secrets
@@ -135,5 +154,5 @@ Before attaching files to GitHub Releases:
 Suggested checksum command:
 
 ```bash
-sha256sum WardSen_0.1.0_* > SHA256SUMS.txt
+npm run release:checksums
 ```

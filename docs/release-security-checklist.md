@@ -23,6 +23,7 @@ Run this checklist before publishing a public WardSen build.
 - Run `cargo audit` from `apps/desktop/src-tauri`.
 - Review `docs/rustsec-audit.md` for known warning-class findings.
 - Generate an SBOM with `npm run sbom` and attach it to release artifacts when practical.
+- Generate release checksums with `npm run release:checksums`.
 - Review CodeQL, dependency-review and Dependabot status before tagging.
 - Download provider CLIs from official package managers or verified release artifacts only.
 - Sign desktop release artifacts before publishing end-user installers, or clearly mark the release as unsigned/source-only.

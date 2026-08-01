@@ -46,6 +46,33 @@ npm run desktop:build
 
 Tauri writes Windows artifacts under `apps\desktop\src-tauri\target\release\bundle`.
 
+## Signing and Verification
+
+After a release build, sign every Windows installer artifact with either a certificate-store certificate:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\installers\windows\sign-windows-artifacts.ps1 -PublisherName "Publisher Name" -TimestampUrl "https://timestamp.example.com"
+```
+
+Or a PFX file supplied outside Git:
+
+```powershell
+$env:WINDOWS_CERTIFICATE_PASSWORD = "..."
+powershell -ExecutionPolicy Bypass -File .\installers\windows\sign-windows-artifacts.ps1 -PfxPath ".\certs\wardsen-code-signing.pfx" -TimestampUrl "https://timestamp.example.com"
+```
+
+Verify already signed artifacts:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\installers\windows\verify-windows-artifacts.ps1
+```
+
+Generate checksums for release upload:
+
+```powershell
+npm run release:checksums
+```
+
 ## Development Start
 
 Run this from inside the `WardSen` folder:

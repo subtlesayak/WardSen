@@ -26,6 +26,7 @@
     "desktop:dev": "tauri dev",
     "desktop:info": "tauri info",
     "desktop:build": "tauri build",
+    "release:checksums": "node scripts/release-checksums.mjs",
     "tauri:build": "tauri build"
   },
   "dependencies": {
