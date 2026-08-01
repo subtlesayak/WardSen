@@ -3,7 +3,10 @@ import { createReadStream, existsSync, mkdirSync, readdirSync, writeFileSync } f
 import path from "node:path";
 
 const root = process.cwd();
-const bundleRoot = path.join(root, "apps", "desktop", "src-tauri", "target", "release", "bundle");
+const configuredBundleRoot = process.env.WARDSEN_BUNDLE_ROOT;
+const bundleRoot = configuredBundleRoot
+  ? path.resolve(root, configuredBundleRoot)
+  : path.join(root, "apps", "desktop", "src-tauri", "target", "release", "bundle");
 const outputPath = path.join(bundleRoot, "SHA256SUMS.txt");
 const allowedExtensions = new Set([".exe", ".msi", ".dmg", ".zip"]);
 
