@@ -95,6 +95,13 @@ macOS Apple Silicon first install:
 3. Drag WardSen into the Applications folder.
 4. Open WardSen from Applications.
 5. If macOS blocks the app because it is from an unidentified developer, go to **System Settings > Privacy & Security** and allow WardSen only if you trust this prerelease.
+6. If macOS says `"WardSen" is damaged and can't be opened`, keep WardSen in Applications, open **Terminal**, run the command below, then open WardSen again:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/WardSen.app
+```
+
+Only remove quarantine for the WardSen prerelease you intentionally downloaded from this repository. A signed and notarized release should not require this step.
 
 Optional checksum verification:
 

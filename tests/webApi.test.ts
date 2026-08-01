@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { apiGet, apiSend, apiUrl, canRestartLocalService, copyExternalUrl, getLocalServiceStatus, openExternalUrl, restartLocalService } from "../apps/web/src/api";
+import { apiGet, apiSend, apiUrl, canRestartLocalService, copyExternalUrl, copyTextToClipboard, getLocalServiceStatus, openExternalUrl, restartLocalService } from "../apps/web/src/api";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async () => undefined)
@@ -146,6 +146,15 @@ describe("web API helpers", () => {
     await copyExternalUrl("https://bitwarden.com/help/cli/");
 
     expect(writeText).toHaveBeenCalledWith("https://bitwarden.com/help/cli/");
+  });
+
+  it("copies terminal commands", async () => {
+    const writeText = vi.fn(async () => undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+
+    await copyTextToClipboard("npm install -g @bitwarden/cli");
+
+    expect(writeText).toHaveBeenCalledWith("npm install -g @bitwarden/cli");
   });
 
   it("rejects non-web copy links", async () => {

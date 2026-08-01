@@ -4,6 +4,13 @@ export interface ErrorHelp {
   guidance: string;
   actionLabel?: string;
   actionHref?: string;
+  terminalCommands?: TerminalCommandHelp[];
+}
+
+export interface TerminalCommandHelp {
+  label: string;
+  command: string;
+  note: string;
 }
 
 export function describeError(message?: string): ErrorHelp {
@@ -41,7 +48,8 @@ export function describeError(message?: string): ErrorHelp {
       detail,
       guidance: providerHelp.guidance,
       actionLabel: providerHelp.actionLabel,
-      actionHref: providerHelp.actionHref
+      actionHref: providerHelp.actionHref,
+      terminalCommands: providerHelp.terminalCommands
     };
   }
 
@@ -73,19 +81,43 @@ function cleanMessage(message?: string) {
   return value ? value : "No additional detail was returned.";
 }
 
-function providerToolHelp(lowerDetail: string): Pick<ErrorHelp, "guidance" | "actionLabel" | "actionHref"> {
+function providerToolHelp(lowerDetail: string): Pick<ErrorHelp, "guidance" | "actionLabel" | "actionHref" | "terminalCommands"> {
   if (lowerDetail.includes('"bw"')) {
     return {
       guidance: "Install the Bitwarden command-line tool, then close and reopen WardSen before retrying. No terminal is required if you use the official installer/download guide. Advanced users can also install with npm, Chocolatey or Homebrew.",
       actionLabel: "Open Bitwarden CLI install guide",
-      actionHref: "https://bitwarden.com/help/cli/"
+      actionHref: "https://bitwarden.com/help/cli/",
+      terminalCommands: [
+        {
+          label: "Windows PowerShell or Command Prompt",
+          command: "npm install -g @bitwarden/cli",
+          note: "Use this if Node.js is installed. Close and reopen WardSen after it finishes."
+        },
+        {
+          label: "macOS Terminal with Homebrew",
+          command: "brew install bitwarden-cli",
+          note: "Use this on macOS if Homebrew is installed. Close and reopen WardSen after it finishes."
+        }
+      ]
     };
   }
   if (lowerDetail.includes('"keepassxc-cli"')) {
     return {
       guidance: "Install KeePassXC, then close and reopen WardSen before retrying. No terminal is required if you use the official Windows or macOS download.",
       actionLabel: "Open KeePassXC download",
-      actionHref: "https://keepassxc.org/download/"
+      actionHref: "https://keepassxc.org/download/",
+      terminalCommands: [
+        {
+          label: "Windows PowerShell or Command Prompt",
+          command: "winget install KeePassXCTeam.KeePassXC",
+          note: "Use this if winget is available. Close and reopen WardSen after it finishes."
+        },
+        {
+          label: "macOS Terminal with Homebrew",
+          command: "brew install --cask keepassxc",
+          note: "Use this on macOS if Homebrew is installed. Close and reopen WardSen after it finishes."
+        }
+      ]
     };
   }
   return {

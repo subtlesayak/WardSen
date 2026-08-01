@@ -18,7 +18,7 @@ import {
   UsersRound,
   Vault
 } from "lucide-react";
-import { apiDownload, apiGet, apiSend, canRestartLocalService, copyExternalUrl, getLocalServiceStatus, openExternalUrl, restartLocalService, type LocalServiceStatus } from "./api";
+import { apiDownload, apiGet, apiSend, canRestartLocalService, copyExternalUrl, copyTextToClipboard, getLocalServiceStatus, openExternalUrl, restartLocalService, type LocalServiceStatus } from "./api";
 import { describeError } from "./errorHelp";
 import { appVersion } from "./version";
 import "./styles.css";
@@ -1072,6 +1072,7 @@ function ErrorNotice({ message, compact = false, actionLabel, onAction }: { mess
   const [actionError, setActionError] = useState<string | undefined>();
   const [copyStatus, setCopyStatus] = useState<string | undefined>();
   const externalAction = help.actionLabel && help.actionHref ? { label: help.actionLabel, href: help.actionHref } : undefined;
+  const terminalCommand = selectTerminalCommand(help.terminalCommands);
   return (
     <div className={compact ? "notice error compact errorHelp" : "notice error errorHelp"} role="alert">
       <strong>{help.title}</strong>
@@ -1097,11 +1098,36 @@ function ErrorNotice({ message, compact = false, actionLabel, onAction }: { mess
           }}><Copy size={15} /> Copy install link</button>
         </div>
       ) : null}
+      {terminalCommand ? (
+        <div className="terminalHelp">
+          <span>Terminal option: {terminalCommand.label}</span>
+          <code>{terminalCommand.command}</code>
+          <small>{terminalCommand.note}</small>
+          <button type="button" className="noticeActionLink secondary" onClick={() => {
+            setCopyStatus(undefined);
+            void copyTextToClipboard(terminalCommand.command)
+              .then(() => setCopyStatus("Terminal command copied. Paste it into Terminal, PowerShell or Command Prompt, run it, then close and reopen WardSen."))
+              .catch((error: unknown) => {
+                const detail = error instanceof Error ? error.message : String(error);
+                setCopyStatus(`Copy was blocked. Manually copy this command: ${terminalCommand.command}. Detail: ${detail}`);
+              });
+          }}><Copy size={15} /> Copy terminal command</button>
+        </div>
+      ) : null}
       {actionError ? <small>{actionError}</small> : null}
       {copyStatus ? <small>{copyStatus}</small> : null}
       {actionLabel && onAction ? <button type="button" onClick={onAction}>{actionLabel}</button> : null}
     </div>
   );
+}
+
+function selectTerminalCommand(commands?: Array<{ label: string; command: string; note: string }>) {
+  if (!commands?.length) return undefined;
+  if (typeof navigator === "undefined") return commands[0];
+  const platform = `${navigator.platform} ${navigator.userAgent}`.toLowerCase();
+  if (platform.includes("mac")) return commands.find((command) => command.label.toLowerCase().includes("mac")) ?? commands[0];
+  if (platform.includes("win")) return commands.find((command) => command.label.toLowerCase().includes("windows")) ?? commands[0];
+  return commands[0];
 }
 
 function Status({ value }: { value: string }) {

@@ -15,6 +15,24 @@ Install Xcode Command Line Tools with:
 xcode-select --install
 ```
 
+## First Install From an Unsigned Prerelease DMG
+
+Unsigned WardSen prerelease builds can trigger macOS Gatekeeper messages such as `"WardSen" is damaged and can't be opened`. This is expected for developer-preview builds that are not signed with Apple Developer ID and notarized.
+
+After downloading the DMG from the WardSen GitHub release:
+
+1. Open the DMG.
+2. Drag WardSen into `/Applications`.
+3. If macOS shows the damaged-app dialog, open Terminal and run:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/WardSen.app
+```
+
+4. Open WardSen again from Applications.
+
+Only use this bypass for a WardSen prerelease you intentionally downloaded from this repository. Public end-user releases should be signed and notarized instead.
+
 ## Provider Setup
 
 Open Terminal inside the `WardSen` project folder before running installer commands. For example, clone or move the project under `~/Projects`, then run `cd ~/Projects/WardSen`.

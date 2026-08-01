@@ -2,7 +2,7 @@
 
 ## Milestone 1: Production-Quality Open-Source Desktop Foundation
 
-Status: implementation complete through Phase 26.
+Status: implementation complete through Phase 27.
 
 ### Completed Phases
 
@@ -196,3 +196,24 @@ Windows can accept a desktop request to open an install guide even when the user
 - Missing provider-tool help shows `Copy install link` next to the open-guide action.
 - Copying provider setup links works even when the default browser is unreliable.
 - Tests pass under `npm run check`, `npm test` and `npm run build`.
+
+## Completed Phase 27: In-App Terminal Recovery Help
+
+Status: complete
+
+### Problem
+
+Provider setup errors were friendly for users who prefer official download pages, but users who do know Terminal, PowerShell or Command Prompt still had to leave WardSen docs to find the right command.
+
+### Scope
+
+- Add terminal-command metadata to missing provider-tool help.
+- Render the platform-appropriate command inside provider error notices.
+- Add copy-command behavior for terminal recovery commands.
+- Keep terminal help secondary to the beginner-friendly install/download action.
+
+### Acceptance Criteria
+
+- Missing Bitwarden CLI help shows a copyable `npm install -g @bitwarden/cli` or Homebrew command depending on platform.
+- Missing KeePassXC help shows a copyable `winget` or Homebrew command depending on platform.
+- Regression tests cover terminal command metadata, rendering hooks and copy behavior.

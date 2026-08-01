@@ -36,9 +36,13 @@ describe("web UI regression guards", () => {
     expect(webSource).toContain("noticeActionLink");
     expect(webSource).toContain("openExternalUrl");
     expect(webSource).toContain("copyExternalUrl");
+    expect(webSource).toContain("copyTextToClipboard");
     expect(webSource).toContain("Copy install link");
+    expect(webSource).toContain("Copy terminal command");
+    expect(webSource).toContain("selectTerminalCommand");
     expect(webSource).toContain("help.actionHref");
     expect(styles).toMatch(/\.noticeActions\s*{/);
     expect(styles).toMatch(/\.noticeActionLink\s*{/);
+    expect(styles).toMatch(/\.terminalHelp\s*{/);
   });
 });

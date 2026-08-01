@@ -28,6 +28,8 @@ describe("web error help", () => {
     expect(help.guidance).toContain("No terminal is required");
     expect(help.actionLabel).toBe("Open Bitwarden CLI install guide");
     expect(help.actionHref).toBe("https://bitwarden.com/help/cli/");
+    expect(help.terminalCommands?.map((item) => item.command)).toContain("npm install -g @bitwarden/cli");
+    expect(help.terminalCommands?.map((item) => item.command)).toContain("brew install bitwarden-cli");
   });
 
   it("explains when KeePassXC CLI is missing", () => {
@@ -38,6 +40,8 @@ describe("web error help", () => {
     expect(help.guidance).toContain("No terminal is required");
     expect(help.actionLabel).toBe("Open KeePassXC download");
     expect(help.actionHref).toBe("https://keepassxc.org/download/");
+    expect(help.terminalCommands?.map((item) => item.command)).toContain("winget install KeePassXCTeam.KeePassXC");
+    expect(help.terminalCommands?.map((item) => item.command)).toContain("brew install --cask keepassxc");
   });
 
   it("keeps unknown errors visible with generic recovery guidance", () => {

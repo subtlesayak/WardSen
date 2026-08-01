@@ -87,7 +87,12 @@ export async function copyExternalUrl(url: string): Promise<void> {
     throw new Error("WardSen can only copy HTTP or HTTPS help links.");
   }
 
-  const text = parsed.toString();
+  await copyTextToClipboard(parsed.toString());
+}
+
+export async function copyTextToClipboard(text: string): Promise<void> {
+  if (!text.trim()) throw new Error("Nothing was available to copy.");
+
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(text);
     return;
