@@ -40,9 +40,9 @@ WardSen is an independent open-source project and is not affiliated with, endors
 
 ## Status
 
-`v0.1.0` is the initial production-oriented foundation release. It is suitable for developer review, security review and platform packaging validation.
+`v0.1.0-rc.6` is the first working installer prerelease. It is suitable for developer review, security review and platform packaging validation.
 
-Prebuilt desktop installers should appear as GitHub Release assets after platform signing/build machines publish them. Until then, use the source install path or build installers locally. See [installer signing](docs/installer-signing.md) before publishing end-user installer artifacts.
+Unsigned Windows x64 and macOS Apple Silicon installers are attached to the GitHub prerelease. Windows SmartScreen and macOS Gatekeeper may warn until signing certificates and notarization are configured. See [installer signing](docs/installer-signing.md) before publishing a fully trusted end-user release.
 
 This release contains:
 
@@ -65,17 +65,32 @@ This release contains:
 
 Most users should install WardSen from a release artifact, not from the source folder.
 
-On GitHub Releases, download the installer for your operating system:
+Go to [GitHub Releases](https://github.com/subtlesayak/WardSen/releases) and download the installer for your operating system:
 
-- Windows: `WardSen_<version>_x64-setup.exe` or `WardSen_<version>_x64.msi`
-- macOS Apple Silicon: `WardSen_<version>_aarch64.dmg`
-- macOS Intel: `WardSen_<version>_x64.dmg`
+- Windows: `WardSen_0.1.0_x64-setup.exe` or `WardSen_0.1.0_x64_en-US.msi`
+- macOS Apple Silicon: `WardSen_0.1.0_aarch64.dmg`
+- macOS Intel: not attached to `v0.1.0-rc.6`; maintainers can build it from the manual Intel workflow
 
-After downloading:
+Windows first install:
 
-1. Run the Windows `.exe` or `.msi`, or open the macOS `.dmg`.
-2. Install WardSen into the normal Applications or Program Files location.
-3. Open WardSen from the Start menu, Applications folder or launcher.
+1. Download `WardSen_0.1.0_x64-setup.exe`.
+2. Run the installer.
+3. If Windows SmartScreen warns that the publisher is unknown, choose **More info** and then **Run anyway** only if you trust this prerelease.
+4. Open WardSen from the Start menu.
+5. If WardSen says it cannot reach the local service, close and reopen WardSen. The desktop app starts the local service automatically.
+
+macOS Apple Silicon first install:
+
+1. Download `WardSen_0.1.0_aarch64.dmg`.
+2. Open the DMG.
+3. Drag WardSen into the Applications folder.
+4. Open WardSen from Applications.
+5. If macOS blocks the app because it is from an unidentified developer, go to **System Settings > Privacy & Security** and allow WardSen only if you trust this prerelease.
+
+Optional checksum verification:
+
+1. Download `SHA256SUMS-windows-x64.txt` or `SHA256SUMS-macos-arm64.txt`.
+2. Compare the checksum with the installer before opening it.
 
 Release users do not need the `WardSen` source folder, `npm ci`, Git, Rust or a terminal. They may still need provider tools such as the Bitwarden CLI or KeePassXC, depending on which vault provider they want to connect.
 
