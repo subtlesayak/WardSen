@@ -140,8 +140,8 @@ export class BitwardenCredentialProvider implements CredentialProvider {
   }
 
   private manualNewDeviceLoginMessage(accountId: string, input: ProviderLoginInput, error: unknown) {
-    const profilePath = path.join(this.options.profileRoot, accountId);
-    const command = `$env:BITWARDENCLI_APPDATA_DIR=${powershellSingleQuote(profilePath)}; bw login${input.username ? ` ${powershellSingleQuote(input.username)}` : ""}; Remove-Item Env:\\BITWARDENCLI_APPDATA_DIR`;
+    const profilePath = bitwardenPowerShellProfileExpression(accountId, this.options.profileRoot);
+    const command = `$env:BITWARDENCLI_APPDATA_DIR=${profilePath}; bw login${input.username ? ` ${powershellSingleQuote(input.username)}` : ""}; Remove-Item Env:\\BITWARDENCLI_APPDATA_DIR`;
     const detail = error instanceof Error ? error.message : String(error);
     return `Bitwarden CLI rejected the new-device email code in hidden app mode. The official Bitwarden CLI may require a real terminal for this new-device verification prompt. Open PowerShell, run the same-profile login command, enter your Bitwarden password and latest email code there, then return to WardSen and select Unlock. Manual same-profile login command: ${command} Original detail: ${detail}`;
   }
@@ -168,6 +168,15 @@ function isBitwardenNewDeviceOtpFailure(input: ProviderLoginInput, error: unknow
 
 function powershellSingleQuote(value: string): string {
   return `'${value.replaceAll("'", "''")}'`;
+}
+
+function bitwardenPowerShellProfileExpression(accountId: string, profileRoot: string): string {
+  const localAppData = process.env.LOCALAPPDATA;
+  if (localAppData && path.resolve(profileRoot).toLowerCase().startsWith(path.resolve(localAppData).toLowerCase())) {
+    const relative = path.relative(localAppData, path.join(profileRoot, accountId));
+    return `$(Join-Path $env:LOCALAPPDATA ${powershellSingleQuote(relative)})`;
+  }
+  return powershellSingleQuote(path.join(profileRoot, accountId));
 }
 
 function resolveBitwardenExecutable(): string {

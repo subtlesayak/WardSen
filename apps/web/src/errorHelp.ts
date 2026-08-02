@@ -1,5 +1,5 @@
 export interface ErrorHelp {
-  kind?: "bitwardenVerification";
+  kind?: "bitwardenVerification" | "bitwardenTerminalLogin";
   title: string;
   detail: string;
   guidance: string;
@@ -60,6 +60,7 @@ export function describeError(message?: string): ErrorHelp {
   if (lower.includes("manual same-profile login command") || lower.includes("invalid new device otp")) {
     const command = extractManualLoginCommand(detail);
     return {
+      kind: "bitwardenTerminalLogin",
       title: "Bitwarden needs terminal login once",
       detail: "Bitwarden rejected the new-device email code from WardSen's hidden login process.",
       guidance: "Use a real PowerShell window once for this WardSen vault account. Run the same-profile login command below, enter your Bitwarden password and latest email code in PowerShell, then return to WardSen and select Unlock.",

@@ -98,6 +98,29 @@ describe("Bitwarden credential provider", () => {
     ).rejects.toThrow(`$env:BITWARDENCLI_APPDATA_DIR='${expectedProfile}'; bw login 'user@example.com'`);
   });
 
+  it("uses PowerShell environment expansion for local app data profiles", async () => {
+    const previous = process.env.LOCALAPPDATA;
+    const localAppData = path.resolve("local-app-data");
+    process.env.LOCALAPPDATA = localAppData;
+    const provider = new BitwardenCredentialProvider({
+      profileRoot: path.join(localAppData, "WardSen", "data", "profiles"),
+      runCommand: async () => fail('Provider command "bw login" failed. Detail: invalid new device otp')
+    });
+
+    try {
+      await expect(
+        provider.login("acct-1", {
+          username: "user@example.com",
+          password: "vault-password",
+          verificationCode: "123456"
+        })
+      ).rejects.toThrow("$env:BITWARDENCLI_APPDATA_DIR=$(Join-Path $env:LOCALAPPDATA");
+    } finally {
+      if (previous === undefined) delete process.env.LOCALAPPDATA;
+      else process.env.LOCALAPPDATA = previous;
+    }
+  });
+
   it("uses a configured local Bitwarden CLI path when available", async () => {
     const previous = process.env.WARDSEN_BITWARDEN_CLI_PATH;
     process.env.WARDSEN_BITWARDEN_CLI_PATH = process.execPath;

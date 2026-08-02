@@ -428,6 +428,8 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
       if (help.kind === "bitwardenVerification") {
         setVerificationNeeded(true);
         window.setTimeout(() => verificationCodeRef.current?.focus(), 0);
+      } else if (help.kind === "bitwardenTerminalLogin") {
+        setVerificationNeeded(false);
       }
       setMessage({ status: "error", text });
     }

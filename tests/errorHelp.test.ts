@@ -81,6 +81,7 @@ describe("web error help", () => {
   it("turns Bitwarden invalid new-device OTP into terminal login help", () => {
     const help = describeError("Bitwarden CLI rejected the new-device email code in hidden app mode. Manual same-profile login command: $env:BITWARDENCLI_APPDATA_DIR='profiles/acct'; bw login 'user@example.com'; Remove-Item Env:\\BITWARDENCLI_APPDATA_DIR Original detail: Provider command \"bw login\" failed. Detail: invalid new device otp");
 
+    expect(help.kind).toBe("bitwardenTerminalLogin");
     expect(help.title).toBe("Bitwarden needs terminal login once");
     expect(help.detail).toContain("hidden login process");
     expect(help.guidance).toContain("PowerShell");

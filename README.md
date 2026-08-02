@@ -42,7 +42,7 @@ WardSen is an independent open-source project and is not affiliated with, endors
 
 ## Status
 
-`v0.1.0-rc.24` is the latest installer prerelease. It is suitable for developer review, security review and platform packaging validation.
+`v0.1.0-rc.25` is the latest installer prerelease. It is suitable for developer review, security review and platform packaging validation.
 
 Unsigned Windows x64 and macOS Apple Silicon installers are attached to the GitHub prerelease. Windows SmartScreen and macOS Gatekeeper may warn until signing certificates and notarization are configured. See [installer signing](docs/installer-signing.md) before publishing a fully trusted end-user release.
 
@@ -89,7 +89,7 @@ Go to [GitHub Releases](https://github.com/subtlesayak/WardSen/releases) and dow
 
 - Windows: `WardSen_0.1.0_x64-setup.exe` or `WardSen_0.1.0_x64_en-US.msi`
 - macOS Apple Silicon: `WardSen_0.1.0_aarch64.dmg`
-- macOS Intel: not attached to `v0.1.0-rc.24`; maintainers can build it from the manual Intel workflow
+- macOS Intel: not attached to `v0.1.0-rc.25`; maintainers can build it from the manual Intel workflow
 
 Windows first install:
 
@@ -127,6 +127,8 @@ WardSen uses Bitwarden through the official `bw` command-line tool. Installing W
 If Bitwarden emails a new-device code during login, keep the master password filled in, keep **Code type** set to **Email / new-device code**, enter the latest email code in WardSen's **Verification code** field, then select **Submit code and login**. If your account uses an authenticator app or YubiKey instead, choose that matching **Code type** before submitting.
 
 If Bitwarden rejects the email code with **Bitwarden needs terminal login once**, copy the PowerShell same-profile login command shown by WardSen. Open PowerShell, run that command, enter your Bitwarden password and latest email code in PowerShell, then return to WardSen and select **Unlock**. The command does not contain your password or verification code.
+
+The PowerShell fallback command should start with `$(Join-Path $env:LOCALAPPDATA 'WardSen\data\profiles\...')`. If you see an older command containing a quoted literal `'%LOCALAPPDATA%\WardSen\...'`, install `v0.1.0-rc.25` or newer before trying terminal login. That older RC command logs into the wrong folder, so WardSen cannot see the login.
 
 Beginner-friendly Windows path:
 
@@ -221,7 +223,7 @@ Upload only the installer artifacts to GitHub Releases. Do not ask users to down
 
 ## Signing A Trusted Release
 
-`v0.1.0-rc.24` is intentionally published as an unsigned prerelease. To publish a trusted release later, maintainers need Windows Authenticode signing for `.exe` and `.msi` files, plus Apple Developer ID signing and notarization for macOS `.dmg` files.
+`v0.1.0-rc.25` is intentionally published as an unsigned prerelease. To publish a trusted release later, maintainers need Windows Authenticode signing for `.exe` and `.msi` files, plus Apple Developer ID signing and notarization for macOS `.dmg` files.
 
 High-level signing path:
 
