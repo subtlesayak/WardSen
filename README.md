@@ -42,7 +42,7 @@ WardSen is an independent open-source project and is not affiliated with, endors
 
 ## Status
 
-`v0.1.0-rc.22` is the latest installer prerelease. It is suitable for developer review, security review and platform packaging validation.
+`v0.1.0-rc.23` is the latest installer prerelease. It is suitable for developer review, security review and platform packaging validation.
 
 Unsigned Windows x64 and macOS Apple Silicon installers are attached to the GitHub prerelease. Windows SmartScreen and macOS Gatekeeper may warn until signing certificates and notarization are configured. See [installer signing](docs/installer-signing.md) before publishing a fully trusted end-user release.
 
@@ -73,7 +73,7 @@ This release contains:
 - Bitwarden CLI setup help now explains Windows and macOS native downloads, WardSen local tools folders, PATH, arm64/NPM installs and `bw --version` verification
 - Bitwarden provider errors now include safe CLI details and timeout guidance instead of leaving login stuck on a generic loading state
 - Bitwarden login supports email/new-device and two-step verification codes through the Account Access verification-code field
-- Bitwarden verification codes are submitted to the official `bw` CLI with the documented `--method` and `--code` flags, so email/new-device codes are not accidentally treated as fresh login prompts
+- Bitwarden email/new-device verification codes are submitted to the official `bw` CLI prompt, while authenticator and YubiKey codes use the documented `--method` and `--code` flags
 - Bitwarden verification prompts now focus the verification-code field, keep the retry button clear and hide noisy CLI timeout detail behind an expandable technical section
 - Bitwarden verification mode disables Unlock until login finishes, so users cannot accidentally submit an OTP through the wrong action
 - Third-party provider and trademark policy documents that WardSen is independent, user-installed-provider-tool based and not endorsed by supported providers
@@ -88,7 +88,7 @@ Go to [GitHub Releases](https://github.com/subtlesayak/WardSen/releases) and dow
 
 - Windows: `WardSen_0.1.0_x64-setup.exe` or `WardSen_0.1.0_x64_en-US.msi`
 - macOS Apple Silicon: `WardSen_0.1.0_aarch64.dmg`
-- macOS Intel: not attached to `v0.1.0-rc.22`; maintainers can build it from the manual Intel workflow
+- macOS Intel: not attached to `v0.1.0-rc.23`; maintainers can build it from the manual Intel workflow
 
 Windows first install:
 
@@ -218,7 +218,7 @@ Upload only the installer artifacts to GitHub Releases. Do not ask users to down
 
 ## Signing A Trusted Release
 
-`v0.1.0-rc.22` is intentionally published as an unsigned prerelease. To publish a trusted release later, maintainers need Windows Authenticode signing for `.exe` and `.msi` files, plus Apple Developer ID signing and notarization for macOS `.dmg` files.
+`v0.1.0-rc.23` is intentionally published as an unsigned prerelease. To publish a trusted release later, maintainers need Windows Authenticode signing for `.exe` and `.msi` files, plus Apple Developer ID signing and notarization for macOS `.dmg` files.
 
 High-level signing path:
 

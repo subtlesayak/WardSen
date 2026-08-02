@@ -41,10 +41,10 @@ describe("Bitwarden credential provider", () => {
 
     expect(calls.map((call) => call.args)).toEqual([
       ["config", "server", "https://vault.example.test"],
-      ["login", "user@example.com", "--passwordenv", "WARDSEN_BW_PASSWORD", "--method", "1", "--code", "123456"]
+      ["login", "user@example.com", "--passwordenv", "WARDSEN_BW_PASSWORD"]
     ]);
     expect(calls.every((call) => call.env?.BITWARDENCLI_APPDATA_DIR === path.join("profiles", "acct-1"))).toBe(true);
-    expect(calls[1].stdin).toBeUndefined();
+    expect(calls[1].stdin).toBe("123456\n");
     expect(calls[1].env?.WARDSEN_BW_PASSWORD).toBe("vault-password");
     expect(calls[1].redact).toContain("vault-password");
     expect(calls[1].redact).toContain("123456");

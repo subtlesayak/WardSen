@@ -62,11 +62,12 @@ export class BitwardenCredentialProvider implements CredentialProvider {
       env.WARDSEN_BW_PASSWORD = input.password;
       args.push("--passwordenv", "WARDSEN_BW_PASSWORD");
     }
-    if (input.verificationCode) {
+    const verificationStdin = bitwardenVerificationStdin(input);
+    if (input.verificationCode && !verificationStdin) {
       args.push("--method", bitwardenVerificationMethod(input.verificationMethod), "--code", input.verificationCode);
     }
     if (input.serverUrl) await this.run(accountId, ["config", "server", input.serverUrl]);
-    await this.run(accountId, args, undefined, 45_000, [input.password ?? "", input.verificationCode ?? ""], env);
+    await this.run(accountId, args, verificationStdin, 45_000, [input.password ?? "", input.verificationCode ?? ""], env);
   }
 
   async unlock(accountId: string, input: ProviderUnlockInput): Promise<void> {
@@ -138,6 +139,12 @@ function bitwardenVerificationMethod(method: ProviderLoginInput["verificationMet
   if (method === "authenticator") return "0";
   if (method === "yubikey") return "3";
   return "1";
+}
+
+function bitwardenVerificationStdin(input: ProviderLoginInput): string | undefined {
+  if (!input.verificationCode) return undefined;
+  if (input.verificationMethod === "authenticator" || input.verificationMethod === "yubikey") return undefined;
+  return `${input.verificationCode}\n`;
 }
 
 function resolveBitwardenExecutable(): string {
