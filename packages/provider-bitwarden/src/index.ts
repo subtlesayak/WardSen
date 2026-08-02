@@ -54,28 +54,17 @@ export class BitwardenCredentialProvider implements CredentialProvider {
   }
 
   async login(accountId: string, input: ProviderLoginInput): Promise<void> {
-    const args = ["login"];
-    if (input.username) args.push(input.username);
-    if (input.sso) args.push("--sso");
-    const env: Record<string, string> = {};
-    if (input.password) {
-      env.WARDSEN_BW_PASSWORD = input.password;
-      args.push("--passwordenv", "WARDSEN_BW_PASSWORD");
-    }
-    const verificationStdin = bitwardenVerificationStdin(input);
-    if (input.verificationCode && !verificationStdin) {
-      args.push("--method", bitwardenVerificationMethod(input.verificationMethod), "--code", input.verificationCode);
-    }
     if (input.serverUrl) await this.run(accountId, ["config", "server", input.serverUrl]);
-    try {
-      await this.run(accountId, args, verificationStdin, 45_000, [input.password ?? "", input.verificationCode ?? ""], env);
-    } catch (error) {
-      if (isBitwardenNewDeviceOtpFailure(input, error)) throw new Error(this.manualNewDeviceLoginMessage(accountId, input, error));
-      throw error;
-    }
+    throw new Error(this.manualTerminalLoginMessage(accountId, input));
   }
 
   async unlock(accountId: string, input: ProviderUnlockInput): Promise<void> {
+    const handoffToken = this.consumeTerminalSessionHandoff(accountId);
+    if (handoffToken) {
+      this.sessions.markUnlocked(accountId, this.id, handoffToken);
+      return;
+    }
+    if (!input.password) throw new Error(this.missingTerminalSessionMessage(accountId));
     const result = await this.run(accountId, ["unlock", "--raw"], input.password, 60_000, [input.password ?? ""]);
     const token = result.stdout.trim();
     if (!token) throw new Error("Bitwarden unlock did not return a session token");
@@ -139,31 +128,34 @@ export class BitwardenCredentialProvider implements CredentialProvider {
     });
   }
 
-  private manualNewDeviceLoginMessage(accountId: string, input: ProviderLoginInput, error: unknown) {
-    const profilePath = bitwardenPowerShellProfileExpression(accountId, this.options.profileRoot);
-    const command = `$env:BITWARDENCLI_APPDATA_DIR=${profilePath}; bw login${input.username ? ` ${powershellSingleQuote(input.username)}` : ""}; Remove-Item Env:\\BITWARDENCLI_APPDATA_DIR`;
-    const detail = error instanceof Error ? error.message : String(error);
-    return `Bitwarden CLI rejected the new-device email code in hidden app mode. The official Bitwarden CLI may require a real terminal for this new-device verification prompt. Open PowerShell, run the same-profile login command, enter your Bitwarden password and latest email code there, then return to WardSen and select Unlock. Manual same-profile login command: ${command} Original detail: ${detail}`;
+  private manualTerminalLoginMessage(accountId: string, input: ProviderLoginInput) {
+    return `Bitwarden terminal login is required. WardSen does not ask for your Bitwarden password or verification code inside the app for first login, because Bitwarden new-device verification is more reliable in a real terminal. Run the same-profile terminal login command, enter your Bitwarden password and verification code in PowerShell, then return to WardSen and select Unlock. Manual same-profile terminal login command: ${this.terminalLoginCommand(accountId, input)}`;
   }
-}
 
-function bitwardenVerificationMethod(method: ProviderLoginInput["verificationMethod"]): string {
-  if (method === "authenticator") return "0";
-  if (method === "yubikey") return "3";
-  return "1";
-}
+  private missingTerminalSessionMessage(accountId: string) {
+    return `Bitwarden is not unlocked in WardSen yet. Run the same-profile terminal login command first, then return to WardSen and select Unlock. Manual same-profile terminal login command: ${this.terminalLoginCommand(accountId, {})}`;
+  }
 
-function bitwardenVerificationStdin(input: ProviderLoginInput): string | undefined {
-  if (!input.verificationCode) return undefined;
-  if (input.verificationMethod === "authenticator" || input.verificationMethod === "yubikey") return undefined;
-  return `${input.verificationCode}\n`;
-}
+  private terminalLoginCommand(accountId: string, input: ProviderLoginInput) {
+    const profilePath = bitwardenPowerShellProfileExpression(accountId, this.options.profileRoot);
+    const handoffPath = bitwardenPowerShellSessionHandoffExpression(accountId, this.options.profileRoot);
+    const username = input.username ? ` ${powershellSingleQuote(input.username)}` : "";
+    const server = input.serverUrl ? `bw config server ${powershellSingleQuote(input.serverUrl)}; ` : "";
+    return `$env:BITWARDENCLI_APPDATA_DIR=${profilePath}; ${server}$session=bw login${username} --raw; if ($LASTEXITCODE -eq 0 -and $session) { Set-Content -LiteralPath ${handoffPath} -Value $session.Trim() -NoNewline }; Remove-Item Env:\\BITWARDENCLI_APPDATA_DIR`;
+  }
 
-function isBitwardenNewDeviceOtpFailure(input: ProviderLoginInput, error: unknown): boolean {
-  if (!input.verificationCode) return false;
-  if (input.verificationMethod === "authenticator" || input.verificationMethod === "yubikey") return false;
-  const message = error instanceof Error ? error.message : String(error);
-  return message.toLowerCase().includes("invalid new device otp");
+  private consumeTerminalSessionHandoff(accountId: string): string | undefined {
+    const handoffPath = bitwardenSessionHandoffPath(accountId, this.options.profileRoot);
+    if (!fs.existsSync(handoffPath)) return undefined;
+    try {
+      const token = fs.readFileSync(handoffPath, "utf8").trim();
+      fs.rmSync(handoffPath, { force: true });
+      return token || undefined;
+    } catch {
+      fs.rmSync(handoffPath, { force: true });
+      return undefined;
+    }
+  }
 }
 
 function powershellSingleQuote(value: string): string {
@@ -177,6 +169,14 @@ function bitwardenPowerShellProfileExpression(accountId: string, profileRoot: st
     return `$(Join-Path $env:LOCALAPPDATA ${powershellSingleQuote(relative)})`;
   }
   return powershellSingleQuote(path.join(profileRoot, accountId));
+}
+
+function bitwardenPowerShellSessionHandoffExpression(accountId: string, profileRoot: string): string {
+  return `$(Join-Path ${bitwardenPowerShellProfileExpression(accountId, profileRoot)} ${powershellSingleQuote(".wardsen-session")})`;
+}
+
+function bitwardenSessionHandoffPath(accountId: string, profileRoot: string): string {
+  return path.join(profileRoot, accountId, ".wardsen-session");
 }
 
 function resolveBitwardenExecutable(): string {

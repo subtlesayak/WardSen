@@ -383,22 +383,6 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
       setMessage({ status: "error", text: "Create or select an account first." });
       return;
     }
-    if (action === "login" && account.providerId === "bitwarden" && verificationNeeded && !accessForm.verificationCode.trim()) {
-      setMessage({
-        status: "error",
-        text: "Bitwarden verification code is required. Enter the code from your Bitwarden email or authenticator app, choose the matching Code type, then select Submit code and login."
-      });
-      verificationCodeRef.current?.focus();
-      return;
-    }
-    if (action === "unlock" && account.providerId === "bitwarden" && verificationNeeded) {
-      setMessage({
-        status: "error",
-        text: "Bitwarden is waiting for a verification code. Enter the code, then select Submit code and login. Unlock is available after login finishes."
-      });
-      verificationCodeRef.current?.focus();
-      return;
-    }
     setMessage({ status: "loading", text: `${titleStatus(action)} running for ${account.label}...` });
     try {
       if (action === "status") {
@@ -459,8 +443,10 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
         }}>
           {api.accounts.map((account) => <option key={account.id} value={account.id}>{account.label}</option>)}
         </select></label>
-        <label>Password<input value={accessForm.password} onChange={(event) => setAccessForm((current) => ({ ...current, password: event.target.value }))} placeholder="Master password or database password" type="password" /></label>
-        {selectedAccountIsBitwarden ? (
+        <label>Password<input value={accessForm.password} onChange={(event) => setAccessForm((current) => ({ ...current, password: event.target.value }))} placeholder={selectedAccountIsBitwarden ? "Optional after terminal login" : "Master password or database password"} type="password" />
+          {selectedAccountIsBitwarden ? <small className="fieldInstruction">For first Bitwarden login, leave this blank and use Terminal login. Type the Bitwarden password only in PowerShell.</small> : null}
+        </label>
+        {selectedAccountIsBitwarden && verificationNeeded ? (
           <label className={verificationNeeded ? "attentionField" : undefined}>Verification code
             <input
               ref={verificationCodeRef}
@@ -475,7 +461,7 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
             <small id="bitwarden-verification-help" className="fieldInstruction">{verificationNeeded ? "Bitwarden is waiting for this code. Keep Email / new-device selected for Bitwarden email codes, then select Submit code and login." : "Only needed when Bitwarden emails a new-device code or asks for two-step verification."}</small>
           </label>
         ) : null}
-        {selectedAccountIsBitwarden ? (
+        {selectedAccountIsBitwarden && verificationNeeded ? (
           <label>Code type
             <select
               value={accessForm.verificationMethod}
@@ -491,14 +477,14 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
         <label>Key file path<input value={accessForm.keyFilePath} onChange={(event) => setAccessForm((current) => ({ ...current, keyFilePath: event.target.value }))} placeholder="Optional KeePassXC key file" /></label>
         <label className="check"><input checked={accessForm.sso} type="checkbox" onChange={(event) => setAccessForm((current) => ({ ...current, sso: event.target.checked }))} /> Login with SSO</label>
         <div className="buttonRow">
-          <button type="button" className={verificationNeeded ? "primary" : undefined} onClick={() => void accountAccess("login")}><ShieldCheck size={16} /> {verificationNeeded ? "Submit code and login" : "Login"}</button>
+          <button type="button" className={selectedAccountIsBitwarden || verificationNeeded ? "primary" : undefined} onClick={() => void accountAccess("login")}><ShieldCheck size={16} /> {selectedAccountIsBitwarden ? "Terminal login" : verificationNeeded ? "Submit code and login" : "Login"}</button>
           <button
             type="button"
-            className={verificationNeeded ? undefined : "primary"}
+            className={selectedAccountIsBitwarden || verificationNeeded ? undefined : "primary"}
             disabled={unlockDisabledForVerification}
             title={unlockDisabledForVerification ? "Submit the Bitwarden verification code with Login first." : undefined}
             onClick={() => void accountAccess("unlock")}
-          ><KeyRound size={16} /> Unlock</button>
+          ><KeyRound size={16} /> {selectedAccountIsBitwarden ? "Import session" : "Unlock"}</button>
           {unlockDisabledForVerification ? <small className="buttonHint">Unlock is available after Bitwarden login finishes.</small> : null}
         </div>
       </section>

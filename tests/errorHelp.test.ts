@@ -78,17 +78,17 @@ describe("web error help", () => {
     expect(help.guidance).toContain("Login first");
   });
 
-  it("turns Bitwarden invalid new-device OTP into terminal login help", () => {
-    const help = describeError("Bitwarden CLI rejected the new-device email code in hidden app mode. Manual same-profile login command: $env:BITWARDENCLI_APPDATA_DIR='profiles/acct'; bw login 'user@example.com'; Remove-Item Env:\\BITWARDENCLI_APPDATA_DIR Original detail: Provider command \"bw login\" failed. Detail: invalid new device otp");
+  it("turns Bitwarden terminal-first login into terminal login help", () => {
+    const help = describeError("Bitwarden terminal login is required. Manual same-profile terminal login command: $env:BITWARDENCLI_APPDATA_DIR='profiles/acct'; $session=bw login 'user@example.com' --raw; if ($LASTEXITCODE -eq 0 -and $session) { Set-Content -LiteralPath 'profiles/acct/.wardsen-session' -Value $session.Trim() -NoNewline }; Remove-Item Env:\\BITWARDENCLI_APPDATA_DIR");
 
     expect(help.kind).toBe("bitwardenTerminalLogin");
     expect(help.title).toBe("Bitwarden needs terminal login once");
-    expect(help.detail).toContain("hidden login process");
+    expect(help.detail).toContain("real terminal");
     expect(help.guidance).toContain("PowerShell");
     expect(help.terminalCommands?.[0]?.label).toContain("PowerShell");
     expect(help.terminalCommands?.[0]?.command).toContain("BITWARDENCLI_APPDATA_DIR");
     expect(help.terminalCommands?.[0]?.note).toContain("does not include your password");
-    expect(help.technicalDetail).toContain("invalid new device otp");
+    expect(help.technicalDetail).toContain("terminal login is required");
   });
 
   it("explains Bitwarden local profile lock failures", () => {

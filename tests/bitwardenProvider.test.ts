@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { AccountSessionManager } from "@wardsen/core";
@@ -6,10 +8,6 @@ import { BitwardenCredentialProvider } from "@wardsen/provider-bitwarden";
 
 function ok(stdout = "{}"): CliCommandResult {
   return { exitCode: 0, stdout, stderr: "", durationMs: 1 };
-}
-
-function fail(message: string): never {
-  throw new Error(message);
 }
 
 describe("Bitwarden credential provider", () => {
@@ -26,7 +24,7 @@ describe("Bitwarden credential provider", () => {
     });
   });
 
-  it("uses isolated account profiles and redacts login passwords", async () => {
+  it("uses terminal-only first login guidance instead of hidden password or OTP prompts", async () => {
     const calls: CliCommandInput[] = [];
     const provider = new BitwardenCredentialProvider({
       profileRoot: "profiles",
@@ -36,50 +34,24 @@ describe("Bitwarden credential provider", () => {
       }
     });
 
-    await provider.login("acct-1", {
-      username: "user@example.com",
-      password: "vault-password",
-      verificationCode: "123456",
-      serverUrl: "https://vault.example.test"
-    });
+    await expect(
+      provider.login("acct-1", {
+        username: "user@example.com",
+        password: "vault-password",
+        verificationCode: "123456",
+        serverUrl: "https://vault.example.test"
+      })
+    ).rejects.toThrow("Manual same-profile terminal login command:");
 
-    expect(calls.map((call) => call.args)).toEqual([
-      ["config", "server", "https://vault.example.test"],
-      ["login", "user@example.com", "--passwordenv", "WARDSEN_BW_PASSWORD"]
-    ]);
-    expect(calls.every((call) => call.env?.BITWARDENCLI_APPDATA_DIR === path.join("profiles", "acct-1"))).toBe(true);
-    expect(calls[1].stdin).toBe("123456\n");
-    expect(calls[1].env?.WARDSEN_BW_PASSWORD).toBe("vault-password");
-    expect(calls[1].redact).toContain("vault-password");
-    expect(calls[1].redact).toContain("123456");
+    expect(calls.map((call) => call.args)).toEqual([["config", "server", "https://vault.example.test"]]);
+    expect(calls[0]?.env?.BITWARDENCLI_APPDATA_DIR).toBe(path.join("profiles", "acct-1"));
   });
 
-  it("maps Bitwarden verification code types to CLI method ids", async () => {
-    const calls: CliCommandInput[] = [];
-    const provider = new BitwardenCredentialProvider({
-      profileRoot: "profiles",
-      runCommand: async (input) => {
-        calls.push(input);
-        return ok();
-      }
-    });
-
-    await provider.login("acct-1", {
-      username: "user@example.com",
-      password: "vault-password",
-      verificationCode: "654321",
-      verificationMethod: "authenticator"
-    });
-
-    expect(calls.at(-1)?.args).toEqual(["login", "user@example.com", "--passwordenv", "WARDSEN_BW_PASSWORD", "--method", "0", "--code", "654321"]);
-    expect(calls.at(-1)?.env?.WARDSEN_BW_PASSWORD).toBe("vault-password");
-  });
-
-  it("turns rejected new-device OTP prompts into same-profile terminal guidance", async () => {
+  it("builds a same-profile terminal command that captures the raw Bitwarden session", async () => {
     const expectedProfile = path.join("profiles", "acct-1");
     const provider = new BitwardenCredentialProvider({
       profileRoot: "profiles",
-      runCommand: async () => fail('Provider command "bw login" failed. Detail: invalid new device otp')
+      runCommand: async () => ok()
     });
 
     await expect(
@@ -88,14 +60,15 @@ describe("Bitwarden credential provider", () => {
         password: "vault-password",
         verificationCode: "123456"
       })
-    ).rejects.toThrow("Manual same-profile login command:");
+    ).rejects.toThrow("Manual same-profile terminal login command:");
     await expect(
       provider.login("acct-1", {
         username: "user@example.com",
         password: "vault-password",
         verificationCode: "123456"
       })
-    ).rejects.toThrow(`$env:BITWARDENCLI_APPDATA_DIR='${expectedProfile}'; bw login 'user@example.com'`);
+    ).rejects.toThrow(`$env:BITWARDENCLI_APPDATA_DIR='${expectedProfile}'; $session=bw login 'user@example.com' --raw`);
+    await expect(provider.login("acct-1", { username: "user@example.com" })).rejects.toThrow("Set-Content -LiteralPath");
   });
 
   it("uses PowerShell environment expansion for local app data profiles", async () => {
@@ -104,7 +77,7 @@ describe("Bitwarden credential provider", () => {
     process.env.LOCALAPPDATA = localAppData;
     const provider = new BitwardenCredentialProvider({
       profileRoot: path.join(localAppData, "WardSen", "data", "profiles"),
-      runCommand: async () => fail('Provider command "bw login" failed. Detail: invalid new device otp')
+      runCommand: async () => ok()
     });
 
     try {
@@ -121,7 +94,49 @@ describe("Bitwarden credential provider", () => {
     }
   });
 
-  it("uses a configured local Bitwarden CLI path when available", async () => {
+  it("imports and deletes a terminal-created session handoff on unlock", async () => {
+    const sessions = new AccountSessionManager();
+    const profileRoot = fs.mkdtempSync(path.join(os.tmpdir(), "wardsen-bw-"));
+    const profileDir = path.join(profileRoot, "acct-1");
+    fs.mkdirSync(profileDir, { recursive: true });
+    fs.writeFileSync(path.join(profileDir, ".wardsen-session"), "terminal-session\n");
+    const calls: CliCommandInput[] = [];
+    const provider = new BitwardenCredentialProvider({
+      profileRoot,
+      sessions,
+      runCommand: async (input) => {
+        calls.push(input);
+        if (input.args[0] === "list") return ok("[]");
+        return ok();
+      }
+    });
+
+    try {
+      await provider.unlock("acct-1", {});
+      await provider.search("acct-1", "mail", { page: 1, pageSize: 10 });
+      expect(calls[0]?.args).toEqual(["list", "items", "--search", "mail"]);
+      expect(calls[0]?.env?.BW_SESSION).toBe("terminal-session");
+      expect(fs.existsSync(path.join(profileDir, ".wardsen-session"))).toBe(false);
+    } finally {
+      fs.rmSync(profileRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("does not spawn an interactive unlock when no password or terminal session is available", async () => {
+    const calls: CliCommandInput[] = [];
+    const provider = new BitwardenCredentialProvider({
+      profileRoot: "profiles",
+      runCommand: async (input) => {
+        calls.push(input);
+        return ok();
+      }
+    });
+
+    await expect(provider.unlock("acct-1", {})).rejects.toThrow("Manual same-profile terminal login command:");
+    expect(calls).toEqual([]);
+  });
+
+  it("uses a configured local Bitwarden CLI path when checking status", async () => {
     const previous = process.env.WARDSEN_BITWARDEN_CLI_PATH;
     process.env.WARDSEN_BITWARDEN_CLI_PATH = process.execPath;
     const calls: CliCommandInput[] = [];
@@ -134,10 +149,10 @@ describe("Bitwarden credential provider", () => {
         }
       });
 
-      await provider.login("acct-1", { username: "user@example.com" });
+      await provider.testConnection("acct-1");
 
       expect(calls.at(-1)?.executable).toBe(process.execPath);
-      expect(calls.at(-1)?.timeoutMs).toBe(45_000);
+      expect(calls.at(-1)?.args).toEqual(["status"]);
     } finally {
       if (previous === undefined) delete process.env.WARDSEN_BITWARDEN_CLI_PATH;
       else process.env.WARDSEN_BITWARDEN_CLI_PATH = previous;

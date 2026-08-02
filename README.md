@@ -42,7 +42,7 @@ WardSen is an independent open-source project and is not affiliated with, endors
 
 ## Status
 
-`v0.1.0-rc.25` is the latest installer prerelease. It is suitable for developer review, security review and platform packaging validation.
+`v0.1.0-rc.26` is the latest installer prerelease. It is suitable for developer review, security review and platform packaging validation.
 
 Unsigned Windows x64 and macOS Apple Silicon installers are attached to the GitHub prerelease. Windows SmartScreen and macOS Gatekeeper may warn until signing certificates and notarization are configured. See [installer signing](docs/installer-signing.md) before publishing a fully trusted end-user release.
 
@@ -72,11 +72,9 @@ This release contains:
 - Provider setup errors include copyable install links and terminal recovery commands
 - Bitwarden CLI setup help now explains Windows and macOS native downloads, WardSen local tools folders, PATH, arm64/NPM installs and `bw --version` verification
 - Bitwarden provider errors now include safe CLI details and timeout guidance instead of leaving login stuck on a generic loading state
-- Bitwarden login supports email/new-device and two-step verification codes through the Account Access verification-code field
-- Bitwarden email/new-device verification codes are submitted to the official `bw` CLI prompt, while authenticator and YubiKey codes use the documented `--method` and `--code` flags
-- Bitwarden new-device prompts that require a real terminal now show a copyable same-profile PowerShell login command instead of repeatedly burning email codes
-- Bitwarden verification prompts now focus the verification-code field, keep the retry button clear and hide noisy CLI timeout detail behind an expandable technical section
-- Bitwarden verification mode disables Unlock until login finishes, so users cannot accidentally submit an OTP through the wrong action
+- Bitwarden first login is terminal-first: WardSen shows a same-profile PowerShell command instead of asking for the Bitwarden password or OTP inside the app
+- Bitwarden terminal login captures the short-lived `bw login --raw` session into WardSen's local profile, then **Import session** consumes it and deletes the handoff file
+- Bitwarden terminal login avoids repeatedly burning email/new-device codes in hidden CLI prompts
 - Third-party provider and trademark policy documents that WardSen is independent, user-installed-provider-tool based and not endorsed by supported providers
 - macOS first-install docs cover the unsigned-prerelease `"WardSen" is damaged and can't be opened` Gatekeeper message
 - Windows and macOS prerequisite and desktop packaging scripts
@@ -89,7 +87,7 @@ Go to [GitHub Releases](https://github.com/subtlesayak/WardSen/releases) and dow
 
 - Windows: `WardSen_0.1.0_x64-setup.exe` or `WardSen_0.1.0_x64_en-US.msi`
 - macOS Apple Silicon: `WardSen_0.1.0_aarch64.dmg`
-- macOS Intel: not attached to `v0.1.0-rc.25`; maintainers can build it from the manual Intel workflow
+- macOS Intel: not attached to `v0.1.0-rc.26`; maintainers can build it from the manual Intel workflow
 
 Windows first install:
 
@@ -124,11 +122,11 @@ Release users do not need the `WardSen` source folder, `npm ci`, Git, Rust or a 
 ### Bitwarden CLI Setup For Release Users
 
 WardSen uses Bitwarden through the official `bw` command-line tool. Installing WardSen alone does not install `bw`.
-If Bitwarden emails a new-device code during login, keep the master password filled in, keep **Code type** set to **Email / new-device code**, enter the latest email code in WardSen's **Verification code** field, then select **Submit code and login**. If your account uses an authenticator app or YubiKey instead, choose that matching **Code type** before submitting.
+For first Bitwarden login, WardSen does not ask for your Bitwarden password, email code, authenticator code or YubiKey code inside the app. Select **Terminal login**, copy the PowerShell command, run it in PowerShell, and type those secrets only into the official Bitwarden CLI prompts.
 
-If Bitwarden rejects the email code with **Bitwarden needs terminal login once**, copy the PowerShell same-profile login command shown by WardSen. Open PowerShell, run that command, enter your Bitwarden password and latest email code in PowerShell, then return to WardSen and select **Unlock**. The command does not contain your password or verification code.
+When the PowerShell command finishes, return to WardSen and select **Import session**. WardSen reads the short-lived Bitwarden session from the same local profile and deletes the local handoff file. The command does not contain your password, verification code or session token.
 
-The PowerShell fallback command should start with `$(Join-Path $env:LOCALAPPDATA 'WardSen\data\profiles\...')`. If you see an older command containing a quoted literal `'%LOCALAPPDATA%\WardSen\...'`, install `v0.1.0-rc.25` or newer before trying terminal login. That older RC command logs into the wrong folder, so WardSen cannot see the login.
+The PowerShell command should start with `$(Join-Path $env:LOCALAPPDATA 'WardSen\data\profiles\...')` and include `bw login ... --raw`. If you see an older command containing a quoted literal `'%LOCALAPPDATA%\WardSen\...'`, install `v0.1.0-rc.26` or newer before trying terminal login. That older RC command logs into the wrong folder, so WardSen cannot see the login.
 
 Beginner-friendly Windows path:
 
@@ -223,7 +221,7 @@ Upload only the installer artifacts to GitHub Releases. Do not ask users to down
 
 ## Signing A Trusted Release
 
-`v0.1.0-rc.25` is intentionally published as an unsigned prerelease. To publish a trusted release later, maintainers need Windows Authenticode signing for `.exe` and `.msi` files, plus Apple Developer ID signing and notarization for macOS `.dmg` files.
+`v0.1.0-rc.26` is intentionally published as an unsigned prerelease. To publish a trusted release later, maintainers need Windows Authenticode signing for `.exe` and `.msi` files, plus Apple Developer ID signing and notarization for macOS `.dmg` files.
 
 High-level signing path:
 
