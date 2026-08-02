@@ -42,7 +42,7 @@ WardSen is an independent open-source project and is not affiliated with, endors
 
 ## Status
 
-`v0.1.0-rc.26` is the latest installer prerelease. It is suitable for developer review, security review and platform packaging validation.
+`v0.1.0-rc.27` is the latest installer prerelease. It is suitable for developer review, security review and platform packaging validation.
 
 Unsigned Windows x64 and macOS Apple Silicon installers are attached to the GitHub prerelease. Windows SmartScreen and macOS Gatekeeper may warn until signing certificates and notarization are configured. See [installer signing](docs/installer-signing.md) before publishing a fully trusted end-user release.
 
@@ -74,6 +74,7 @@ This release contains:
 - Bitwarden provider errors now include safe CLI details and timeout guidance instead of leaving login stuck on a generic loading state
 - Bitwarden first login is terminal-first: WardSen shows a same-profile PowerShell command instead of asking for the Bitwarden password or OTP inside the app
 - Bitwarden terminal login captures the short-lived `bw login --raw` session into WardSen's local profile, then **Import session** consumes it and deletes the handoff file
+- Bitwarden terminal commands keep `bw login` intact in copyable error help while still redacting real secrets
 - Bitwarden terminal login avoids repeatedly burning email/new-device codes in hidden CLI prompts
 - Third-party provider and trademark policy documents that WardSen is independent, user-installed-provider-tool based and not endorsed by supported providers
 - macOS first-install docs cover the unsigned-prerelease `"WardSen" is damaged and can't be opened` Gatekeeper message
@@ -87,7 +88,7 @@ Go to [GitHub Releases](https://github.com/subtlesayak/WardSen/releases) and dow
 
 - Windows: `WardSen_0.1.0_x64-setup.exe` or `WardSen_0.1.0_x64_en-US.msi`
 - macOS Apple Silicon: `WardSen_0.1.0_aarch64.dmg`
-- macOS Intel: not attached to `v0.1.0-rc.26`; maintainers can build it from the manual Intel workflow
+- macOS Intel: not attached to `v0.1.0-rc.27`; maintainers can build it from the manual Intel workflow
 
 Windows first install:
 
@@ -126,7 +127,7 @@ For first Bitwarden login, WardSen does not ask for your Bitwarden password, ema
 
 When the PowerShell command finishes, return to WardSen and select **Import session**. WardSen reads the short-lived Bitwarden session from the same local profile and deletes the local handoff file. The command does not contain your password, verification code or session token.
 
-The PowerShell command should start with `$(Join-Path $env:LOCALAPPDATA 'WardSen\data\profiles\...')` and include `bw login ... --raw`. If you see an older command containing a quoted literal `'%LOCALAPPDATA%\WardSen\...'`, install `v0.1.0-rc.26` or newer before trying terminal login. That older RC command logs into the wrong folder, so WardSen cannot see the login.
+The PowerShell command should start with `$(Join-Path $env:LOCALAPPDATA 'WardSen\data\profiles\...')` and include `$bwResult=bw login ... --raw`. If you see an older command containing `[REDACTED] login` or a quoted literal `'%LOCALAPPDATA%\WardSen\...'`, install `v0.1.0-rc.27` or newer before trying terminal login. Those older RC commands cannot import the login correctly.
 
 Beginner-friendly Windows path:
 
@@ -221,7 +222,7 @@ Upload only the installer artifacts to GitHub Releases. Do not ask users to down
 
 ## Signing A Trusted Release
 
-`v0.1.0-rc.26` is intentionally published as an unsigned prerelease. To publish a trusted release later, maintainers need Windows Authenticode signing for `.exe` and `.msi` files, plus Apple Developer ID signing and notarization for macOS `.dmg` files.
+`v0.1.0-rc.27` is intentionally published as an unsigned prerelease. To publish a trusted release later, maintainers need Windows Authenticode signing for `.exe` and `.msi` files, plus Apple Developer ID signing and notarization for macOS `.dmg` files.
 
 High-level signing path:
 

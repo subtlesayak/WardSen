@@ -62,6 +62,12 @@ describe("CLI runner", () => {
     expect(message).toBe("failed password=[REDACTED] session=[REDACTED] [REDACTED]");
   });
 
+  it("does not corrupt copyable PowerShell commands while redacting safe errors", () => {
+    const message = safeErrorMessage(new Error("Manual same-profile terminal login command: $env:BITWARDENCLI_APPDATA_DIR='profiles/acct'; $bwResult=bw login 'user@example.com' --raw; if ($LASTEXITCODE -eq 0 -and $bwResult) { Set-Content -LiteralPath 'profiles/acct/.wardsen-session' -Value $bwResult.Trim() -NoNewline }; Remove-Item Env:\\BITWARDENCLI_APPDATA_DIR"));
+    expect(message).toContain("$bwResult=bw login");
+    expect(message).not.toContain("[REDACTED] login");
+  });
+
   it("redacts colon and JSON-style secret fields", () => {
     const message = safeErrorMessage(new Error('Password: hunter2 {"totp":"123456","accessPassword":"send-pass"}'));
     expect(message).toBe('Password: [REDACTED] {"totp":"[REDACTED]","accessPassword":"[REDACTED]"}');

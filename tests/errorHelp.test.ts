@@ -79,7 +79,7 @@ describe("web error help", () => {
   });
 
   it("turns Bitwarden terminal-first login into terminal login help", () => {
-    const help = describeError("Bitwarden terminal login is required. Manual same-profile terminal login command: $env:BITWARDENCLI_APPDATA_DIR='profiles/acct'; $session=bw login 'user@example.com' --raw; if ($LASTEXITCODE -eq 0 -and $session) { Set-Content -LiteralPath 'profiles/acct/.wardsen-session' -Value $session.Trim() -NoNewline }; Remove-Item Env:\\BITWARDENCLI_APPDATA_DIR");
+    const help = describeError("Bitwarden terminal login is required. Manual same-profile terminal login command: $env:BITWARDENCLI_APPDATA_DIR='profiles/acct'; $bwResult=bw login 'user@example.com' --raw; if ($LASTEXITCODE -eq 0 -and $bwResult) { Set-Content -LiteralPath 'profiles/acct/.wardsen-session' -Value $bwResult.Trim() -NoNewline }; Remove-Item Env:\\BITWARDENCLI_APPDATA_DIR");
 
     expect(help.kind).toBe("bitwardenTerminalLogin");
     expect(help.title).toBe("Bitwarden needs terminal login once");

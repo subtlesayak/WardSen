@@ -141,7 +141,7 @@ export class BitwardenCredentialProvider implements CredentialProvider {
     const handoffPath = bitwardenPowerShellSessionHandoffExpression(accountId, this.options.profileRoot);
     const username = input.username ? ` ${powershellSingleQuote(input.username)}` : "";
     const server = input.serverUrl ? `bw config server ${powershellSingleQuote(input.serverUrl)}; ` : "";
-    return `$env:BITWARDENCLI_APPDATA_DIR=${profilePath}; ${server}$session=bw login${username} --raw; if ($LASTEXITCODE -eq 0 -and $session) { Set-Content -LiteralPath ${handoffPath} -Value $session.Trim() -NoNewline }; Remove-Item Env:\\BITWARDENCLI_APPDATA_DIR`;
+    return `$env:BITWARDENCLI_APPDATA_DIR=${profilePath}; ${server}$bwResult=bw login${username} --raw; if ($LASTEXITCODE -eq 0 -and $bwResult) { Set-Content -LiteralPath ${handoffPath} -Value $bwResult.Trim() -NoNewline }; Remove-Item Env:\\BITWARDENCLI_APPDATA_DIR`;
   }
 
   private consumeTerminalSessionHandoff(accountId: string): string | undefined {

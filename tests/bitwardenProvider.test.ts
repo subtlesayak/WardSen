@@ -67,7 +67,7 @@ describe("Bitwarden credential provider", () => {
         password: "vault-password",
         verificationCode: "123456"
       })
-    ).rejects.toThrow(`$env:BITWARDENCLI_APPDATA_DIR='${expectedProfile}'; $session=bw login 'user@example.com' --raw`);
+    ).rejects.toThrow(`$env:BITWARDENCLI_APPDATA_DIR='${expectedProfile}'; $bwResult=bw login 'user@example.com' --raw`);
     await expect(provider.login("acct-1", { username: "user@example.com" })).rejects.toThrow("Set-Content -LiteralPath");
   });
 
