@@ -8,6 +8,10 @@ function ok(stdout = "{}"): CliCommandResult {
   return { exitCode: 0, stdout, stderr: "", durationMs: 1 };
 }
 
+function fail(message: string): never {
+  throw new Error(message);
+}
+
 describe("Bitwarden credential provider", () => {
   it("maps Bitwarden CLI status without exposing raw command details", async () => {
     const provider = new BitwardenCredentialProvider({
@@ -69,6 +73,29 @@ describe("Bitwarden credential provider", () => {
 
     expect(calls.at(-1)?.args).toEqual(["login", "user@example.com", "--passwordenv", "WARDSEN_BW_PASSWORD", "--method", "0", "--code", "654321"]);
     expect(calls.at(-1)?.env?.WARDSEN_BW_PASSWORD).toBe("vault-password");
+  });
+
+  it("turns rejected new-device OTP prompts into same-profile terminal guidance", async () => {
+    const expectedProfile = path.join("profiles", "acct-1");
+    const provider = new BitwardenCredentialProvider({
+      profileRoot: "profiles",
+      runCommand: async () => fail('Provider command "bw login" failed. Detail: invalid new device otp')
+    });
+
+    await expect(
+      provider.login("acct-1", {
+        username: "user@example.com",
+        password: "vault-password",
+        verificationCode: "123456"
+      })
+    ).rejects.toThrow("Manual same-profile login command:");
+    await expect(
+      provider.login("acct-1", {
+        username: "user@example.com",
+        password: "vault-password",
+        verificationCode: "123456"
+      })
+    ).rejects.toThrow(`$env:BITWARDENCLI_APPDATA_DIR='${expectedProfile}'; bw login 'user@example.com'`);
   });
 
   it("uses a configured local Bitwarden CLI path when available", async () => {

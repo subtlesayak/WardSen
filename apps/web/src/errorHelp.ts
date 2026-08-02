@@ -57,6 +57,25 @@ export function describeError(message?: string): ErrorHelp {
     };
   }
 
+  if (lower.includes("manual same-profile login command") || lower.includes("invalid new device otp")) {
+    const command = extractManualLoginCommand(detail);
+    return {
+      title: "Bitwarden needs terminal login once",
+      detail: "Bitwarden rejected the new-device email code from WardSen's hidden login process.",
+      guidance: "Use a real PowerShell window once for this WardSen vault account. Run the same-profile login command below, enter your Bitwarden password and latest email code in PowerShell, then return to WardSen and select Unlock.",
+      technicalDetail: detail,
+      terminalCommands: command
+        ? [
+            {
+              label: "PowerShell same-profile Bitwarden login",
+              command,
+              note: "This command does not include your password or verification code. Type those only into the PowerShell Bitwarden prompt."
+            }
+          ]
+        : undefined
+    };
+  }
+
   if (lower.includes("provider command") && lower.includes("timed out")) {
     if (lower.includes("enter otp") || lower.includes("new device verification") || lower.includes("verification required")) {
       return {
@@ -116,6 +135,11 @@ export function describeError(message?: string): ErrorHelp {
 function cleanMessage(message?: string) {
   const value = message?.trim();
   return value ? value : "No additional detail was returned.";
+}
+
+function extractManualLoginCommand(detail: string): string | undefined {
+  const match = detail.match(/Manual same-profile login command:\s*([\s\S]*?)(?:\s+Original detail:|$)/);
+  return match?.[1]?.trim();
 }
 
 function providerToolHelp(lowerDetail: string): Pick<ErrorHelp, "guidance" | "actionLabel" | "actionHref" | "setupNotes" | "terminalCommands"> {

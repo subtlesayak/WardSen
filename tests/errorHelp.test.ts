@@ -78,6 +78,18 @@ describe("web error help", () => {
     expect(help.guidance).toContain("Login first");
   });
 
+  it("turns Bitwarden invalid new-device OTP into terminal login help", () => {
+    const help = describeError("Bitwarden CLI rejected the new-device email code in hidden app mode. Manual same-profile login command: $env:BITWARDENCLI_APPDATA_DIR='profiles/acct'; bw login 'user@example.com'; Remove-Item Env:\\BITWARDENCLI_APPDATA_DIR Original detail: Provider command \"bw login\" failed. Detail: invalid new device otp");
+
+    expect(help.title).toBe("Bitwarden needs terminal login once");
+    expect(help.detail).toContain("hidden login process");
+    expect(help.guidance).toContain("PowerShell");
+    expect(help.terminalCommands?.[0]?.label).toContain("PowerShell");
+    expect(help.terminalCommands?.[0]?.command).toContain("BITWARDENCLI_APPDATA_DIR");
+    expect(help.terminalCommands?.[0]?.note).toContain("does not include your password");
+    expect(help.technicalDetail).toContain("invalid new device otp");
+  });
+
   it("explains Bitwarden local profile lock failures", () => {
     const help = describeError("Provider command \"bw status\" failed. Detail: EPERM mkdir '%LOCALAPPDATA%\\WardSen\\data\\profiles\\acct\\data.json.lock'");
 

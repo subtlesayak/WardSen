@@ -67,7 +67,12 @@ export class BitwardenCredentialProvider implements CredentialProvider {
       args.push("--method", bitwardenVerificationMethod(input.verificationMethod), "--code", input.verificationCode);
     }
     if (input.serverUrl) await this.run(accountId, ["config", "server", input.serverUrl]);
-    await this.run(accountId, args, verificationStdin, 45_000, [input.password ?? "", input.verificationCode ?? ""], env);
+    try {
+      await this.run(accountId, args, verificationStdin, 45_000, [input.password ?? "", input.verificationCode ?? ""], env);
+    } catch (error) {
+      if (isBitwardenNewDeviceOtpFailure(input, error)) throw new Error(this.manualNewDeviceLoginMessage(accountId, input, error));
+      throw error;
+    }
   }
 
   async unlock(accountId: string, input: ProviderUnlockInput): Promise<void> {
@@ -133,6 +138,13 @@ export class BitwardenCredentialProvider implements CredentialProvider {
       }
     });
   }
+
+  private manualNewDeviceLoginMessage(accountId: string, input: ProviderLoginInput, error: unknown) {
+    const profilePath = path.join(this.options.profileRoot, accountId);
+    const command = `$env:BITWARDENCLI_APPDATA_DIR=${powershellSingleQuote(profilePath)}; bw login${input.username ? ` ${powershellSingleQuote(input.username)}` : ""}; Remove-Item Env:\\BITWARDENCLI_APPDATA_DIR`;
+    const detail = error instanceof Error ? error.message : String(error);
+    return `Bitwarden CLI rejected the new-device email code in hidden app mode. The official Bitwarden CLI may require a real terminal for this new-device verification prompt. Open PowerShell, run the same-profile login command, enter your Bitwarden password and latest email code there, then return to WardSen and select Unlock. Manual same-profile login command: ${command} Original detail: ${detail}`;
+  }
 }
 
 function bitwardenVerificationMethod(method: ProviderLoginInput["verificationMethod"]): string {
@@ -145,6 +157,17 @@ function bitwardenVerificationStdin(input: ProviderLoginInput): string | undefin
   if (!input.verificationCode) return undefined;
   if (input.verificationMethod === "authenticator" || input.verificationMethod === "yubikey") return undefined;
   return `${input.verificationCode}\n`;
+}
+
+function isBitwardenNewDeviceOtpFailure(input: ProviderLoginInput, error: unknown): boolean {
+  if (!input.verificationCode) return false;
+  if (input.verificationMethod === "authenticator" || input.verificationMethod === "yubikey") return false;
+  const message = error instanceof Error ? error.message : String(error);
+  return message.toLowerCase().includes("invalid new device otp");
+}
+
+function powershellSingleQuote(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
 }
 
 function resolveBitwardenExecutable(): string {
