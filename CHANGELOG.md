@@ -3,9 +3,9 @@
 ## 0.1.0 - 2026-07-30
 
 - First-user install:
-  - Windows users should not install the removed `v0.1.0-rc.34` Windows setup EXE or MSI while the Defender `Trojan:Win32/Wacatac.B!ml` package investigation is open.
+  - Windows users should download the unsigned MSI-only prerelease, verify `SHA256SUMS-windows-x64.txt`, and leave it quarantined if Microsoft Defender blocks it.
   - macOS Apple Silicon users should download `WardSen_0.1.0_aarch64.dmg`, drag WardSen into Applications, then allow the unsigned prerelease in **System Settings > Privacy & Security** if Gatekeeper blocks the first launch.
-  - Optional checksum verification is available for the macOS DMG through `SHA256SUMS-macos-arm64.txt`.
+  - Optional checksum verification is available through the attached `SHA256SUMS-*.txt` files.
 - Initial open-source application foundation.
 - Added provider-neutral credential and delivery architecture.
 - Added Bitwarden, Bitwarden Send and KeePassXC adapter foundations.
@@ -27,3 +27,4 @@
 - Added `v0.1.0-rc.16` release notes and a third-party provider/trademark policy clarifying independent compatibility, user-installed provider tools and no provider endorsement.
 - Added `v0.1.0-rc.34` release notes and Bitwarden Send account readiness checks so locked or logged-out delivery accounts show unlock guidance before `bw send` runs.
 - Pulled the unsigned `v0.1.0-rc.34` Windows artifacts after Microsoft Defender flagged the setup EXE as `Trojan:Win32/Wacatac.B!ml`; Windows packaging remains suspended pending investigation.
+- Added `v0.1.0-rc.35` release notes and changed Windows release packaging to unsigned MSI-only, without the NSIS setup EXE.

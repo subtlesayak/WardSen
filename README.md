@@ -42,9 +42,9 @@ WardSen is an independent open-source project and is not affiliated with, endors
 
 ## Status
 
-`v0.1.0-rc.34` is the latest installer prerelease. It is suitable for developer review, security review and platform packaging validation.
+`v0.1.0-rc.35` is the latest installer prerelease. It is suitable for developer review, security review and platform packaging validation.
 
-The macOS Apple Silicon installer is attached to the GitHub prerelease. Windows x64 installers for `v0.1.0-rc.34` were pulled after Microsoft Defender flagged the unsigned setup EXE as `Trojan:Win32/Wacatac.B!ml`; do not restore or run that Windows artifact while it is investigated. Windows SmartScreen and macOS Gatekeeper may warn until signing certificates and notarization are configured. See [installer signing](docs/installer-signing.md) before publishing a fully trusted end-user release.
+Unsigned Windows MSI and macOS Apple Silicon installers are attached to the GitHub prerelease. The previous unsigned Windows setup EXE was pulled after Microsoft Defender flagged it as `Trojan:Win32/Wacatac.B!ml`; `v0.1.0-rc.35` does not publish that NSIS setup EXE. Windows SmartScreen, Microsoft Defender and macOS Gatekeeper may warn until signing certificates and notarization are configured. See [installer signing](docs/installer-signing.md) before publishing a fully trusted end-user release.
 
 This release contains:
 
@@ -89,15 +89,16 @@ Most users should install WardSen from a release artifact, not from the source f
 
 Go to [GitHub Releases](https://github.com/subtlesayak/WardSen/releases) and download the installer for your operating system:
 
-- Windows: no `v0.1.0-rc.34` Windows installer is currently attached; the unsigned Windows artifacts were pulled after a Defender detection
+- Windows: `WardSen_0.1.0_x64_en-US.msi`
 - macOS Apple Silicon: `WardSen_0.1.0_aarch64.dmg`
-- macOS Intel: not attached to `v0.1.0-rc.34`; maintainers can build it from the manual Intel workflow
+- macOS Intel: not attached to `v0.1.0-rc.35`; maintainers can build it from the manual Intel workflow
 
 Windows first install:
 
-1. Do not install the removed `v0.1.0-rc.34` Windows setup EXE or MSI.
-2. If Microsoft Defender quarantined the file, leave it quarantined or removed.
-3. Wait for a newer Windows release candidate after the package investigation, or build from source if you are a developer.
+1. Download `WardSen_0.1.0_x64_en-US.msi`.
+2. Download `SHA256SUMS-windows-x64.txt` and compare the MSI checksum.
+3. Run the MSI only if you trust this unsigned prerelease.
+4. If Microsoft Defender blocks the MSI, leave it quarantined and report the detection details.
 
 macOS Apple Silicon first install:
 
@@ -209,6 +210,8 @@ npm install -g @bitwarden/cli
 ## Release Artifact Structure
 
 Maintainers build installers from the source checkout. End users only receive the final installer file.
+
+Current unsigned prerelease workflow uploads Windows MSI only. The NSIS setup EXE path below is a possible Tauri output for future signed releases, not a `v0.1.0-rc.35` asset.
 
 Build output stays on the release machine under:
 

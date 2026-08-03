@@ -39,11 +39,10 @@ jobs:
         include:
           - name: windows-x64
             os: windows-latest
-            build_args: "--bundles nsis"
+            build_args: "--bundles msi"
             rust_target: ""
             bundle_root: apps/desktop/src-tauri/target/release/bundle
             artifact_paths: |
-              apps/desktop/src-tauri/target/release/bundle/nsis/*.exe
               apps/desktop/src-tauri/target/release/bundle/msi/*.msi
               apps/desktop/src-tauri/target/release/bundle/SHA256SUMS-*.txt
           - name: macos-arm64
@@ -99,7 +98,7 @@ jobs:
           fi
 
       - name: Build installer
-        if: runner.os != 'macOS'
+        if: runner.os != 'macOS' && runner.os != 'Windows'
         run: npm run tauri:build -- ${{ matrix.build_args }}
 
       - name: Build macOS installer
