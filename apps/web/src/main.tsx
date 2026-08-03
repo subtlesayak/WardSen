@@ -819,6 +819,7 @@ function DeliveryComposer({ api, selectedCredential }: { api: ReturnType<typeof 
   const capabilities = api.deliveryProviders.find((provider) => provider.id === deliveryProviderId)?.capabilities ?? {};
   const activePeople = api.people.filter((person) => person.active);
   const recipient = activePeople.find((person) => person.id === form.personId);
+  const recipientPlaceholder = form.mode === "individual" ? "Choose a person" : form.mode === "bulk" ? "All active people" : "Shared link";
   const bulkSummary = selectedCredential
     ? buildBulkRiskSummary({
         credentialTitle: selectedCredential.title,
@@ -905,7 +906,7 @@ function DeliveryComposer({ api, selectedCredential }: { api: ReturnType<typeof 
       <label>Source vault<input value={selectedCredential ? accountLabel(api.accounts, selectedCredential.accountId) : "Select from credential search"} readOnly /></label>
       <label>Selected credential<input value={selectedCredential ? `${selectedCredential.title} (${accountLabel(api.accounts, selectedCredential.accountId)})` : "Select from credential search"} readOnly /></label>
       <label>Recipient<select value={form.personId} disabled={form.mode !== "individual"} onChange={(event) => setForm((current) => ({ ...current, personId: event.target.value }))}>
-        <option value="">Shared link</option>
+        <option value="">{recipientPlaceholder}</option>
         {activePeople.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
       </select></label>
       <label>Delivery provider<select value={deliveryProviderId} onChange={(event) => setForm((current) => ({ ...current, deliveryProviderId: event.target.value }))}>
@@ -916,7 +917,7 @@ function DeliveryComposer({ api, selectedCredential }: { api: ReturnType<typeof 
       </select></label>
       <div className="segmented">
         <button type="button" className={form.mode === "shared" ? "selected" : ""} onClick={() => setForm((current) => ({ ...current, mode: "shared", personId: "" }))}>Shared</button>
-        <button type="button" className={form.mode === "individual" ? "selected" : ""} onClick={() => setForm((current) => ({ ...current, mode: "individual" }))}>Individual</button>
+        <button type="button" className={form.mode === "individual" ? "selected" : ""} onClick={() => setForm((current) => ({ ...current, mode: "individual", personId: current.personId || activePeople[0]?.id || "" }))}>Individual</button>
         <button type="button" className={form.mode === "bulk" ? "selected" : ""} onClick={() => setForm((current) => ({ ...current, mode: "bulk", personId: "" }))}>All active</button>
       </div>
       <label>Expiry<select value={form.expiryHours} onChange={(event) => setForm((current) => ({ ...current, expiryHours: event.target.value }))}>

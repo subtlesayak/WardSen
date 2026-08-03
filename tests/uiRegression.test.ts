@@ -65,4 +65,11 @@ describe("web UI regression guards", () => {
     expect(styles).toMatch(/\.fieldInstruction\s*{/);
     expect(styles).toMatch(/\.technicalDetail\s*{/);
   });
+
+  it("keeps delivery recipient copy aligned with the selected delivery mode", () => {
+    expect(webSource).toContain("recipientPlaceholder");
+    expect(webSource).toContain("Choose a person");
+    expect(webSource).toContain("All active people");
+    expect(webSource).toContain("personId: current.personId || activePeople[0]?.id || \"\"");
+  });
 });
