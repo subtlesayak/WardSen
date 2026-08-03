@@ -168,9 +168,31 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
   position: sticky;
   top: 12px;
   z-index: 3;
+  padding-right: 44px;
   color: #7b2f2f;
   background: #f6dedc;
   box-shadow: 0 16px 36px rgba(123, 47, 47, 0.16), 0 1px 0 rgba(123, 47, 47, 0.08);
+}
+.noticeClose {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  border-radius: 7px;
+  color: #7b2f2f;
+  background: rgba(255, 255, 255, 0.42);
+  box-shadow: none;
+}
+.noticeClose:hover {
+  background: rgba(255, 255, 255, 0.72);
+  transform: none;
+}
+.noticeClose:focus-visible {
+  outline: 2px solid #7b2f2f;
+  outline-offset: 2px;
 }
 .noticeList {
   display: grid;

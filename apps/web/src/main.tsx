@@ -16,7 +16,8 @@ import {
   ShieldCheck,
   Trash2,
   UsersRound,
-  Vault
+  Vault,
+  X
 } from "lucide-react";
 import { apiDownload, apiGet, apiSend, canRestartLocalService, copyExternalUrl, copyTextToClipboard, getLocalServiceStatus, openExternalUrl, restartLocalService, type LocalServiceStatus } from "./api";
 import { describeError } from "./errorHelp";
@@ -588,6 +589,13 @@ function Credentials({ api }: { api: ReturnType<typeof useWardSenApi> }) {
         {search.status === "error" && <ErrorNotice message={search.error} />}
         {search.errors.length > 0 && (
           <div className="notice error" role="alert">
+            <button
+              type="button"
+              className="noticeClose"
+              aria-label="Close search issue message"
+              title="Close"
+              onClick={() => setSearch((current) => ({ ...current, errors: [] }))}
+            ><X size={16} /></button>
             <strong>{search.errors.length} account search issue{search.errors.length === 1 ? "" : "s"}</strong>
             <ul className="noticeList">
               {search.errors.map((error) => (
@@ -1152,12 +1160,26 @@ function EmptyState({ text }: { text: string }) {
 
 function ErrorNotice({ message, compact = false, actionLabel, onAction }: { message?: string; compact?: boolean; actionLabel?: string; onAction?: () => void }) {
   const help = describeError(message);
+  const [dismissed, setDismissed] = useState(false);
   const [actionError, setActionError] = useState<string | undefined>();
   const [copyStatus, setCopyStatus] = useState<string | undefined>();
   const externalAction = help.actionLabel && help.actionHref ? { label: help.actionLabel, href: help.actionHref } : undefined;
   const terminalCommand = selectTerminalCommand(help.terminalCommands);
+  useEffect(() => {
+    setDismissed(false);
+  }, [message]);
+  if (dismissed) {
+    return null;
+  }
   return (
     <div className={compact ? "notice error compact errorHelp" : "notice error errorHelp"} role="alert">
+      <button
+        type="button"
+        className="noticeClose"
+        aria-label="Close error message"
+        title="Close"
+        onClick={() => setDismissed(true)}
+      ><X size={16} /></button>
       <strong>{help.title}</strong>
       <span>{help.detail}</span>
       <small>{help.guidance}</small>

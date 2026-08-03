@@ -42,7 +42,7 @@ WardSen is an independent open-source project and is not affiliated with, endors
 
 ## Status
 
-`v0.1.0-rc.29` is the latest installer prerelease. It is suitable for developer review, security review and platform packaging validation.
+`v0.1.0-rc.33` is the latest installer prerelease. It is suitable for developer review, security review and platform packaging validation.
 
 Unsigned Windows x64 and macOS Apple Silicon installers are attached to the GitHub prerelease. Windows SmartScreen and macOS Gatekeeper may warn until signing certificates and notarization are configured. See [installer signing](docs/installer-signing.md) before publishing a fully trusted end-user release.
 
@@ -66,6 +66,7 @@ This release contains:
 - Responsive desktop layout with an anchored left sidebar and independently scrolling workspace
 - Easier destructive-action confirmations in the UI while preserving server-side confirmation tokens
 - Sticky floating error help that stays visible while workspace content scrolls
+- Close buttons on sticky error help so users can dismiss overlay messages after reading them
 - Actionable missing provider-tool help when `bw`, `keepassxc-cli` or another CLI is not installed or not visible on `PATH`
 - Provider setup errors include install/download buttons for users who do not know terminal commands
 - Provider setup buttons open official install pages through the packaged desktop app's system-browser opener
@@ -89,7 +90,7 @@ Go to [GitHub Releases](https://github.com/subtlesayak/WardSen/releases) and dow
 
 - Windows: `WardSen_0.1.0_x64-setup.exe` or `WardSen_0.1.0_x64_en-US.msi`
 - macOS Apple Silicon: `WardSen_0.1.0_aarch64.dmg`
-- macOS Intel: not attached to `v0.1.0-rc.29`; maintainers can build it from the manual Intel workflow
+- macOS Intel: not attached to `v0.1.0-rc.33`; maintainers can build it from the manual Intel workflow
 
 Windows first install:
 
