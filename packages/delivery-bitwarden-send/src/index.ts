@@ -55,20 +55,10 @@ export class BitwardenSendDeliveryProvider implements DeliveryProvider {
       throw new Error("Bitwarden Send access passwords are disabled because the Bitwarden CLI requires this secret as a process argument.");
     }
     const text = formatCredentialText(input.sourceCredential);
-    const deleteInDays = deleteInDaysFromExpiry(input.expiresAt);
-    const args = [
-      "send",
-      "--name",
-      input.sourceCredential.title,
-      "--notes",
-      "Created by WardSen",
-      "--deleteInDays",
-      String(deleteInDays),
-      "--fullObject"
-    ];
-    if (input.viewLimit !== undefined) args.push("--maxAccessCount", String(input.viewLimit));
-    if (input.hideText) args.push("--hidden");
-    const result = await this.run(accountId, args, text, [text]);
+    const sendJson = JSON.stringify(buildTextSendObject(input, text));
+    const encoded = (await this.run(accountId, ["encode"], sendJson, [sendJson, text])).stdout.trim();
+    if (!encoded) throw new Error("Bitwarden CLI did not encode the Send payload");
+    const result = await this.run(accountId, ["send", "--fullObject", "create"], encoded, [sendJson, text, encoded]);
     const parsed = safeJsonObject(result.stdout, "Bitwarden Send create response");
     const id = optionalString(parsed.id);
     const url = optionalString(parsed.accessUrl) ?? optionalString(parsed.url);
@@ -143,11 +133,25 @@ function formatCredentialText(credential: CreateDeliveryInput["sourceCredential"
   return lines.join("\n");
 }
 
-function deleteInDaysFromExpiry(expiresAt: Date, now = new Date()): number {
-  const durationMs = expiresAt.getTime() - now.getTime();
-  const dayMs = 24 * 60 * 60 * 1000;
-  if (!Number.isFinite(durationMs) || durationMs <= 0) return 1;
-  return Math.min(30, Math.max(1, Math.ceil(durationMs / dayMs)));
+function buildTextSendObject(input: CreateDeliveryInput, text: string): Record<string, unknown> {
+  return {
+    object: "send",
+    name: input.sourceCredential.title,
+    notes: "Created by WardSen",
+    type: 0,
+    text: {
+      text,
+      hidden: input.hideText === true
+    },
+    file: null,
+    maxAccessCount: input.viewLimit ?? null,
+    deletionDate: input.expiresAt.toISOString(),
+    expirationDate: null,
+    password: null,
+    emails: null,
+    disabled: false,
+    hideEmail: false
+  };
 }
 
 function safeJson(value: string, label: string): unknown {

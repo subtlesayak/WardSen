@@ -6,6 +6,10 @@ function ok(stdout = "{}"): CliCommandResult {
   return { exitCode: 0, stdout, stderr: "", durationMs: 1 };
 }
 
+function encodedSendPayload(): string {
+  return "encoded-send-payload";
+}
+
 describe("Bitwarden Send delivery provider", () => {
   it("creates text sends with secret redaction, session env, expiry, and access limits", async () => {
     const calls: CliCommandInput[] = [];
@@ -13,6 +17,7 @@ describe("Bitwarden Send delivery provider", () => {
       getSessionToken: () => "session-token",
       runCommand: async (input) => {
         calls.push(input);
+        if (input.args[0] === "encode") return ok(encodedSendPayload());
         return ok(JSON.stringify({ id: "send-1", accessUrl: "https://send.example.test/#abc" }));
       }
     });
@@ -39,32 +44,32 @@ describe("Bitwarden Send delivery provider", () => {
       expiresAt,
       viewLimit: 2
     });
-    expect(calls[0].args).toEqual([
-      "send",
-      "--name",
-      "Production Admin",
-      "--notes",
-      "Created by WardSen",
-      "--deleteInDays",
-      "1",
-      "--fullObject",
-      "--maxAccessCount",
-      "2",
-      "--hidden"
-    ]);
-    expect(calls[0].args).not.toContain("--expirationDate");
+    expect(calls).toHaveLength(2);
+    expect(calls[0].args).toEqual(["encode"]);
+    expect(calls[0].stdin).toContain('"object":"send"');
+    expect(calls[0].stdin).toContain('"name":"Production Admin"');
+    expect(calls[0].stdin).toContain('"deletionDate":"2026-08-01T12:00:00.000Z"');
+    expect(calls[0].stdin).toContain('"maxAccessCount":2');
+    expect(calls[0].stdin).toContain('"hidden":true');
     expect(calls[0].stdin).toContain("Password: credential-password");
     expect(calls[0].stdin).toContain("TOTP: 123456");
+    expect(calls[1].args).toEqual(["send", "--fullObject", "create"]);
+    expect(calls[1].args).not.toContain("--expirationDate");
+    expect(calls[1].args).not.toContain("--deleteInDays");
+    expect(calls[1].stdin).toBe(encodedSendPayload());
     expect(calls[0].env?.BW_SESSION).toBe("session-token");
-    expect(calls[0].redact).toEqual(expect.arrayContaining(["session-token", calls[0].stdin]));
+    expect(calls[1].env?.BW_SESSION).toBe("session-token");
+    expect(calls[0].redact).toEqual(expect.arrayContaining(["session-token", calls[0].stdin, "Title: Production Admin\nUsername: admin\nPassword: credential-password\nURLs: https://app.example.test\nNotes: Rotate after incident\nTOTP: 123456"]));
+    expect(calls[1].redact).toEqual(expect.arrayContaining(["session-token", calls[0].stdin, encodedSendPayload()]));
   });
 
-  it("rounds custom expiry to Bitwarden Send delete-in-days without exposing the secret as an argument", async () => {
+  it("pipes Bitwarden Send payloads through stdin without exposing the secret as an argument", async () => {
     const calls: CliCommandInput[] = [];
     const provider = new BitwardenSendDeliveryProvider({
       getSessionToken: () => "session-token",
       runCommand: async (input) => {
         calls.push(input);
+        if (input.args[0] === "encode") return ok(encodedSendPayload());
         return ok(JSON.stringify({ id: "send-1", accessUrl: "https://send.example.test/#abc" }));
       }
     });
@@ -75,10 +80,13 @@ describe("Bitwarden Send delivery provider", () => {
       sourceCredential: { title: "Admin", password: "credential-password", urls: [] }
     });
 
-    expect(calls[0].args).toContain("--deleteInDays");
-    expect(calls[0].args.at(calls[0].args.indexOf("--deleteInDays") + 1)).toBe("3");
+    expect(calls[0].args).toEqual(["encode"]);
+    expect(calls[1].args).toEqual(["send", "--fullObject", "create"]);
     expect(calls[0].args.join(" ")).not.toContain("credential-password");
+    expect(calls[1].args.join(" ")).not.toContain("credential-password");
+    expect(calls[1].args.join(" ")).not.toContain(encodedSendPayload());
     expect(calls[0].stdin).toContain("credential-password");
+    expect(calls[1].stdin).toBe(encodedSendPayload());
   });
 
   it("does not support access passwords because bw exposes them through process args", async () => {
@@ -107,6 +115,7 @@ describe("Bitwarden Send delivery provider", () => {
         getSessionToken: () => "session-token",
         runCommand: async (input) => {
           calls.push(input);
+          if (input.args[0] === "encode") return ok(encodedSendPayload());
           return ok(JSON.stringify({ id: "send-1", accessUrl: "https://send.example.test/#abc" }));
         }
       });
@@ -150,7 +159,7 @@ describe("Bitwarden Send delivery provider", () => {
   it("rejects malformed create responses with a safe error", async () => {
     const provider = new BitwardenSendDeliveryProvider({
       getSessionToken: () => "session-token",
-      runCommand: async () => ok("{broken")
+      runCommand: async (input) => input.args[0] === "encode" ? ok(encodedSendPayload()) : ok("{broken")
     });
 
     await expect(
@@ -160,5 +169,20 @@ describe("Bitwarden Send delivery provider", () => {
         sourceCredential: { title: "Admin", urls: [] }
       })
     ).rejects.toThrow("Bitwarden Send create response returned invalid JSON");
+  });
+
+  it("rejects missing encoded Send payloads with a safe error", async () => {
+    const provider = new BitwardenSendDeliveryProvider({
+      getSessionToken: () => "session-token",
+      runCommand: async () => ok("")
+    });
+
+    await expect(
+      provider.createDelivery({
+        deliveryAccountId: "acct-1",
+        expiresAt: new Date("2026-08-01T12:00:00.000Z"),
+        sourceCredential: { title: "Admin", urls: [] }
+      })
+    ).rejects.toThrow("Bitwarden CLI did not encode the Send payload");
   });
 });
