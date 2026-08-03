@@ -3,9 +3,9 @@
 ## 0.1.0 - 2026-07-30
 
 - First-user install:
-  - Windows users should download `WardSen_0.1.0_x64-setup.exe`, run it, allow the unsigned prerelease warning only if they trust the build, then open WardSen from the Start menu.
+  - Windows users should not install the removed `v0.1.0-rc.34` Windows setup EXE or MSI while the Defender `Trojan:Win32/Wacatac.B!ml` package investigation is open.
   - macOS Apple Silicon users should download `WardSen_0.1.0_aarch64.dmg`, drag WardSen into Applications, then allow the unsigned prerelease in **System Settings > Privacy & Security** if Gatekeeper blocks the first launch.
-  - Optional checksum files are attached as `SHA256SUMS-windows-x64.txt` and `SHA256SUMS-macos-arm64.txt`.
+  - Optional checksum verification is available for the macOS DMG through `SHA256SUMS-macos-arm64.txt`.
 - Initial open-source application foundation.
 - Added provider-neutral credential and delivery architecture.
 - Added Bitwarden, Bitwarden Send and KeePassXC adapter foundations.
@@ -26,3 +26,4 @@
 - Added `v0.1.0-rc.15` release notes and Bitwarden CLI setup help for Windows/macOS users, including native download PATH guidance, arm64/NPM guidance, Chocolatey and `bw --version` verification.
 - Added `v0.1.0-rc.16` release notes and a third-party provider/trademark policy clarifying independent compatibility, user-installed provider tools and no provider endorsement.
 - Added `v0.1.0-rc.34` release notes and Bitwarden Send account readiness checks so locked or logged-out delivery accounts show unlock guidance before `bw send` runs.
+- Pulled the unsigned `v0.1.0-rc.34` Windows artifacts after Microsoft Defender flagged the setup EXE as `Trojan:Win32/Wacatac.B!ml`; Windows packaging remains suspended pending investigation.

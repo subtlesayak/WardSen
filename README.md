@@ -44,7 +44,7 @@ WardSen is an independent open-source project and is not affiliated with, endors
 
 `v0.1.0-rc.34` is the latest installer prerelease. It is suitable for developer review, security review and platform packaging validation.
 
-Unsigned Windows x64 and macOS Apple Silicon installers are attached to the GitHub prerelease. Windows SmartScreen and macOS Gatekeeper may warn until signing certificates and notarization are configured. See [installer signing](docs/installer-signing.md) before publishing a fully trusted end-user release.
+The macOS Apple Silicon installer is attached to the GitHub prerelease. Windows x64 installers for `v0.1.0-rc.34` were pulled after Microsoft Defender flagged the unsigned setup EXE as `Trojan:Win32/Wacatac.B!ml`; do not restore or run that Windows artifact while it is investigated. Windows SmartScreen and macOS Gatekeeper may warn until signing certificates and notarization are configured. See [installer signing](docs/installer-signing.md) before publishing a fully trusted end-user release.
 
 This release contains:
 
@@ -89,17 +89,15 @@ Most users should install WardSen from a release artifact, not from the source f
 
 Go to [GitHub Releases](https://github.com/subtlesayak/WardSen/releases) and download the installer for your operating system:
 
-- Windows: `WardSen_0.1.0_x64-setup.exe` or `WardSen_0.1.0_x64_en-US.msi`
+- Windows: no `v0.1.0-rc.34` Windows installer is currently attached; the unsigned Windows artifacts were pulled after a Defender detection
 - macOS Apple Silicon: `WardSen_0.1.0_aarch64.dmg`
 - macOS Intel: not attached to `v0.1.0-rc.34`; maintainers can build it from the manual Intel workflow
 
 Windows first install:
 
-1. Download `WardSen_0.1.0_x64-setup.exe`.
-2. Run the installer.
-3. If Windows SmartScreen warns that the publisher is unknown, choose **More info** and then **Run anyway** only if you trust this prerelease.
-4. Open WardSen from the Start menu.
-5. If WardSen says it cannot reach the local service, click **Restart service and retry**. If the same message returns, read the **Desktop service check** lines in the error banner and share them with the maintainer.
+1. Do not install the removed `v0.1.0-rc.34` Windows setup EXE or MSI.
+2. If Microsoft Defender quarantined the file, leave it quarantined or removed.
+3. Wait for a newer Windows release candidate after the package investigation, or build from source if you are a developer.
 
 macOS Apple Silicon first install:
 
