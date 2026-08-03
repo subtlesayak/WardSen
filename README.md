@@ -42,9 +42,9 @@ WardSen is an independent open-source project and is not affiliated with, endors
 
 ## Status
 
-`v0.1.0-rc.35` is the latest installer prerelease. It is suitable for developer review, security review and platform packaging validation.
+`v0.1.0-rc.36` is the latest installer prerelease. It is suitable for developer review, security review and platform packaging validation.
 
-Unsigned Windows MSI and macOS Apple Silicon installers are attached to the GitHub prerelease. The previous unsigned Windows setup EXE was pulled after Microsoft Defender flagged it as `Trojan:Win32/Wacatac.B!ml`; `v0.1.0-rc.35` does not publish that NSIS setup EXE. Windows SmartScreen, Microsoft Defender and macOS Gatekeeper may warn until signing certificates and notarization are configured. See [installer signing](docs/installer-signing.md) before publishing a fully trusted end-user release.
+Unsigned Windows MSI and macOS Apple Silicon installers are attached to the GitHub prerelease. The previous unsigned Windows setup EXE was pulled after Microsoft Defender flagged it as `Trojan:Win32/Wacatac.B!ml`; `v0.1.0-rc.36` does not publish that NSIS setup EXE. Windows SmartScreen, Microsoft Defender and macOS Gatekeeper may warn until signing certificates and notarization are configured. See [installer signing](docs/installer-signing.md) before publishing a fully trusted end-user release.
 
 This release contains:
 
@@ -78,7 +78,7 @@ This release contains:
 - Bitwarden terminal commands keep `bw login` intact in copyable error help while still redacting real secrets
 - Bitwarden terminal login commands are platform-aware: Windows gets PowerShell syntax, while macOS and Linux get zsh/bash syntax
 - Bitwarden terminal login avoids repeatedly burning email/new-device codes in hidden CLI prompts
-- Bitwarden Send delivery checks the selected delivery account before creating links and tells users to unlock the account first when `bw` is not logged in
+- Bitwarden Send delivery uses the same isolated WardSen account profile as Vaults, checks the selected delivery account before creating links and tells users to unlock the account first when `bw` is not logged in
 - Third-party provider and trademark policy documents that WardSen is independent, user-installed-provider-tool based and not endorsed by supported providers
 - macOS first-install docs cover the unsigned-prerelease `"WardSen" is damaged and can't be opened` Gatekeeper message
 - Windows and macOS prerequisite and desktop packaging scripts
@@ -91,7 +91,7 @@ Go to [GitHub Releases](https://github.com/subtlesayak/WardSen/releases) and dow
 
 - Windows: `WardSen_0.1.0_x64_en-US.msi`
 - macOS Apple Silicon: `WardSen_0.1.0_aarch64.dmg`
-- macOS Intel: not attached to `v0.1.0-rc.35`; maintainers can build it from the manual Intel workflow
+- macOS Intel: not attached to `v0.1.0-rc.36`; maintainers can build it from the manual Intel workflow
 
 Windows first install:
 
@@ -211,7 +211,7 @@ npm install -g @bitwarden/cli
 
 Maintainers build installers from the source checkout. End users only receive the final installer file.
 
-Current unsigned prerelease workflow uploads Windows MSI only. The NSIS setup EXE path below is a possible Tauri output for future signed releases, not a `v0.1.0-rc.35` asset.
+Current unsigned prerelease workflow uploads Windows MSI only. The NSIS setup EXE path below is a possible Tauri output for future signed releases, not a `v0.1.0-rc.36` asset.
 
 Build output stays on the release machine under:
 

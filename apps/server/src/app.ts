@@ -59,7 +59,8 @@ export async function buildApp(options: BuildAppOptions = {}) {
     registry.registerCredentialProvider(keeperProvider);
     registry.registerDeliveryProvider(
       new BitwardenSendDeliveryProvider({
-        getSessionToken: (accountId) => sessions.getSessionToken(accountId, "bitwarden")
+        getSessionToken: (accountId) => sessions.getSessionToken(accountId, "bitwarden"),
+        profileDirectoryFor: (accountId) => accountProfileDirectories.get(accountId)
       })
     );
   }

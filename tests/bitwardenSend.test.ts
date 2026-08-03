@@ -15,6 +15,7 @@ describe("Bitwarden Send delivery provider", () => {
     const calls: CliCommandInput[] = [];
     const provider = new BitwardenSendDeliveryProvider({
       getSessionToken: () => "session-token",
+      profileDirectoryFor: (accountId) => `profiles/${accountId}`,
       runCommand: async (input) => {
         calls.push(input);
         if (input.args[0] === "encode") return ok(encodedSendPayload());
@@ -59,8 +60,29 @@ describe("Bitwarden Send delivery provider", () => {
     expect(calls[1].stdin).toBe(encodedSendPayload());
     expect(calls[0].env?.BW_SESSION).toBe("session-token");
     expect(calls[1].env?.BW_SESSION).toBe("session-token");
+    expect(calls[0].env?.BITWARDENCLI_APPDATA_DIR).toBe("profiles/acct-1");
+    expect(calls[1].env?.BITWARDENCLI_APPDATA_DIR).toBe("profiles/acct-1");
     expect(calls[0].redact).toEqual(expect.arrayContaining(["session-token", calls[0].stdin, "Title: Production Admin\nUsername: admin\nPassword: credential-password\nURLs: https://app.example.test\nNotes: Rotate after incident\nTOTP: 123456"]));
     expect(calls[1].redact).toEqual(expect.arrayContaining(["session-token", calls[0].stdin, encodedSendPayload()]));
+  });
+
+  it("uses the isolated account profile when checking Bitwarden Send readiness", async () => {
+    const calls: CliCommandInput[] = [];
+    const provider = new BitwardenSendDeliveryProvider({
+      getSessionToken: () => "session-token",
+      profileDirectoryFor: (accountId) => `profiles/${accountId}`,
+      runCommand: async (input) => {
+        calls.push(input);
+        return ok("[]");
+      }
+    });
+
+    await expect(provider.testConnection("acct-1")).resolves.toEqual({ ok: true, status: "unlocked" });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].args).toEqual(["send", "list"]);
+    expect(calls[0].env?.BW_SESSION).toBe("session-token");
+    expect(calls[0].env?.BITWARDENCLI_APPDATA_DIR).toBe("profiles/acct-1");
   });
 
   it("pipes Bitwarden Send payloads through stdin without exposing the secret as an argument", async () => {

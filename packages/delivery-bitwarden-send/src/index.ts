@@ -15,6 +15,7 @@ export type BitwardenSendCommandRunner = (input: CliCommandInput) => Promise<Cli
 export interface BitwardenSendDeliveryOptions {
   executable?: string;
   getSessionToken(accountId: string): string;
+  profileDirectoryFor?: (accountId: string) => string | undefined;
   runCommand?: BitwardenSendCommandRunner;
 }
 
@@ -92,10 +93,18 @@ export class BitwardenSendDeliveryProvider implements DeliveryProvider {
       executable: this.executable,
       args,
       stdin: stdinValue,
-      env: { BW_SESSION: sessionToken },
+      env: {
+        BW_SESSION: sessionToken,
+        ...this.profileEnvironment(accountId)
+      },
       redact: [sessionToken, ...redact],
       timeoutMs: 60_000
     });
+  }
+
+  private profileEnvironment(accountId: string): Record<string, string> {
+    const profileDirectory = this.options.profileDirectoryFor?.(accountId);
+    return profileDirectory ? { BITWARDENCLI_APPDATA_DIR: profileDirectory } : {};
   }
 }
 
