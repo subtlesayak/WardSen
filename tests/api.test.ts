@@ -19,6 +19,7 @@ import { buildApp } from "../apps/server/src/app";
 
 describe("WardSen API", () => {
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.useRealTimers();
   });
 
@@ -52,6 +53,26 @@ describe("WardSen API", () => {
     });
     expect(accepted.statusCode).toBe(200);
     await app.close();
+  });
+
+  it("rejects missing desktop API tokens outside test or explicit unauthenticated modes", async () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    const previousAllow = process.env.WARDSEN_ALLOW_UNAUTHENTICATED_LOCAL_API;
+    process.env.NODE_ENV = "production";
+    delete process.env.WARDSEN_ALLOW_UNAUTHENTICATED_LOCAL_API;
+    const app = await buildApp();
+
+    try {
+      const response = await app.inject({ method: "GET", url: "/api/health", headers: { host: "127.0.0.1:4777" } });
+      expect(response.statusCode).toBe(401);
+      expect(response.json().error).toContain("desktop API token");
+    } finally {
+      await app.close();
+      if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousNodeEnv;
+      if (previousAllow === undefined) delete process.env.WARDSEN_ALLOW_UNAUTHENTICATED_LOCAL_API;
+      else process.env.WARDSEN_ALLOW_UNAUTHENTICATED_LOCAL_API = previousAllow;
+    }
   });
 
   it("allows trusted desktop preflight before token-authenticated requests", async () => {
@@ -142,6 +163,25 @@ describe("WardSen API", () => {
 
     const audit = await app.inject({ method: "GET", url: "/api/audit-log", headers: { host: "127.0.0.1:4777" } });
     expect(audit.json().items.some((item: { action: string }) => item.action === "account.delete")).toBe(true);
+    await app.close();
+  });
+
+  it("returns live in-memory session status with account metadata", async () => {
+    const sessions = new AccountSessionManager();
+    const app = await buildApp({ sessions, credentialProviders: [new MockCredentialProvider()] });
+    const headers = { host: "127.0.0.1:4777", origin: "http://127.0.0.1:4777" };
+    await app.inject({
+      method: "POST",
+      url: "/api/accounts",
+      headers,
+      payload: { id: "source", providerId: "mock-source", label: "Mock source" }
+    });
+
+    sessions.markUnlocked("source", "mock-source", "token");
+    const accounts = await app.inject({ method: "GET", url: "/api/accounts", headers: { host: "127.0.0.1:4777" } });
+
+    expect(accounts.json()[0]).toMatchObject({ id: "source", status: "unlocked" });
+    expect(accounts.json()[0].lastActivity).toBeTruthy();
     await app.close();
   });
 
@@ -268,8 +308,8 @@ describe("WardSen API", () => {
       headers,
       payload: { confirm: `CANCEL BATCH ${batchId}` }
     });
-    expect(cancelWithConfirmation.statusCode).toBe(200);
-    expect(cancelWithConfirmation.json().cancelled).toBe(true);
+    expect(cancelWithConfirmation.statusCode).toBe(400);
+    expect(cancelWithConfirmation.json().error).toContain("Completed batches cannot be cancelled");
     await app.close();
   });
 
@@ -336,6 +376,41 @@ describe("WardSen API", () => {
     expect(refreshed.lastCheckedAt).toBeTruthy();
     expect((await app.inject({ method: "POST", url: `/api/deliveries/${deliveryId}/retry`, headers })).json().oneTimeDeliveryUrl).toMatch(/^https:\/\/mock.local\/send\//);
     expect((await app.inject({ method: "DELETE", url: `/api/deliveries/${deliveryId}`, headers, payload: { confirm: `REVOKE DELIVERY ${deliveryId}` } })).json().status).toBe("revoked");
+    await app.close();
+  });
+
+  it("retries expired deliveries with a fresh future expiry using the original duration", async () => {
+    const deliveryProvider = new MockDeliveryProvider();
+    const app = await buildApp({
+      credentialProviders: [new MockCredentialProvider()],
+      deliveryProviders: [deliveryProvider]
+    });
+    const headers = { host: "127.0.0.1:4777", origin: "http://127.0.0.1:4777" };
+    await app.inject({ method: "POST", url: "/api/accounts", headers, payload: { id: "source", providerId: "mock-source", label: "Mock source" } });
+    await app.inject({ method: "POST", url: "/api/accounts", headers, payload: { id: "delivery", providerId: "mock-source", label: "Mock delivery" } });
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/deliveries",
+      headers,
+      payload: {
+        sourceProviderId: "mock-source",
+        sourceAccountId: "source",
+        sourceItemId: "cms",
+        deliveryProviderId: "mock-delivery",
+        deliveryAccountId: "delivery",
+        expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString()
+      }
+    });
+    const deliveryId = created.json().id;
+    const retryNow = Date.now() + 24 * 60 * 60 * 1000;
+    vi.spyOn(Date, "now").mockReturnValue(retryNow);
+
+    const retried = await app.inject({ method: "POST", url: `/api/deliveries/${deliveryId}/retry`, headers });
+    const retryExpiresAt = new Date(retried.json().expiresAt).getTime();
+    const expectedExpiresAt = retryNow + 2 * 60 * 60 * 1000;
+
+    expect(retried.statusCode).toBe(200);
+    expect(Math.abs(retryExpiresAt - expectedExpiresAt)).toBeLessThan(1000);
     await app.close();
   });
 

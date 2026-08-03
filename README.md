@@ -313,6 +313,20 @@ The web interface starts on `http://127.0.0.1:5173`.
 
 Open `http://127.0.0.1:5173` in your browser. Do not open the interface through another hostname, preview proxy or random web server, because WardSen blocks cross-origin state-changing requests for safety.
 
+Packaged desktop builds pass a per-launch local API token from Tauri to the web interface automatically. Browser-only source development has no Tauri token bridge, so use the normal `npm run dev` command for the integrated workspace scripts. If you start the API server by itself for manual API testing, either set `WARDSEN_API_TOKEN` and send the same value in the `x-wardsen-api-token` header, or explicitly opt into unauthenticated localhost development mode:
+
+```powershell
+$env:WARDSEN_ALLOW_UNAUTHENTICATED_LOCAL_API="true"
+npm run dev:server
+```
+
+```bash
+export WARDSEN_ALLOW_UNAUTHENTICATED_LOCAL_API=true
+npm run dev:server
+```
+
+Do not use `WARDSEN_ALLOW_UNAUTHENTICATED_LOCAL_API=true` for packaged builds or shared machines.
+
 ### 5. Verify the app
 
 Run these from the `WardSen` folder:
@@ -375,7 +389,7 @@ npm run desktop:build
 The server binds to `127.0.0.1:4777`. The Vite interface binds to `127.0.0.1:5173`.
 
 See `docs/api.md` for the local API surface.
-See `docs/desktop-packaging.md` for Tauri packaging details, `docs/installer-signing.md` for platform signing, `installers/windows/README.md` for Windows setup and `installers/macos/README.md` for macOS setup. The `Release Installers` GitHub Actions workflow can build Windows and macOS artifacts from a release tag or manual run.
+See `docs/desktop-packaging.md` for Tauri packaging details, `docs/installer-signing.md` for platform signing, `installers/windows/README.md` for Windows setup and `installers/macos/README.md` for macOS setup. The `Release Installers` GitHub Actions workflow can build Windows and macOS artifacts from a release tag or manual run. Manual workflow runs leave the GitHub release as a draft unless the maintainer sets `publish` to `true`.
 See `docs/release-security-checklist.md` and `docs/rustsec-audit.md` before publishing public release artifacts.
 
 ## Security Principles

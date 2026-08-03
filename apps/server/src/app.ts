@@ -27,6 +27,7 @@ export interface BuildAppOptions {
   profileRoot?: string;
   sessions?: AccountSessionManager;
   apiToken?: string;
+  allowUnauthenticatedLocalApi?: boolean;
   credentialProviders?: CredentialProvider[];
   deliveryProviders?: DeliveryProvider[];
 }
@@ -43,7 +44,12 @@ export async function buildApp(options: BuildAppOptions = {}) {
   const apiToken = options.apiToken ?? process.env.WARDSEN_API_TOKEN;
   const registry = new ProviderRegistry();
   const profileRoot = options.profileRoot ?? path.join(process.cwd(), ".wardsen-profiles");
-  const bitwarden = new BitwardenCredentialProvider({ profileRoot, sessions });
+  const accountProfileDirectories = new Map<string, string>();
+  const bitwarden = new BitwardenCredentialProvider({
+    profileRoot,
+    sessions,
+    profileDirectoryFor: (accountId) => accountProfileDirectories.get(accountId)
+  });
   registry.registerCredentialProvider(bitwarden);
   registry.registerCredentialProvider(new KeePassXCCredentialProvider({ sessions }));
   registry.registerCredentialProvider(onePasswordProvider);
@@ -97,7 +103,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
       await reply.code(204).send();
       return;
     }
-    if (!isAuthorizedLocalApiRequest(request.headers["x-wardsen-api-token"], apiToken)) {
+    if (!isAuthorizedLocalApiRequest(request.headers["x-wardsen-api-token"], apiToken, options.allowUnauthenticatedLocalApi)) {
       await reply.code(401).send({ error: "WardSen local service rejected this request because the desktop API token was missing or invalid. Restart WardSen from the desktop app, then retry." });
       return;
     }
@@ -136,7 +142,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     )
   }));
 
-  app.get("/api/accounts", async () => repository.listAccounts());
+  app.get("/api/accounts", async () => accountsWithLiveStatus());
 
   app.post("/api/accounts", async (request) => {
     const body = accountSchema.parse(request.body);
@@ -154,6 +160,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
       status: "locked",
       lastActivity: now
     };
+    rememberAccountProfile(record);
     sessions.ensure(record.id, record.providerId);
     const account = await repository.upsertAccount(record);
     await audit("account.create", "success", { safeDetails: account.providerId });
@@ -175,6 +182,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
       autoLockMinutes: body.autoLockMinutes ?? existing.autoLockMinutes,
       status: existing.status
     });
+    rememberAccountProfile(account);
     await audit("account.update", "success", { sourceAccountId: id });
     return account;
   });
@@ -183,6 +191,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     const { id } = idParams.parse(request.params);
     assertDestructiveConfirmation(request.body, confirmationPhrase("DELETE ACCOUNT", id));
     const account = await findAccount(repository, id);
+    rememberAccountProfile(account);
     await registry.getCredentialProvider(account.providerId).logout(id).catch(() => undefined);
     await repository.deleteAccount(id);
     await audit("account.delete", "success", { sourceAccountId: id });
@@ -193,6 +202,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     const { id } = idParams.parse(request.params);
     const body = loginSchema.parse(request.body);
     const account = await findAccount(repository, id);
+    rememberAccountProfile(account);
     const provider = registry.getCredentialProvider(account.providerId);
     await provider.login(id, body);
     await audit("account.login", "success", { sourceAccountId: id });
@@ -203,6 +213,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     const { id } = idParams.parse(request.params);
     const body = unlockSchema.parse(request.body);
     const account = await findAccount(repository, id);
+    rememberAccountProfile(account);
     const provider = registry.getCredentialProvider(account.providerId);
     await provider.unlock(id, body);
     await audit("account.unlock", "success", { sourceAccountId: id });
@@ -212,6 +223,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   app.post("/api/accounts/:id/lock", async (request) => {
     const { id } = idParams.parse(request.params);
     const account = await findAccount(repository, id);
+    rememberAccountProfile(account);
     const provider = registry.getCredentialProvider(account.providerId);
     await provider.lock(id);
     await audit("account.lock", "success", { sourceAccountId: id });
@@ -221,6 +233,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   app.post("/api/accounts/:id/logout", async (request) => {
     const { id } = idParams.parse(request.params);
     const account = await findAccount(repository, id);
+    rememberAccountProfile(account);
     const provider = registry.getCredentialProvider(account.providerId);
     await provider.logout(id);
     await audit("account.logout", "success", { sourceAccountId: id });
@@ -230,6 +243,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   app.post("/api/accounts/:id/sync", async (request) => {
     const { id } = idParams.parse(request.params);
     const account = await findAccount(repository, id);
+    rememberAccountProfile(account);
     const provider = registry.getCredentialProvider(account.providerId);
     await provider.sync(id);
     await audit("account.sync", "success", { sourceAccountId: id });
@@ -239,6 +253,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   app.get("/api/accounts/:id/status", async (request) => {
     const { id } = idParams.parse(request.params);
     const account = await findAccount(repository, id);
+    rememberAccountProfile(account);
     return registry.getCredentialProvider(account.providerId).testConnection(id);
   });
 
@@ -249,6 +264,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     const results: CredentialSummary[] = [];
     const errors: Array<{ accountId: string; providerId: string; safeMessage: string }> = [];
     for (const account of selectedAccounts.filter((candidate) => !query.providerId || candidate.providerId === query.providerId)) {
+      rememberAccountProfile(account);
       const provider = registry.getCredentialProvider(account.providerId);
       try {
         results.push(...(await provider.search(account.id, query.q, { page: query.page, pageSize: query.pageSize })));
@@ -365,6 +381,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
       while (index < body.recipients.length) {
         const current = body.recipients[index];
         index += 1;
+        if ((await repository.getBatch(batchId))?.cancelled) break;
         try {
           const delivery = await createOneDelivery({ ...body, recipient: current, batchId });
           results.push({ recipientId: current.id, ok: true, delivery });
@@ -382,9 +399,11 @@ export async function buildApp(options: BuildAppOptions = {}) {
     await Promise.all(Array.from({ length: concurrency }, () => worker()));
     const completedCount = results.filter((result) => result.ok).length;
     const failedCount = results.filter((result) => !result.ok).length;
+    const latestBatch = await repository.getBatch(batchId);
     await repository.updateBatch(batchId, {
       completedCount,
       failedCount,
+      cancelled: latestBatch?.cancelled ?? false,
       completedAt: new Date().toISOString()
     });
     return {
@@ -411,6 +430,11 @@ export async function buildApp(options: BuildAppOptions = {}) {
   app.post("/api/batches/:id/cancel", async (request) => {
     const { id } = idParams.parse(request.params);
     assertDestructiveConfirmation(request.body, confirmationPhrase("CANCEL BATCH", id));
+    const existing = await repository.getBatch(id);
+    if (!existing) throw app.httpErrors.notFound("Batch not found");
+    if (existing.completedAt) {
+      throw new Error("Completed batches cannot be cancelled. Cancel only stops queued or in-progress bulk work.");
+    }
     const batch = await repository.updateBatch(id, { cancelled: true, completedAt: new Date().toISOString() });
     await audit("batch.cancel", "cancelled", { safeDetails: id });
     return batch;
@@ -423,10 +447,12 @@ export async function buildApp(options: BuildAppOptions = {}) {
 
   async function createOneDelivery(body: z.infer<typeof deliverySchema> & { batchId?: string }) {
     const sourceAccount = await findAccount(repository, body.sourceAccountId);
+    rememberAccountProfile(sourceAccount);
     if (sourceAccount.providerId !== body.sourceProviderId) {
       throw new Error("Source account does not belong to the requested credential provider");
     }
     const deliveryAccount = await findAccount(repository, body.deliveryAccountId);
+    rememberAccountProfile(deliveryAccount);
     assertDeliveryAccountMatchesProvider(body.deliveryProviderId, deliveryAccount);
     const sourceProvider = registry.getCredentialProvider(body.sourceProviderId);
     const deliveryProvider = registry.getDeliveryProvider(body.deliveryProviderId);
@@ -517,7 +543,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
       deliveryProviderId: delivery.deliveryProviderId,
       deliveryAccountId: delivery.deliveryAccountId,
       recipient: person ? { id: person.id, name: person.name, email: person.email, phone: person.phone } : undefined,
-      expiresAt: delivery.expiresAt,
+      expiresAt: retryExpiry(delivery).toISOString(),
       viewLimit: delivery.viewLimit,
       deliveryMethod: delivery.deliveryMethod,
       batchId: delivery.batchId
@@ -540,6 +566,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
 
   app.addHook("onClose", async () => {
     for (const account of await repository.listAccounts()) {
+      rememberAccountProfile(account);
       await registry.getCredentialProvider(account.providerId).lock(account.id).catch(() => undefined);
     }
     sessions.lockAll();
@@ -562,14 +589,33 @@ export async function buildApp(options: BuildAppOptions = {}) {
     for (const id of lockedIds) {
       const account = accountsById.get(id);
       if (!account) continue;
+      rememberAccountProfile(account);
       await registry.getCredentialProvider(account.providerId).lock(id).catch(() => undefined);
       await audit("account.auto_lock", "success", { sourceAccountId: id });
     }
   }
+
+  async function accountsWithLiveStatus(): Promise<AccountRecord[]> {
+    const accounts = await repository.listAccounts();
+    for (const account of accounts) rememberAccountProfile(account);
+    const sessionsByAccount = new Map(sessions.snapshot().map((session) => [session.accountId, session]));
+    return accounts.map((account) => {
+      const session = sessionsByAccount.get(account.id);
+      return session && session.providerId === account.providerId
+        ? { ...account, status: session.status, lastActivity: session.lastActivityAt?.toISOString() ?? account.lastActivity }
+        : account;
+    });
+  }
+
+  function rememberAccountProfile(account: Pick<AccountRecord, "id" | "profileDirectory">): void {
+    accountProfileDirectories.set(account.id, account.profileDirectory);
+  }
 }
 
-function isAuthorizedLocalApiRequest(header: string | string[] | undefined, apiToken?: string): boolean {
-  if (!apiToken) return true;
+function isAuthorizedLocalApiRequest(header: string | string[] | undefined, apiToken?: string, allowUnauthenticatedLocalApi?: boolean): boolean {
+  if (!apiToken) {
+    return allowUnauthenticatedLocalApi === true || process.env.NODE_ENV === "test" || process.env.WARDSEN_ALLOW_UNAUTHENTICATED_LOCAL_API === "true";
+  }
   const value = Array.isArray(header) ? header[0] : header;
   return value === apiToken;
 }
@@ -694,6 +740,14 @@ function sanitizeDelivery(record: DeliveryRecord, url: string) {
     ...record,
     oneTimeDeliveryUrl: url
   };
+}
+
+function retryExpiry(delivery: DeliveryRecord): Date {
+  const createdAt = new Date(delivery.createdAt).getTime();
+  const expiresAt = new Date(delivery.expiresAt).getTime();
+  const originalDurationMs = expiresAt - createdAt;
+  const fallbackDurationMs = 24 * 60 * 60 * 1000;
+  return new Date(Date.now() + (Number.isFinite(originalDurationMs) && originalDurationMs > 0 ? originalDurationMs : fallbackDurationMs));
 }
 
 function assertDeliveryAccountMatchesProvider(deliveryProviderId: string, deliveryAccount: AccountRecord): void {

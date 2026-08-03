@@ -150,6 +150,37 @@ describe("Bitwarden credential provider", () => {
     }
   });
 
+  it("uses a custom per-account profile directory for Bitwarden commands and terminal handoff", async () => {
+    const sessions = new AccountSessionManager();
+    const customProfile = fs.mkdtempSync(path.join(os.tmpdir(), "wardsen-custom-bw-"));
+    const calls: CliCommandInput[] = [];
+    const provider = new BitwardenCredentialProvider({
+      platform: "win32",
+      profileRoot: "profiles",
+      sessions,
+      profileDirectoryFor: (accountId) => accountId === "acct-1" ? customProfile : undefined,
+      runCommand: async (input) => {
+        calls.push(input);
+        if (input.args.join(" ") === "unlock --raw") return ok("session-token\n");
+        if (input.args[0] === "list") return ok("[]");
+        return ok();
+      }
+    });
+
+    try {
+      await expect(provider.login("acct-1", { username: "user@example.com" })).rejects.toThrow("wardsen-custom-bw-");
+      fs.writeFileSync(path.join(customProfile, ".wardsen-session"), "terminal-session\n");
+      await provider.unlock("acct-1", {});
+      await provider.search("acct-1", "", { page: 1, pageSize: 10 });
+
+      expect(fs.existsSync(path.join(customProfile, ".wardsen-session"))).toBe(false);
+      expect(calls.at(-1)?.env?.BITWARDENCLI_APPDATA_DIR).toBe(customProfile);
+      expect(calls.at(-1)?.env?.BW_SESSION).toBe("terminal-session");
+    } finally {
+      fs.rmSync(customProfile, { recursive: true, force: true });
+    }
+  });
+
   it("does not spawn an interactive unlock when no password or terminal session is available", async () => {
     const calls: CliCommandInput[] = [];
     const provider = new BitwardenCredentialProvider({

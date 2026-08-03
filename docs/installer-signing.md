@@ -282,7 +282,9 @@ Manual release flow for a new RC or signed update:
 4. Click `Run workflow`.
 5. Enter a tag such as `v0.1.0-rc.29`.
 6. Keep `prerelease` enabled until signed artifacts have been verified.
-7. Review the draft GitHub release before publishing it.
+7. Leave `publish` disabled for unsigned or unverified artifacts. This keeps the GitHub release as a draft while assets are attached.
+8. Review the draft GitHub release before publishing it.
+9. Re-run the workflow with `publish` enabled, or publish the draft manually, only after the downloaded installers and checksums are verified.
 
 Tag release flow:
 

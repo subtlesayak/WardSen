@@ -12,6 +12,11 @@ on:
         required: true
         default: true
         type: boolean
+      publish:
+        description: "Publish the release instead of leaving it as a draft"
+        required: true
+        default: false
+        type: boolean
   push:
     tags:
       - "v*"
@@ -211,15 +216,24 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           EVENT_NAME: ${{ github.event_name }}
           INPUT_PRERELEASE: ${{ inputs.prerelease }}
+          INPUT_PUBLISH: ${{ inputs.publish }}
         run: |
           set -euo pipefail
           prerelease=true
           if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$INPUT_PRERELEASE" = "false" ]; then
             prerelease=false
           fi
+          draft=true
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$INPUT_PUBLISH" = "true" ]; then
+            draft=false
+          fi
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release edit "$RELEASE_TAG" --draft=true --prerelease="$prerelease" --title "WardSen $RELEASE_TAG" --notes-file docs/release-notes/v0.1.0.md
+            gh release edit "$RELEASE_TAG" --draft="$draft" --prerelease="$prerelease" --title "WardSen $RELEASE_TAG" --notes-file docs/release-notes/v0.1.0.md
           else
-            gh release create "$RELEASE_TAG" --draft --prerelease="$prerelease" --title "WardSen $RELEASE_TAG" --notes-file docs/release-notes/v0.1.0.md
+            release_args=("$RELEASE_TAG" "--prerelease=$prerelease" "--title" "WardSen $RELEASE_TAG" "--notes-file" "docs/release-notes/v0.1.0.md")
+            if [ "$draft" = "true" ]; then
+              release_args+=("--draft")
+            fi
+            gh release create "${release_args[@]}"
           fi
           find release-artifacts -type f -print0 | xargs -0 gh release upload "$RELEASE_TAG" --clobber

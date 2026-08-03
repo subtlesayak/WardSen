@@ -18,6 +18,7 @@ export type BitwardenCommandRunner = (input: CliCommandInput) => Promise<CliComm
 export interface BitwardenProviderOptions {
   executable?: string;
   profileRoot: string;
+  profileDirectoryFor?: (accountId: string) => string | undefined;
   sessions?: AccountSessionManager;
   runCommand?: BitwardenCommandRunner;
   platform?: NodeJS.Platform;
@@ -126,7 +127,7 @@ export class BitwardenCredentialProvider implements CredentialProvider {
       redact,
       env: {
         ...env,
-        BITWARDENCLI_APPDATA_DIR: path.join(this.options.profileRoot, accountId)
+        BITWARDENCLI_APPDATA_DIR: this.profileDirectory(accountId)
       }
     });
   }
@@ -145,22 +146,23 @@ export class BitwardenCredentialProvider implements CredentialProvider {
   }
 
   private powerShellTerminalLoginCommand(accountId: string, input: ProviderLoginInput) {
-    const profilePath = bitwardenPowerShellProfileExpression(accountId, this.options.profileRoot);
-    const handoffPath = bitwardenPowerShellSessionHandoffExpression(accountId, this.options.profileRoot);
+    const profileDirectory = this.profileDirectory(accountId);
+    const profilePath = bitwardenPowerShellProfileExpression(profileDirectory);
+    const handoffPath = bitwardenPowerShellSessionHandoffExpression(profileDirectory);
     const username = input.username ? ` ${powershellSingleQuote(input.username)}` : "";
     const server = input.serverUrl ? `bw config server ${powershellSingleQuote(input.serverUrl)}; ` : "";
     return `$env:BITWARDENCLI_APPDATA_DIR=${profilePath}; ${server}$bwResult=bw login${username} --raw; if ($LASTEXITCODE -eq 0 -and $bwResult) { Set-Content -LiteralPath ${handoffPath} -Value $bwResult.Trim() -NoNewline }; Remove-Item Env:\\BITWARDENCLI_APPDATA_DIR`;
   }
 
   private posixTerminalLoginCommand(accountId: string, input: ProviderLoginInput) {
-    const profilePath = bitwardenPosixProfileExpression(accountId, this.options.profileRoot);
+    const profilePath = bitwardenPosixProfileExpression(this.profileDirectory(accountId));
     const username = input.username ? ` ${posixSingleQuote(input.username)}` : "";
     const server = input.serverUrl ? `bw config server ${posixSingleQuote(input.serverUrl)}; ` : "";
     return `export BITWARDENCLI_APPDATA_DIR=${profilePath}; ${server}bwResult="$(bw login${username} --raw)"; status=$?; if [ "$status" -eq 0 ] && [ -n "$bwResult" ]; then printf '%s' "$bwResult" > "$BITWARDENCLI_APPDATA_DIR/.wardsen-session"; fi; unset BITWARDENCLI_APPDATA_DIR`;
   }
 
   private consumeTerminalSessionHandoff(accountId: string): string | undefined {
-    const handoffPath = bitwardenSessionHandoffPath(accountId, this.options.profileRoot);
+    const handoffPath = bitwardenSessionHandoffPath(this.profileDirectory(accountId));
     if (!fs.existsSync(handoffPath)) return undefined;
     try {
       const token = fs.readFileSync(handoffPath, "utf8").trim();
@@ -170,6 +172,10 @@ export class BitwardenCredentialProvider implements CredentialProvider {
       fs.rmSync(handoffPath, { force: true });
       return undefined;
     }
+  }
+
+  private profileDirectory(accountId: string): string {
+    return this.options.profileDirectoryFor?.(accountId) ?? path.join(this.options.profileRoot, accountId);
   }
 }
 
@@ -185,8 +191,7 @@ function posixDoubleQuoteLiteral(value: string): string {
   return value.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"").replaceAll("`", "\\`").replaceAll("$", "\\$");
 }
 
-function bitwardenPosixProfileExpression(accountId: string, profileRoot: string): string {
-  const profilePath = path.join(profileRoot, accountId);
+function bitwardenPosixProfileExpression(profilePath: string): string {
   const home = process.env.HOME;
   if (home && isPathInside(profilePath, home)) {
     const relative = path.relative(home, profilePath).split(path.sep).join("/");
@@ -195,13 +200,13 @@ function bitwardenPosixProfileExpression(accountId: string, profileRoot: string)
   return `"${posixDoubleQuoteLiteral(profilePath)}"`;
 }
 
-function bitwardenPowerShellProfileExpression(accountId: string, profileRoot: string): string {
+function bitwardenPowerShellProfileExpression(profilePath: string): string {
   const localAppData = process.env.LOCALAPPDATA;
-  if (localAppData && isPathInside(path.join(profileRoot, accountId), localAppData)) {
-    const relative = path.relative(localAppData, path.join(profileRoot, accountId));
+  if (localAppData && isPathInside(profilePath, localAppData)) {
+    const relative = path.relative(localAppData, profilePath);
     return `$(Join-Path $env:LOCALAPPDATA ${powershellSingleQuote(relative)})`;
   }
-  return powershellSingleQuote(path.join(profileRoot, accountId));
+  return powershellSingleQuote(profilePath);
 }
 
 function isPathInside(targetPath: string, parentPath: string): boolean {
@@ -209,12 +214,12 @@ function isPathInside(targetPath: string, parentPath: string): boolean {
   return Boolean(relative) && !relative.startsWith("..") && !path.isAbsolute(relative);
 }
 
-function bitwardenPowerShellSessionHandoffExpression(accountId: string, profileRoot: string): string {
-  return `$(Join-Path ${bitwardenPowerShellProfileExpression(accountId, profileRoot)} ${powershellSingleQuote(".wardsen-session")})`;
+function bitwardenPowerShellSessionHandoffExpression(profilePath: string): string {
+  return `$(Join-Path ${bitwardenPowerShellProfileExpression(profilePath)} ${powershellSingleQuote(".wardsen-session")})`;
 }
 
-function bitwardenSessionHandoffPath(accountId: string, profileRoot: string): string {
-  return path.join(profileRoot, accountId, ".wardsen-session");
+function bitwardenSessionHandoffPath(profilePath: string): string {
+  return path.join(profilePath, ".wardsen-session");
 }
 
 function resolveBitwardenExecutable(): string {
