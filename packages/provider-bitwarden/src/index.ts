@@ -98,7 +98,7 @@ export class BitwardenCredentialProvider implements CredentialProvider {
   }
 
   async getCredential(accountId: string, itemId: string): Promise<SensitiveCredential> {
-    const result = await this.runWithSession(accountId, ["get", "item", itemId], undefined, 30_000);
+    const result = await this.runWithSession(accountId, ["get", "item", itemId], undefined, 30_000, true);
     const item = safeJsonObject(result.stdout, "Bitwarden item");
     if (!isBitwardenItem(item)) throw new Error("Bitwarden item response is missing required fields");
     return {
@@ -111,20 +111,21 @@ export class BitwardenCredentialProvider implements CredentialProvider {
     };
   }
 
-  private async runWithSession(accountId: string, args: string[], stdin?: string, timeoutMs?: number) {
+  private async runWithSession(accountId: string, args: string[], stdin?: string, timeoutMs?: number, rawOutput = false) {
     const token = this.sessions.getSessionToken(accountId, this.id);
     return await this.sessions.withOperation(accountId, this.id, () =>
-      this.run(accountId, args, stdin, timeoutMs, [token, stdin ?? ""], { BW_SESSION: token })
+      this.run(accountId, args, stdin, timeoutMs, [token, stdin ?? ""], { BW_SESSION: token }, rawOutput)
     );
   }
 
-  private async run(accountId: string, args: string[], stdin?: string, timeoutMs?: number, redact: string[] = [], env?: Record<string, string>) {
+  private async run(accountId: string, args: string[], stdin?: string, timeoutMs?: number, redact: string[] = [], env?: Record<string, string>, rawOutput = false) {
     return await this.runCommand({
       executable: this.executable,
       args,
       stdin,
       timeoutMs,
       redact,
+      rawOutput,
       env: {
         ...env,
         BITWARDENCLI_APPDATA_DIR: this.profileDirectory(accountId)

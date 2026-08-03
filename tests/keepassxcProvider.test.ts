@@ -51,8 +51,10 @@ describe("KeePassXC credential provider", () => {
   });
 
   it("extracts protected fields, multiple URLs, notes, and TOTP from show output", async () => {
+    const calls: CliCommandInput[] = [];
     const provider = new KeePassXCCredentialProvider({
       runCommand: async (input) => {
+        calls.push(input);
         if (input.args[0] === "show") {
           return ok(
             [
@@ -78,6 +80,7 @@ describe("KeePassXC credential provider", () => {
       notes: "rotate quarterly",
       totp: "123456"
     });
+    expect(calls.find((call) => call.args[0] === "show")?.rawOutput).toBe(true);
   });
 
   it("requires unlock before reading a database", async () => {

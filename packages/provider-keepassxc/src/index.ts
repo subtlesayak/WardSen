@@ -104,7 +104,7 @@ export class KeePassXCCredentialProvider implements CredentialProvider {
     this.requireDb(accountId);
     return await this.sessions.withOperation(accountId, this.id, async () => {
       const db = this.requireDb(accountId);
-      const result = await this.run(["show", "--show-protected", ...databasePathArgs(db.databasePath, db.keyFilePath), itemId], db.password, [db.password ?? ""]);
+      const result = await this.run(["show", "--show-protected", ...databasePathArgs(db.databasePath, db.keyFilePath), itemId], db.password, [db.password ?? ""], true);
       return parseKeePassShow(itemId, result.stdout);
     });
   }
@@ -115,8 +115,8 @@ export class KeePassXCCredentialProvider implements CredentialProvider {
     return db;
   }
 
-  private async run(args: string[], stdin?: string, redact: string[] = []) {
-    return await this.runCommand({ executable: this.executable, args, stdin, redact, timeoutMs: 60_000 });
+  private async run(args: string[], stdin?: string, redact: string[] = [], rawOutput = false) {
+    return await this.runCommand({ executable: this.executable, args, stdin, redact, rawOutput, timeoutMs: 60_000 });
   }
 }
 

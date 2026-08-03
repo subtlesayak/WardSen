@@ -21,6 +21,23 @@ describe("CLI runner", () => {
     expect(result.stdout).not.toContain("abc123");
   });
 
+  it("can preserve raw successful stdout while still redacting failed command messages", async () => {
+    const result = await runCliCommand({
+      executable: process.execPath,
+      args: ["-e", "console.log('{\"password\":\"abc123\"}')"],
+      redact: ["abc123"],
+      rawOutput: true
+    });
+
+    expect(result.stdout).toContain("abc123");
+    await expect(runCliCommand({
+      executable: process.execPath,
+      args: ["-e", "console.error('{\"password\":\"abc123\"}'); process.exit(2)"],
+      redact: ["abc123"],
+      rawOutput: true
+    })).rejects.toThrow('{"password":"[REDACTED]"}');
+  });
+
   it("passes explicit env without inheriting unrelated parent secrets", async () => {
     process.env.WARDSEN_SECRET_PROBE = "parent-secret";
     try {

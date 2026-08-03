@@ -29,3 +29,4 @@
 - Pulled the unsigned `v0.1.0-rc.34` Windows artifacts after Microsoft Defender flagged the setup EXE as `Trojan:Win32/Wacatac.B!ml`; Windows packaging remains suspended pending investigation.
 - Added `v0.1.0-rc.35` release notes and changed Windows release packaging to unsigned MSI-only, without the NSIS setup EXE.
 - Added `v0.1.0-rc.36` release notes and fixed Bitwarden Send so delivery commands use the same isolated WardSen Bitwarden profile as Vaults.
+- Added `v0.1.0-rc.37` release notes and fixed credential delivery payloads so real password fields are preserved internally while errors stay redacted.

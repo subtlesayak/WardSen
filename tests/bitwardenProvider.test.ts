@@ -282,4 +282,39 @@ describe("Bitwarden credential provider", () => {
 
     await expect(provider.getCredential("acct-1", "item-1")).rejects.toThrow("Bitwarden item returned invalid JSON");
   });
+
+  it("preserves secret fields when reading a Bitwarden item for delivery", async () => {
+    const sessions = new AccountSessionManager();
+    sessions.markUnlocked("acct-1", "bitwarden", "session-token");
+    const calls: CliCommandInput[] = [];
+    const provider = new BitwardenCredentialProvider({
+      profileRoot: "profiles",
+      sessions,
+      runCommand: async (input) => {
+        calls.push(input);
+        return ok(JSON.stringify({
+          id: "item-1",
+          name: "Google",
+          login: {
+            username: "user@example.com",
+            password: "real-password",
+            totp: "123456",
+            uris: [{ uri: "https://accounts.google.com" }]
+          },
+          notes: "delivery note"
+        }));
+      }
+    });
+
+    await expect(provider.getCredential("acct-1", "item-1")).resolves.toEqual({
+      title: "Google",
+      username: "user@example.com",
+      password: "real-password",
+      totp: "123456",
+      urls: ["https://accounts.google.com"],
+      notes: "delivery note"
+    });
+    expect(calls[0]?.rawOutput).toBe(true);
+    expect(calls[0]?.redact).toContain("session-token");
+  });
 });

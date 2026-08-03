@@ -10,6 +10,7 @@ export interface CliCommandInput {
   timeoutMs?: number;
   interactive?: boolean;
   redact?: string[];
+  rawOutput?: boolean;
 }
 
 export interface CliCommandResult {
@@ -88,8 +89,8 @@ export async function runCliCommand(input: CliCommandInput): Promise<CliCommandR
     function finalize(exitCode: number): CliCommandResult {
       return {
         exitCode,
-        stdout: redactSecrets(stdout, input.redact),
-        stderr: redactSecrets(stderr, input.redact),
+        stdout: input.rawOutput ? stdout : redactSecrets(stdout, input.redact),
+        stderr: input.rawOutput ? stderr : redactSecrets(stderr, input.redact),
         durationMs: Date.now() - start
       };
     }
@@ -98,13 +99,13 @@ export async function runCliCommand(input: CliCommandInput): Promise<CliCommandR
 
 function timeoutMessage(input: CliCommandInput, result: CliCommandResult, timeoutMs: number): string {
   const command = providerCommandLabel(input);
-  const detail = commandOutputDetail(result);
+  const detail = commandOutputDetail(input, result);
   return `${command} timed out after ${Math.round(timeoutMs / 1000)} seconds. If a browser, SSO, email, captcha or two-step prompt opened, finish it there, then retry in WardSen. WardSen uses an isolated provider profile for each vault account, so signing in to another desktop app or terminal does not sign in this WardSen account.${detail}`;
 }
 
 function failureMessage(input: CliCommandInput, result: CliCommandResult): string {
   const command = providerCommandLabel(input);
-  return `${command} failed.${commandOutputDetail(result)}`;
+  return `${command} failed.${commandOutputDetail(input, result)}`;
 }
 
 function providerCommandLabel(input: CliCommandInput): string {
@@ -113,8 +114,11 @@ function providerCommandLabel(input: CliCommandInput): string {
   return `Provider command "${tool}${operation}"`;
 }
 
-function commandOutputDetail(result: CliCommandResult): string {
-  const output = [result.stderr, result.stdout].map((value) => value.trim()).filter(Boolean).join("\n");
+function commandOutputDetail(input: CliCommandInput, result: CliCommandResult): string {
+  const output = [result.stderr, result.stdout]
+    .map((value) => redactSecrets(value, input.redact).trim())
+    .filter(Boolean)
+    .join("\n");
   if (!output) return "";
   return ` Detail: ${truncateForError(output, 900)}`;
 }
