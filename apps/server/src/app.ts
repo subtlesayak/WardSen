@@ -259,12 +259,22 @@ export async function buildApp(options: BuildAppOptions = {}) {
 
   app.get("/api/credentials/search", async (request) => {
     const query = credentialSearchSchema.parse(request.query);
-    const accounts = await repository.listAccounts();
+    const accounts = await accountsWithLiveStatus();
     const selectedAccounts = query.accountId ? accounts.filter((account) => account.id === query.accountId) : accounts;
     const results: CredentialSummary[] = [];
     const errors: Array<{ accountId: string; providerId: string; safeMessage: string }> = [];
     for (const account of selectedAccounts.filter((candidate) => !query.providerId || candidate.providerId === query.providerId)) {
       rememberAccountProfile(account);
+      if (account.status !== "unlocked") {
+        if (query.accountId) {
+          errors.push({
+            accountId: account.id,
+            providerId: account.providerId,
+            safeMessage: `Vault is ${account.status.replace("_", " ")}. Unlock this account before searching credentials.`
+          });
+        }
+        continue;
+      }
       const provider = registry.getCredentialProvider(account.providerId);
       try {
         results.push(...(await provider.search(account.id, query.q, { page: query.page, pageSize: query.pageSize })));

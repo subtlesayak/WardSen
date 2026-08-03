@@ -172,6 +172,15 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
   background: #f6dedc;
   box-shadow: 0 16px 36px rgba(123, 47, 47, 0.16), 0 1px 0 rgba(123, 47, 47, 0.08);
 }
+.noticeList {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+.noticeList li {
+  overflow-wrap: anywhere;
+}
 .errorHelp {
   display: grid;
   gap: 5px;

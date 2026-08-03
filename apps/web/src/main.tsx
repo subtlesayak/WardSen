@@ -437,6 +437,12 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
       </form>
       <section className="panel formGrid">
         <PanelTitle icon={KeyRound} title="Account Access" action="Status" onAction={() => void accountAccess("status")} />
+        {selectedAccountIsBitwarden ? (
+          <div className="notice compact wide">
+            <strong>Bitwarden unlock flow</strong>
+            <span>Use <strong>Terminal login</strong> once, finish Bitwarden in PowerShell or Terminal, then return here and select <strong>Unlock from terminal session</strong>.</span>
+          </div>
+        ) : null}
         <label>Account<select value={selectedAccount?.id ?? ""} onChange={(event) => {
           setVerificationNeeded(false);
           setAccessForm((current) => ({ ...current, accountId: event.target.value, verificationCode: "" }));
@@ -484,7 +490,7 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
             disabled={unlockDisabledForVerification}
             title={unlockDisabledForVerification ? "Submit the Bitwarden verification code with Login first." : undefined}
             onClick={() => void accountAccess("unlock")}
-          ><KeyRound size={16} /> {selectedAccountIsBitwarden ? "Import session" : "Unlock"}</button>
+          ><KeyRound size={16} /> {selectedAccountIsBitwarden ? "Unlock from terminal session" : "Unlock"}</button>
           {unlockDisabledForVerification ? <small className="buttonHint">Unlock is available after Bitwarden login finishes.</small> : null}
         </div>
       </section>
@@ -530,6 +536,12 @@ function Credentials({ api }: { api: ReturnType<typeof useWardSenApi> }) {
     items: [],
     errors: []
   });
+  const searchableAccounts = api.accounts.filter((account) =>
+    account.status === "unlocked" &&
+    (!search.accountId || account.id === search.accountId) &&
+    (!search.providerId || account.providerId === search.providerId)
+  );
+  const lockedSelectedAccount = search.accountId ? api.accounts.find((account) => account.id === search.accountId && account.status !== "unlocked") : undefined;
 
   async function runSearch(event?: React.FormEvent, page = search.page) {
     event?.preventDefault();
@@ -575,8 +587,15 @@ function Credentials({ api }: { api: ReturnType<typeof useWardSenApi> }) {
         </form>
         {search.status === "error" && <ErrorNotice message={search.error} />}
         {search.errors.length > 0 && (
-          <div className="notice">
-            {search.errors.length} account search issue{search.errors.length === 1 ? "" : "s"}: {search.errors.map((error) => `${accountLabel(api.accounts, error.accountId)} (${error.providerId})`).join(", ")}.
+          <div className="notice error" role="alert">
+            <strong>{search.errors.length} account search issue{search.errors.length === 1 ? "" : "s"}</strong>
+            <ul className="noticeList">
+              {search.errors.map((error) => (
+                <li key={`${error.providerId}-${error.accountId}`}>
+                  {accountLabel(api.accounts, error.accountId)} ({providerLabel(api.credentialProviders, error.providerId)}): {error.safeMessage}
+                </li>
+              ))}
+            </ul>
           </div>
         )}
         {search.status === "ready" && (
@@ -591,7 +610,9 @@ function Credentials({ api }: { api: ReturnType<typeof useWardSenApi> }) {
         <div className="resultList">
           {search.status === "idle" && <EmptyState text="Run a search after unlocking a vault. Credential secrets stay on the backend." />}
           {search.status === "loading" && <EmptyState text="Searching unlocked vaults..." />}
-          {search.status === "ready" && search.items.length === 0 && <EmptyState text="No credential summaries matched this search." />}
+          {search.status === "ready" && search.items.length === 0 && lockedSelectedAccount && <EmptyState text={`Unlock ${lockedSelectedAccount.label} in Vaults > Account Access before searching credentials. For Bitwarden, use Terminal login, then Unlock from terminal session.`} />}
+          {search.status === "ready" && search.items.length === 0 && !lockedSelectedAccount && searchableAccounts.length === 0 && <EmptyState text="No unlocked vaults match this search filter. Go to Vaults > Account Access, unlock a vault, then search again." />}
+          {search.status === "ready" && search.items.length === 0 && !lockedSelectedAccount && searchableAccounts.length > 0 && <EmptyState text="No credential summaries matched this search." />}
           {search.items.map((item) => (
             <button
               className={search.selected?.id === item.id && search.selected.accountId === item.accountId ? "result selected" : "result"}

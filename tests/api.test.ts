@@ -315,7 +315,9 @@ describe("WardSen API", () => {
 
   it("runs a complete credential delivery workflow through injected providers", async () => {
     const deliveryProvider = new MockDeliveryProvider();
+    const sessions = new AccountSessionManager();
     const app = await buildApp({
+      sessions,
       credentialProviders: [new MockCredentialProvider()],
       deliveryProviders: [deliveryProvider]
     });
@@ -326,6 +328,7 @@ describe("WardSen API", () => {
       headers,
       payload: { id: "source", providerId: "mock-source", label: "Mock source" }
     });
+    sessions.markUnlocked("source", "mock-source", "source-token");
     await app.inject({
       method: "POST",
       url: "/api/accounts",
@@ -443,10 +446,13 @@ describe("WardSen API", () => {
   });
 
   it("returns partial credential search errors without failing the whole search", async () => {
-    const app = await buildApp({ credentialProviders: [new MockCredentialProvider()] });
+    const sessions = new AccountSessionManager();
+    const app = await buildApp({ sessions, credentialProviders: [new MockCredentialProvider()] });
     const headers = { host: "127.0.0.1:4777", origin: "http://127.0.0.1:4777" };
     await app.inject({ method: "POST", url: "/api/accounts", headers, payload: { id: "ok", providerId: "mock-source", label: "OK" } });
     await app.inject({ method: "POST", url: "/api/accounts", headers, payload: { id: "bad", providerId: "onepassword", label: "Future provider" } });
+    sessions.markUnlocked("ok", "mock-source", "ok-token");
+    sessions.markUnlocked("bad", "onepassword", "bad-token");
 
     const response = await app.inject({ method: "GET", url: "/api/credentials/search?q=cms", headers: { host: "127.0.0.1:4777" } });
     expect(response.statusCode).toBe(200);
@@ -455,10 +461,41 @@ describe("WardSen API", () => {
     await app.close();
   });
 
+  it("skips locked credential accounts unless the locked account is explicitly selected", async () => {
+    const sessions = new AccountSessionManager();
+    const app = await buildApp({ sessions, credentialProviders: [new MockCredentialProvider()] });
+    const headers = { host: "127.0.0.1:4777", origin: "http://127.0.0.1:4777" };
+    await app.inject({ method: "POST", url: "/api/accounts", headers, payload: { id: "unlocked", providerId: "mock-source", label: "Unlocked" } });
+    await app.inject({ method: "POST", url: "/api/accounts", headers, payload: { id: "locked", providerId: "mock-source", label: "Locked" } });
+    sessions.markUnlocked("unlocked", "mock-source", "unlocked-token");
+
+    const all = await app.inject({ method: "GET", url: "/api/credentials/search?q=cms", headers: { host: "127.0.0.1:4777" } });
+    expect(all.statusCode).toBe(200);
+    expect(all.json().items).toHaveLength(2);
+    expect(all.json().items.every((item: CredentialSummary) => item.accountId === "unlocked")).toBe(true);
+    expect(all.json().errors).toEqual([]);
+
+    const selectedLocked = await app.inject({
+      method: "GET",
+      url: "/api/credentials/search?providerId=mock-source&accountId=locked&q=cms",
+      headers: { host: "127.0.0.1:4777" }
+    });
+    expect(selectedLocked.statusCode).toBe(200);
+    expect(selectedLocked.json().items).toHaveLength(0);
+    expect(selectedLocked.json().errors[0]).toMatchObject({
+      accountId: "locked",
+      providerId: "mock-source",
+      safeMessage: "Vault is locked. Unlock this account before searching credentials."
+    });
+    await app.close();
+  });
+
   it("paginates credential search results", async () => {
-    const app = await buildApp({ credentialProviders: [new MockCredentialProvider()] });
+    const sessions = new AccountSessionManager();
+    const app = await buildApp({ sessions, credentialProviders: [new MockCredentialProvider()] });
     const headers = { host: "127.0.0.1:4777", origin: "http://127.0.0.1:4777" };
     await app.inject({ method: "POST", url: "/api/accounts", headers, payload: { id: "source", providerId: "mock-source", label: "Mock source" } });
+    sessions.markUnlocked("source", "mock-source", "source-token");
 
     const response = await app.inject({
       method: "GET",

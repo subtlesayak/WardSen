@@ -73,7 +73,7 @@ This release contains:
 - Bitwarden CLI setup help now explains Windows and macOS native downloads, WardSen local tools folders, PATH, arm64/NPM installs and `bw --version` verification
 - Bitwarden provider errors now include safe CLI details and timeout guidance instead of leaving login stuck on a generic loading state
 - Bitwarden first login is terminal-first: WardSen shows a same-profile Terminal or PowerShell command instead of asking for the Bitwarden password or OTP inside the app
-- Bitwarden terminal login captures the short-lived `bw login --raw` session into WardSen's local profile, then **Import session** consumes it and deletes the handoff file
+- Bitwarden terminal login captures the short-lived `bw login --raw` session into WardSen's local profile, then **Unlock from terminal session** consumes it and deletes the handoff file
 - Bitwarden terminal commands keep `bw login` intact in copyable error help while still redacting real secrets
 - Bitwarden terminal login commands are platform-aware: Windows gets PowerShell syntax, while macOS and Linux get zsh/bash syntax
 - Bitwarden terminal login avoids repeatedly burning email/new-device codes in hidden CLI prompts
@@ -134,7 +134,7 @@ Release users do not need the `WardSen` source folder, `npm ci`, Git, Rust or a 
 WardSen uses Bitwarden through the official `bw` command-line tool. Installing WardSen alone does not install `bw`.
 For first Bitwarden login, WardSen does not ask for your Bitwarden password, email code, authenticator code or YubiKey code inside the app. Select **Terminal login**, copy the same-profile terminal command, run it in your system terminal, and type those secrets only into the official Bitwarden CLI prompts.
 
-When the command finishes, return to WardSen and select **Import session**. WardSen reads the short-lived Bitwarden session from the same local profile and deletes the local handoff file. The command does not contain your password, verification code or session token.
+When the command finishes, return to WardSen and select **Unlock from terminal session**. WardSen reads the short-lived Bitwarden session from the same local profile and deletes the local handoff file. The command does not contain your password, verification code or session token.
 
 On Windows, the command should start with `$env:BITWARDENCLI_APPDATA_DIR=` and include `$bwResult=bw login ... --raw`.
 On macOS and Linux, the command should start with `export BITWARDENCLI_APPDATA_DIR=` and include `bwResult="$(bw login ... --raw)"`.
