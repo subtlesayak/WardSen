@@ -29,6 +29,14 @@ After downloading the DMG from the WardSen GitHub release:
 xattr -dr com.apple.quarantine /Applications/WardSen.app
 ```
 
+If Terminal prints `Operation not permitted`, run:
+
+```bash
+sudo xattr -dr com.apple.quarantine /Applications/WardSen.app
+```
+
+Enter the Mac login password when Terminal asks. Terminal does not show password characters while typing.
+
 4. Open WardSen again from Applications.
 
 Only use this bypass for a WardSen prerelease you intentionally downloaded from this repository. Public end-user releases should be signed and notarized instead.

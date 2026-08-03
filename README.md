@@ -111,6 +111,14 @@ macOS Apple Silicon first install:
 xattr -dr com.apple.quarantine /Applications/WardSen.app
 ```
 
+If Terminal prints `Operation not permitted` for files inside `WardSen.app`, run the same command with administrator permission:
+
+```bash
+sudo xattr -dr com.apple.quarantine /Applications/WardSen.app
+```
+
+Enter the Mac login password when Terminal asks. Terminal does not show password characters while typing.
+
 Only remove quarantine for the WardSen prerelease you intentionally downloaded from this repository. A signed and notarized release should not require this step.
 
 Optional checksum verification:

@@ -14,6 +14,14 @@ Unsigned macOS DMGs can show `"WardSen" is damaged and can't be opened` after Sa
 xattr -dr com.apple.quarantine /Applications/WardSen.app
 ```
 
+If Terminal prints `Operation not permitted` for files inside the app bundle, use administrator permission:
+
+```bash
+sudo xattr -dr com.apple.quarantine /Applications/WardSen.app
+```
+
+Terminal asks for the Mac login password and does not show password characters while typing.
+
 This is a tester workaround, not a substitute for signing and notarization.
 
 ## Maintainer Signing Quick Start
