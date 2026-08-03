@@ -42,7 +42,7 @@ WardSen is an independent open-source project and is not affiliated with, endors
 
 ## Status
 
-`v0.1.0-rc.28` is the latest installer prerelease. It is suitable for developer review, security review and platform packaging validation.
+`v0.1.0-rc.29` is the latest installer prerelease. It is suitable for developer review, security review and platform packaging validation.
 
 Unsigned Windows x64 and macOS Apple Silicon installers are attached to the GitHub prerelease. Windows SmartScreen and macOS Gatekeeper may warn until signing certificates and notarization are configured. See [installer signing](docs/installer-signing.md) before publishing a fully trusted end-user release.
 
@@ -89,7 +89,7 @@ Go to [GitHub Releases](https://github.com/subtlesayak/WardSen/releases) and dow
 
 - Windows: `WardSen_0.1.0_x64-setup.exe` or `WardSen_0.1.0_x64_en-US.msi`
 - macOS Apple Silicon: `WardSen_0.1.0_aarch64.dmg`
-- macOS Intel: not attached to `v0.1.0-rc.28`; maintainers can build it from the manual Intel workflow
+- macOS Intel: not attached to `v0.1.0-rc.29`; maintainers can build it from the manual Intel workflow
 
 Windows first install:
 
@@ -138,8 +138,8 @@ When the command finishes, return to WardSen and select **Import session**. Ward
 
 On Windows, the command should start with `$env:BITWARDENCLI_APPDATA_DIR=` and include `$bwResult=bw login ... --raw`.
 On macOS and Linux, the command should start with `export BITWARDENCLI_APPDATA_DIR=` and include `bwResult="$(bw login ... --raw)"`.
-If the macOS app shows a command with `$env:` or `Remove-Item Env:`, install `v0.1.0-rc.28` or newer before trying terminal login. That is Windows PowerShell syntax and will not run correctly in macOS Terminal.
-If you see an older command containing `[REDACTED] login` or a quoted literal `'%LOCALAPPDATA%\WardSen\...'`, install `v0.1.0-rc.28` or newer before trying terminal login. Those older RC commands cannot import the login correctly.
+If the macOS app shows a command with `$env:` or `Remove-Item Env:`, install `v0.1.0-rc.29` or newer before trying terminal login. That is Windows PowerShell syntax and will not run correctly in macOS Terminal.
+If you see an older command containing `[REDACTED] login` or a quoted literal `'%LOCALAPPDATA%\WardSen\...'`, install `v0.1.0-rc.29` or newer before trying terminal login. Those older RC commands cannot import the login correctly.
 
 Beginner-friendly Windows path:
 
@@ -234,7 +234,7 @@ Upload only the installer artifacts to GitHub Releases. Do not ask users to down
 
 ## Signing A Trusted Release
 
-`v0.1.0-rc.28` is intentionally published as an unsigned prerelease. To publish a trusted release later, maintainers need Windows Authenticode signing for `.exe` and `.msi` files, plus Apple Developer ID signing and notarization for macOS `.dmg` files.
+`v0.1.0-rc.29` is intentionally published as an unsigned prerelease. To publish a trusted release later, maintainers need Windows Authenticode signing for `.exe` and `.msi` files, plus Apple Developer ID signing and notarization for macOS `.dmg` files.
 
 High-level signing path:
 

@@ -50,6 +50,7 @@ describe("Bitwarden credential provider", () => {
   it("builds a same-profile terminal command that captures the raw Bitwarden session", async () => {
     const expectedProfile = path.join("profiles", "acct-1");
     const provider = new BitwardenCredentialProvider({
+      platform: "win32",
       profileRoot: "profiles",
       runCommand: async () => ok()
     });
@@ -76,6 +77,7 @@ describe("Bitwarden credential provider", () => {
     const localAppData = path.resolve("local-app-data");
     process.env.LOCALAPPDATA = localAppData;
     const provider = new BitwardenCredentialProvider({
+      platform: "win32",
       profileRoot: path.join(localAppData, "WardSen", "data", "profiles"),
       runCommand: async () => ok()
     });
