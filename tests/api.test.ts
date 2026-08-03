@@ -382,6 +382,39 @@ describe("WardSen API", () => {
     await app.close();
   });
 
+  it("preflights Bitwarden Send account readiness before creating a secure link", async () => {
+    const deliveryProvider = new NotReadyBitwardenSendProvider();
+    const app = await buildApp({
+      registerBuiltInProviders: false,
+      credentialProviders: [new MockCredentialProvider(), new MockBitwardenCredentialProvider()],
+      deliveryProviders: [deliveryProvider]
+    });
+    const headers = { host: "127.0.0.1:4777", origin: "http://127.0.0.1:4777" };
+    await app.inject({ method: "POST", url: "/api/accounts", headers, payload: { id: "source", providerId: "mock-source", label: "Mock source" } });
+    await app.inject({ method: "POST", url: "/api/accounts", headers, payload: { id: "red", providerId: "bitwarden", label: "red" } });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/deliveries",
+      headers,
+      payload: {
+        sourceProviderId: "mock-source",
+        sourceAccountId: "source",
+        sourceItemId: "cms",
+        deliveryProviderId: "bitwarden-send",
+        deliveryAccountId: "red",
+        expiresAt: new Date(Date.now() + 3600000).toISOString()
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error).toContain('Bitwarden Send account "red" is not ready');
+    expect(response.json().error).toContain("Unlock from terminal session");
+    expect(response.json().error).toContain("You are not logged in");
+    expect(deliveryProvider.createCalls).toBe(0);
+    await app.close();
+  });
+
   it("retries expired deliveries with a fresh future expiry using the original duration", async () => {
     const deliveryProvider = new MockDeliveryProvider();
     const app = await buildApp({
@@ -659,9 +692,14 @@ class MockCredentialProvider implements CredentialProvider {
   }
 }
 
+class MockBitwardenCredentialProvider extends MockCredentialProvider {
+  readonly id: string = "bitwarden";
+  readonly displayName: string = "Bitwarden";
+}
+
 class MockDeliveryProvider implements DeliveryProvider {
-  readonly id = "mock-delivery";
-  readonly displayName = "Mock Delivery";
+  readonly id: string = "mock-delivery";
+  readonly displayName: string = "Mock Delivery";
   readonly inputs: CreateDeliveryInput[] = [];
   private counter = 0;
   async getCapabilities(): Promise<DeliveryProviderCapabilities> {
@@ -688,6 +726,19 @@ class MockDeliveryProvider implements DeliveryProvider {
   async revoke(_accountId: string, _deliveryId: string): Promise<void> {}
   async getStatus(_accountId: string, deliveryId: string): Promise<DeliveryStatus> {
     return { deliveryId, status: "active", accessCount: 1 };
+  }
+}
+
+class NotReadyBitwardenSendProvider extends MockDeliveryProvider {
+  readonly id = "bitwarden-send";
+  readonly displayName = "Bitwarden Send";
+  createCalls = 0;
+  async testConnection(_accountId: string): Promise<ConnectionResult> {
+    throw new Error('Provider command "bw send" failed. Detail: You are not logged in.');
+  }
+  async createDelivery(input: CreateDeliveryInput): Promise<DeliveryResult> {
+    this.createCalls += 1;
+    return super.createDelivery(input);
   }
 }
 

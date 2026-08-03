@@ -42,7 +42,7 @@ WardSen is an independent open-source project and is not affiliated with, endors
 
 ## Status
 
-`v0.1.0-rc.33` is the latest installer prerelease. It is suitable for developer review, security review and platform packaging validation.
+`v0.1.0-rc.34` is the latest installer prerelease. It is suitable for developer review, security review and platform packaging validation.
 
 Unsigned Windows x64 and macOS Apple Silicon installers are attached to the GitHub prerelease. Windows SmartScreen and macOS Gatekeeper may warn until signing certificates and notarization are configured. See [installer signing](docs/installer-signing.md) before publishing a fully trusted end-user release.
 
@@ -78,6 +78,7 @@ This release contains:
 - Bitwarden terminal commands keep `bw login` intact in copyable error help while still redacting real secrets
 - Bitwarden terminal login commands are platform-aware: Windows gets PowerShell syntax, while macOS and Linux get zsh/bash syntax
 - Bitwarden terminal login avoids repeatedly burning email/new-device codes in hidden CLI prompts
+- Bitwarden Send delivery checks the selected delivery account before creating links and tells users to unlock the account first when `bw` is not logged in
 - Third-party provider and trademark policy documents that WardSen is independent, user-installed-provider-tool based and not endorsed by supported providers
 - macOS first-install docs cover the unsigned-prerelease `"WardSen" is damaged and can't be opened` Gatekeeper message
 - Windows and macOS prerequisite and desktop packaging scripts
@@ -90,7 +91,7 @@ Go to [GitHub Releases](https://github.com/subtlesayak/WardSen/releases) and dow
 
 - Windows: `WardSen_0.1.0_x64-setup.exe` or `WardSen_0.1.0_x64_en-US.msi`
 - macOS Apple Silicon: `WardSen_0.1.0_aarch64.dmg`
-- macOS Intel: not attached to `v0.1.0-rc.33`; maintainers can build it from the manual Intel workflow
+- macOS Intel: not attached to `v0.1.0-rc.34`; maintainers can build it from the manual Intel workflow
 
 Windows first install:
 

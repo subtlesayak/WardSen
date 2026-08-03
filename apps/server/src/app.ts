@@ -28,6 +28,7 @@ export interface BuildAppOptions {
   sessions?: AccountSessionManager;
   apiToken?: string;
   allowUnauthenticatedLocalApi?: boolean;
+  registerBuiltInProviders?: boolean;
   credentialProviders?: CredentialProvider[];
   deliveryProviders?: DeliveryProvider[];
 }
@@ -45,21 +46,23 @@ export async function buildApp(options: BuildAppOptions = {}) {
   const registry = new ProviderRegistry();
   const profileRoot = options.profileRoot ?? path.join(process.cwd(), ".wardsen-profiles");
   const accountProfileDirectories = new Map<string, string>();
-  const bitwarden = new BitwardenCredentialProvider({
-    profileRoot,
-    sessions,
-    profileDirectoryFor: (accountId) => accountProfileDirectories.get(accountId)
-  });
-  registry.registerCredentialProvider(bitwarden);
-  registry.registerCredentialProvider(new KeePassXCCredentialProvider({ sessions }));
-  registry.registerCredentialProvider(onePasswordProvider);
-  registry.registerCredentialProvider(protonPassProvider);
-  registry.registerCredentialProvider(keeperProvider);
-  registry.registerDeliveryProvider(
-    new BitwardenSendDeliveryProvider({
-      getSessionToken: (accountId) => sessions.getSessionToken(accountId, "bitwarden")
-    })
-  );
+  if (options.registerBuiltInProviders !== false) {
+    const bitwarden = new BitwardenCredentialProvider({
+      profileRoot,
+      sessions,
+      profileDirectoryFor: (accountId) => accountProfileDirectories.get(accountId)
+    });
+    registry.registerCredentialProvider(bitwarden);
+    registry.registerCredentialProvider(new KeePassXCCredentialProvider({ sessions }));
+    registry.registerCredentialProvider(onePasswordProvider);
+    registry.registerCredentialProvider(protonPassProvider);
+    registry.registerCredentialProvider(keeperProvider);
+    registry.registerDeliveryProvider(
+      new BitwardenSendDeliveryProvider({
+        getSessionToken: (accountId) => sessions.getSessionToken(accountId, "bitwarden")
+      })
+    );
+  }
   for (const provider of options.credentialProviders ?? []) {
     registry.registerCredentialProvider(provider);
   }
@@ -467,6 +470,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     const sourceProvider = registry.getCredentialProvider(body.sourceProviderId);
     const deliveryProvider = registry.getDeliveryProvider(body.deliveryProviderId);
     const capabilities = await deliveryProvider.getCapabilities();
+    await assertDeliveryProviderReady(deliveryProvider, body.deliveryAccountId, deliveryAccount);
     const viewLimit = parseViewLimit(body.viewLimit);
     const expiresAt = new Date(body.expiresAt);
     assertFutureExpiry(expiresAt);
@@ -763,6 +767,22 @@ function retryExpiry(delivery: DeliveryRecord): Date {
 function assertDeliveryAccountMatchesProvider(deliveryProviderId: string, deliveryAccount: AccountRecord): void {
   if (deliveryProviderId === "bitwarden-send" && deliveryAccount.providerId !== "bitwarden") {
     throw new Error("Bitwarden Send delivery requires an unlocked Bitwarden account");
+  }
+}
+
+async function assertDeliveryProviderReady(deliveryProvider: DeliveryProvider, accountId: string, account: AccountRecord): Promise<void> {
+  try {
+    const result = await deliveryProvider.testConnection(accountId);
+    if (!result.ok || result.status !== "unlocked") {
+      throw new Error(result.safeMessage ?? result.status);
+    }
+  } catch (error) {
+    const detail = safeErrorMessage(error);
+    const label = account.label || account.username || account.id;
+    if (deliveryProvider.id === "bitwarden-send") {
+      throw new Error(`Bitwarden Send account "${label}" is not ready. Go to Vaults > Account Access, select "${label}", use Terminal login if Bitwarden asks for first login or verification, then select Unlock from terminal session before creating a secure link. Detail: ${detail}`);
+    }
+    throw new Error(`Delivery account "${label}" is not ready. Unlock or reconnect this delivery account before creating a secure link. Detail: ${detail}`);
   }
 }
 

@@ -78,6 +78,15 @@ describe("web error help", () => {
     expect(help.guidance).toContain("Login first");
   });
 
+  it("explains stale Bitwarden Send sessions as an unlock task", () => {
+    const help = describeError('Bitwarden Send account "red" is not ready. Go to Vaults > Account Access, select "red", use Terminal login if Bitwarden asks for first login or verification, then select Unlock from terminal session before creating a secure link. Detail: Provider command "bw send" failed. Detail: You are not logged in.');
+
+    expect(help.title).toBe("Bitwarden Send account needs unlock");
+    expect(help.detail).toContain('"red"');
+    expect(help.guidance).toContain("Vaults > Account Access");
+    expect(help.guidance).toContain("Unlock from terminal session");
+  });
+
   it("turns Bitwarden terminal-first login into terminal login help", () => {
     const help = describeError("Bitwarden terminal login is required. Manual same-profile terminal login command: $env:BITWARDENCLI_APPDATA_DIR='profiles/acct'; $bwResult=bw login 'user@example.com' --raw; if ($LASTEXITCODE -eq 0 -and $bwResult) { Set-Content -LiteralPath 'profiles/acct/.wardsen-session' -Value $bwResult.Trim() -NoNewline }; Remove-Item Env:\\BITWARDENCLI_APPDATA_DIR");
 

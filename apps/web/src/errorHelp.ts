@@ -103,6 +103,14 @@ export function describeError(message?: string): ErrorHelp {
     };
   }
 
+  if (lower.includes("bitwarden send account") && (lower.includes("not ready") || lower.includes("not logged in") || lower.includes("unlock"))) {
+    return {
+      title: "Bitwarden Send account needs unlock",
+      detail,
+      guidance: "Go to Vaults > Account Access, choose this Bitwarden account, run Terminal login if Bitwarden needs first login or verification, then select Unlock from terminal session. Return to Deliveries after the account shows unlocked."
+    };
+  }
+
   if (lower.includes("provider command") && lower.includes("failed")) {
     return {
       title: "Provider tool reported an error",
