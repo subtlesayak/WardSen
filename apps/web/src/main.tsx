@@ -444,7 +444,7 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
           {api.accounts.map((account) => <option key={account.id} value={account.id}>{account.label}</option>)}
         </select></label>
         <label>Password<input value={accessForm.password} onChange={(event) => setAccessForm((current) => ({ ...current, password: event.target.value }))} placeholder={selectedAccountIsBitwarden ? "Optional after terminal login" : "Master password or database password"} type="password" />
-          {selectedAccountIsBitwarden ? <small className="fieldInstruction">For first Bitwarden login, leave this blank and use Terminal login. Type the Bitwarden password only in PowerShell.</small> : null}
+          {selectedAccountIsBitwarden ? <small className="fieldInstruction">For first Bitwarden login, leave this blank and use Terminal login. Type the Bitwarden password only into the Bitwarden prompt in Terminal or PowerShell.</small> : null}
         </label>
         {selectedAccountIsBitwarden && verificationNeeded ? (
           <label className={verificationNeeded ? "attentionField" : undefined}>Verification code

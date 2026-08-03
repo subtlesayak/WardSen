@@ -84,11 +84,22 @@ describe("web error help", () => {
     expect(help.kind).toBe("bitwardenTerminalLogin");
     expect(help.title).toBe("Bitwarden needs terminal login once");
     expect(help.detail).toContain("real terminal");
-    expect(help.guidance).toContain("PowerShell");
-    expect(help.terminalCommands?.[0]?.label).toContain("PowerShell");
+    expect(help.guidance).toContain("Terminal or PowerShell");
+    expect(help.terminalCommands?.[0]?.label).toContain("Windows PowerShell");
     expect(help.terminalCommands?.[0]?.command).toContain("BITWARDENCLI_APPDATA_DIR");
     expect(help.terminalCommands?.[0]?.note).toContain("does not include your password");
+    expect(help.terminalCommands?.[0]?.note).toContain("PowerShell Bitwarden prompt");
     expect(help.technicalDetail).toContain("terminal login is required");
+  });
+
+  it("labels macOS/Linux terminal-login commands without PowerShell wording", () => {
+    const help = describeError("Bitwarden terminal login is required. Manual same-profile terminal login command: export BITWARDENCLI_APPDATA_DIR=\"$HOME/Library/Application Support/dev.wardsen.desktop/wardsen-data/profiles/acct\"; bwResult=\"$(bw login 'user@example.com' --raw)\"; status=$?; if [ \"$status\" -eq 0 ] && [ -n \"$bwResult\" ]; then printf '%s' \"$bwResult\" > \"$BITWARDENCLI_APPDATA_DIR/.wardsen-session\"; fi; unset BITWARDENCLI_APPDATA_DIR");
+
+    expect(help.kind).toBe("bitwardenTerminalLogin");
+    expect(help.guidance).toContain("Terminal or PowerShell");
+    expect(help.terminalCommands?.[0]?.label).toContain("macOS/Linux Terminal");
+    expect(help.terminalCommands?.[0]?.note).toContain("Terminal Bitwarden prompt");
+    expect(help.terminalCommands?.[0]?.note).not.toContain("PowerShell Bitwarden prompt");
   });
 
   it("explains Bitwarden local profile lock failures", () => {

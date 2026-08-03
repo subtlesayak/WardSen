@@ -42,7 +42,7 @@ WardSen is an independent open-source project and is not affiliated with, endors
 
 ## Status
 
-`v0.1.0-rc.27` is the latest installer prerelease. It is suitable for developer review, security review and platform packaging validation.
+`v0.1.0-rc.28` is the latest installer prerelease. It is suitable for developer review, security review and platform packaging validation.
 
 Unsigned Windows x64 and macOS Apple Silicon installers are attached to the GitHub prerelease. Windows SmartScreen and macOS Gatekeeper may warn until signing certificates and notarization are configured. See [installer signing](docs/installer-signing.md) before publishing a fully trusted end-user release.
 
@@ -72,9 +72,10 @@ This release contains:
 - Provider setup errors include copyable install links and terminal recovery commands
 - Bitwarden CLI setup help now explains Windows and macOS native downloads, WardSen local tools folders, PATH, arm64/NPM installs and `bw --version` verification
 - Bitwarden provider errors now include safe CLI details and timeout guidance instead of leaving login stuck on a generic loading state
-- Bitwarden first login is terminal-first: WardSen shows a same-profile PowerShell command instead of asking for the Bitwarden password or OTP inside the app
+- Bitwarden first login is terminal-first: WardSen shows a same-profile Terminal or PowerShell command instead of asking for the Bitwarden password or OTP inside the app
 - Bitwarden terminal login captures the short-lived `bw login --raw` session into WardSen's local profile, then **Import session** consumes it and deletes the handoff file
 - Bitwarden terminal commands keep `bw login` intact in copyable error help while still redacting real secrets
+- Bitwarden terminal login commands are platform-aware: Windows gets PowerShell syntax, while macOS and Linux get zsh/bash syntax
 - Bitwarden terminal login avoids repeatedly burning email/new-device codes in hidden CLI prompts
 - Third-party provider and trademark policy documents that WardSen is independent, user-installed-provider-tool based and not endorsed by supported providers
 - macOS first-install docs cover the unsigned-prerelease `"WardSen" is damaged and can't be opened` Gatekeeper message
@@ -88,7 +89,7 @@ Go to [GitHub Releases](https://github.com/subtlesayak/WardSen/releases) and dow
 
 - Windows: `WardSen_0.1.0_x64-setup.exe` or `WardSen_0.1.0_x64_en-US.msi`
 - macOS Apple Silicon: `WardSen_0.1.0_aarch64.dmg`
-- macOS Intel: not attached to `v0.1.0-rc.27`; maintainers can build it from the manual Intel workflow
+- macOS Intel: not attached to `v0.1.0-rc.28`; maintainers can build it from the manual Intel workflow
 
 Windows first install:
 
@@ -131,11 +132,14 @@ Release users do not need the `WardSen` source folder, `npm ci`, Git, Rust or a 
 ### Bitwarden CLI Setup For Release Users
 
 WardSen uses Bitwarden through the official `bw` command-line tool. Installing WardSen alone does not install `bw`.
-For first Bitwarden login, WardSen does not ask for your Bitwarden password, email code, authenticator code or YubiKey code inside the app. Select **Terminal login**, copy the PowerShell command, run it in PowerShell, and type those secrets only into the official Bitwarden CLI prompts.
+For first Bitwarden login, WardSen does not ask for your Bitwarden password, email code, authenticator code or YubiKey code inside the app. Select **Terminal login**, copy the same-profile terminal command, run it in your system terminal, and type those secrets only into the official Bitwarden CLI prompts.
 
-When the PowerShell command finishes, return to WardSen and select **Import session**. WardSen reads the short-lived Bitwarden session from the same local profile and deletes the local handoff file. The command does not contain your password, verification code or session token.
+When the command finishes, return to WardSen and select **Import session**. WardSen reads the short-lived Bitwarden session from the same local profile and deletes the local handoff file. The command does not contain your password, verification code or session token.
 
-The PowerShell command should start with `$(Join-Path $env:LOCALAPPDATA 'WardSen\data\profiles\...')` and include `$bwResult=bw login ... --raw`. If you see an older command containing `[REDACTED] login` or a quoted literal `'%LOCALAPPDATA%\WardSen\...'`, install `v0.1.0-rc.27` or newer before trying terminal login. Those older RC commands cannot import the login correctly.
+On Windows, the command should start with `$env:BITWARDENCLI_APPDATA_DIR=` and include `$bwResult=bw login ... --raw`.
+On macOS and Linux, the command should start with `export BITWARDENCLI_APPDATA_DIR=` and include `bwResult="$(bw login ... --raw)"`.
+If the macOS app shows a command with `$env:` or `Remove-Item Env:`, install `v0.1.0-rc.28` or newer before trying terminal login. That is Windows PowerShell syntax and will not run correctly in macOS Terminal.
+If you see an older command containing `[REDACTED] login` or a quoted literal `'%LOCALAPPDATA%\WardSen\...'`, install `v0.1.0-rc.28` or newer before trying terminal login. Those older RC commands cannot import the login correctly.
 
 Beginner-friendly Windows path:
 
@@ -230,7 +234,7 @@ Upload only the installer artifacts to GitHub Releases. Do not ask users to down
 
 ## Signing A Trusted Release
 
-`v0.1.0-rc.27` is intentionally published as an unsigned prerelease. To publish a trusted release later, maintainers need Windows Authenticode signing for `.exe` and `.msi` files, plus Apple Developer ID signing and notarization for macOS `.dmg` files.
+`v0.1.0-rc.28` is intentionally published as an unsigned prerelease. To publish a trusted release later, maintainers need Windows Authenticode signing for `.exe` and `.msi` files, plus Apple Developer ID signing and notarization for macOS `.dmg` files.
 
 High-level signing path:
 

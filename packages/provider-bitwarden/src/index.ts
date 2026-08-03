@@ -20,6 +20,7 @@ export interface BitwardenProviderOptions {
   profileRoot: string;
   sessions?: AccountSessionManager;
   runCommand?: BitwardenCommandRunner;
+  platform?: NodeJS.Platform;
 }
 
 export class BitwardenCredentialProvider implements CredentialProvider {
@@ -28,11 +29,13 @@ export class BitwardenCredentialProvider implements CredentialProvider {
   private readonly executable: string;
   private readonly sessions: AccountSessionManager;
   private readonly runCommand: BitwardenCommandRunner;
+  private readonly platform: NodeJS.Platform;
 
   constructor(private readonly options: BitwardenProviderOptions) {
     this.executable = options.executable ?? resolveBitwardenExecutable();
     this.sessions = options.sessions ?? new AccountSessionManager();
     this.runCommand = options.runCommand ?? runCliCommand;
+    this.platform = options.platform ?? process.platform;
   }
 
   async getCapabilities(): Promise<CredentialProviderCapabilities> {
@@ -129,7 +132,7 @@ export class BitwardenCredentialProvider implements CredentialProvider {
   }
 
   private manualTerminalLoginMessage(accountId: string, input: ProviderLoginInput) {
-    return `Bitwarden terminal login is required. WardSen does not ask for your Bitwarden password or verification code inside the app for first login, because Bitwarden new-device verification is more reliable in a real terminal. Run the same-profile terminal login command, enter your Bitwarden password and verification code in PowerShell, then return to WardSen and select Unlock. Manual same-profile terminal login command: ${this.terminalLoginCommand(accountId, input)}`;
+    return `Bitwarden terminal login is required. WardSen does not ask for your Bitwarden password or verification code inside the app for first login, because Bitwarden new-device verification is more reliable in a real terminal. Run the same-profile terminal login command, enter your Bitwarden password and verification code in Terminal or PowerShell, then return to WardSen and select Unlock. Manual same-profile terminal login command: ${this.terminalLoginCommand(accountId, input)}`;
   }
 
   private missingTerminalSessionMessage(accountId: string) {
@@ -137,11 +140,23 @@ export class BitwardenCredentialProvider implements CredentialProvider {
   }
 
   private terminalLoginCommand(accountId: string, input: ProviderLoginInput) {
+    if (this.platform !== "win32") return this.posixTerminalLoginCommand(accountId, input);
+    return this.powerShellTerminalLoginCommand(accountId, input);
+  }
+
+  private powerShellTerminalLoginCommand(accountId: string, input: ProviderLoginInput) {
     const profilePath = bitwardenPowerShellProfileExpression(accountId, this.options.profileRoot);
     const handoffPath = bitwardenPowerShellSessionHandoffExpression(accountId, this.options.profileRoot);
     const username = input.username ? ` ${powershellSingleQuote(input.username)}` : "";
     const server = input.serverUrl ? `bw config server ${powershellSingleQuote(input.serverUrl)}; ` : "";
     return `$env:BITWARDENCLI_APPDATA_DIR=${profilePath}; ${server}$bwResult=bw login${username} --raw; if ($LASTEXITCODE -eq 0 -and $bwResult) { Set-Content -LiteralPath ${handoffPath} -Value $bwResult.Trim() -NoNewline }; Remove-Item Env:\\BITWARDENCLI_APPDATA_DIR`;
+  }
+
+  private posixTerminalLoginCommand(accountId: string, input: ProviderLoginInput) {
+    const profilePath = bitwardenPosixProfileExpression(accountId, this.options.profileRoot);
+    const username = input.username ? ` ${posixSingleQuote(input.username)}` : "";
+    const server = input.serverUrl ? `bw config server ${posixSingleQuote(input.serverUrl)}; ` : "";
+    return `export BITWARDENCLI_APPDATA_DIR=${profilePath}; ${server}bwResult="$(bw login${username} --raw)"; status=$?; if [ "$status" -eq 0 ] && [ -n "$bwResult" ]; then printf '%s' "$bwResult" > "$BITWARDENCLI_APPDATA_DIR/.wardsen-session"; fi; unset BITWARDENCLI_APPDATA_DIR`;
   }
 
   private consumeTerminalSessionHandoff(accountId: string): string | undefined {
@@ -162,13 +177,36 @@ function powershellSingleQuote(value: string): string {
   return `'${value.replaceAll("'", "''")}'`;
 }
 
+function posixSingleQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function posixDoubleQuoteLiteral(value: string): string {
+  return value.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"").replaceAll("`", "\\`").replaceAll("$", "\\$");
+}
+
+function bitwardenPosixProfileExpression(accountId: string, profileRoot: string): string {
+  const profilePath = path.join(profileRoot, accountId);
+  const home = process.env.HOME;
+  if (home && isPathInside(profilePath, home)) {
+    const relative = path.relative(home, profilePath).split(path.sep).join("/");
+    return `"$HOME/${posixDoubleQuoteLiteral(relative)}"`;
+  }
+  return `"${posixDoubleQuoteLiteral(profilePath)}"`;
+}
+
 function bitwardenPowerShellProfileExpression(accountId: string, profileRoot: string): string {
   const localAppData = process.env.LOCALAPPDATA;
-  if (localAppData && path.resolve(profileRoot).toLowerCase().startsWith(path.resolve(localAppData).toLowerCase())) {
+  if (localAppData && isPathInside(path.join(profileRoot, accountId), localAppData)) {
     const relative = path.relative(localAppData, path.join(profileRoot, accountId));
     return `$(Join-Path $env:LOCALAPPDATA ${powershellSingleQuote(relative)})`;
   }
   return powershellSingleQuote(path.join(profileRoot, accountId));
+}
+
+function isPathInside(targetPath: string, parentPath: string): boolean {
+  const relative = path.relative(path.resolve(parentPath), path.resolve(targetPath));
+  return Boolean(relative) && !relative.startsWith("..") && !path.isAbsolute(relative);
 }
 
 function bitwardenPowerShellSessionHandoffExpression(accountId: string, profileRoot: string): string {

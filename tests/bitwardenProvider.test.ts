@@ -94,6 +94,32 @@ describe("Bitwarden credential provider", () => {
     }
   });
 
+  it("uses macOS shell syntax for terminal login commands on macOS", async () => {
+    const previous = process.env.HOME;
+    const home = path.resolve("home-root");
+    process.env.HOME = home;
+    const provider = new BitwardenCredentialProvider({
+      platform: "darwin",
+      profileRoot: path.join(home, "Library", "Application Support", "dev.wardsen.desktop", "wardsen-data", "profiles"),
+      runCommand: async () => ok()
+    });
+
+    try {
+      const login = provider.login("acct-1", {
+        username: "user@example.com",
+        password: "vault-password",
+        verificationCode: "123456"
+      });
+
+      await expect(login).rejects.toThrow("export BITWARDENCLI_APPDATA_DIR=\"$HOME/Library/Application Support/dev.wardsen.desktop/wardsen-data/profiles/acct-1\"; bwResult=\"$(bw login 'user@example.com' --raw)\"");
+      await expect(provider.login("acct-1", { username: "user@example.com" })).rejects.not.toThrow("$env:BITWARDENCLI_APPDATA_DIR");
+      await expect(provider.login("acct-1", { username: "user@example.com" })).rejects.not.toThrow("Remove-Item Env:");
+    } finally {
+      if (previous === undefined) delete process.env.HOME;
+      else process.env.HOME = previous;
+    }
+  });
+
   it("imports and deletes a terminal-created session handoff on unlock", async () => {
     const sessions = new AccountSessionManager();
     const profileRoot = fs.mkdtempSync(path.join(os.tmpdir(), "wardsen-bw-"));

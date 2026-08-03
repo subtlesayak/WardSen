@@ -59,18 +59,19 @@ export function describeError(message?: string): ErrorHelp {
 
   if (lower.includes("manual same-profile terminal login command") || lower.includes("manual same-profile login command") || lower.includes("invalid new device otp")) {
     const command = extractManualLoginCommand(detail);
+    const terminalHelp = command ? describeTerminalLoginCommand(command) : undefined;
     return {
       kind: "bitwardenTerminalLogin",
       title: "Bitwarden needs terminal login once",
       detail: "Bitwarden first login runs in a real terminal so you only enter your Bitwarden password and verification code once.",
-      guidance: "Run the same-profile PowerShell command below, enter your Bitwarden password and verification code in PowerShell, then return to WardSen and select Unlock. WardSen imports the short-lived terminal session and deletes the local handoff file.",
+      guidance: "Run the same-profile terminal command below, enter your Bitwarden password and verification code in Terminal or PowerShell, then return to WardSen and select Unlock. WardSen imports the short-lived terminal session and deletes the local handoff file.",
       technicalDetail: detail,
-      terminalCommands: command
+      terminalCommands: command && terminalHelp
         ? [
             {
-              label: "PowerShell same-profile Bitwarden login and unlock",
+              label: terminalHelp.label,
               command,
-              note: "This command does not include your password, verification code or session token. Type secrets only into the PowerShell Bitwarden prompt."
+              note: terminalHelp.note
             }
           ]
         : undefined
@@ -141,6 +142,19 @@ function cleanMessage(message?: string) {
 function extractManualLoginCommand(detail: string): string | undefined {
   const match = detail.match(/Manual same-profile (?:terminal )?login command:\s*([\s\S]*?)(?:\s+Original detail:|$)/);
   return match?.[1]?.trim();
+}
+
+function describeTerminalLoginCommand(command: string): Pick<TerminalCommandHelp, "label" | "note"> {
+  if (command.includes("$env:BITWARDENCLI_APPDATA_DIR") || command.includes("Remove-Item Env:")) {
+    return {
+      label: "Windows PowerShell same-profile Bitwarden login and unlock",
+      note: "This command does not include your password, verification code or session token. Type secrets only into the PowerShell Bitwarden prompt."
+    };
+  }
+  return {
+    label: "macOS/Linux Terminal same-profile Bitwarden login and unlock",
+    note: "This command does not include your password, verification code or session token. Type secrets only into the Terminal Bitwarden prompt."
+  };
 }
 
 function providerToolHelp(lowerDetail: string): Pick<ErrorHelp, "guidance" | "actionLabel" | "actionHref" | "setupNotes" | "terminalCommands"> {
