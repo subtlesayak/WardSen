@@ -55,14 +55,16 @@ export class BitwardenSendDeliveryProvider implements DeliveryProvider {
       throw new Error("Bitwarden Send access passwords are disabled because the Bitwarden CLI requires this secret as a process argument.");
     }
     const text = formatCredentialText(input.sourceCredential);
+    const deleteInDays = deleteInDaysFromExpiry(input.expiresAt);
     const args = [
       "send",
-      "text",
+      "--name",
       input.sourceCredential.title,
       "--notes",
       "Created by WardSen",
-      "--expirationDate",
-      input.expiresAt.toISOString()
+      "--deleteInDays",
+      String(deleteInDays),
+      "--fullObject"
     ];
     if (input.viewLimit !== undefined) args.push("--maxAccessCount", String(input.viewLimit));
     if (input.hideText) args.push("--hidden");
@@ -139,6 +141,13 @@ function formatCredentialText(credential: CreateDeliveryInput["sourceCredential"
   if (credential.notes) lines.push(`Notes: ${credential.notes}`);
   if (credential.totp) lines.push(`TOTP: ${credential.totp}`);
   return lines.join("\n");
+}
+
+function deleteInDaysFromExpiry(expiresAt: Date, now = new Date()): number {
+  const durationMs = expiresAt.getTime() - now.getTime();
+  const dayMs = 24 * 60 * 60 * 1000;
+  if (!Number.isFinite(durationMs) || durationMs <= 0) return 1;
+  return Math.min(30, Math.max(1, Math.ceil(durationMs / dayMs)));
 }
 
 function safeJson(value: string, label: string): unknown {

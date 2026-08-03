@@ -41,20 +41,44 @@ describe("Bitwarden Send delivery provider", () => {
     });
     expect(calls[0].args).toEqual([
       "send",
-      "text",
+      "--name",
       "Production Admin",
       "--notes",
       "Created by WardSen",
-      "--expirationDate",
-      "2026-08-01T12:00:00.000Z",
+      "--deleteInDays",
+      "1",
+      "--fullObject",
       "--maxAccessCount",
       "2",
       "--hidden"
     ]);
+    expect(calls[0].args).not.toContain("--expirationDate");
     expect(calls[0].stdin).toContain("Password: credential-password");
     expect(calls[0].stdin).toContain("TOTP: 123456");
     expect(calls[0].env?.BW_SESSION).toBe("session-token");
     expect(calls[0].redact).toEqual(expect.arrayContaining(["session-token", calls[0].stdin]));
+  });
+
+  it("rounds custom expiry to Bitwarden Send delete-in-days without exposing the secret as an argument", async () => {
+    const calls: CliCommandInput[] = [];
+    const provider = new BitwardenSendDeliveryProvider({
+      getSessionToken: () => "session-token",
+      runCommand: async (input) => {
+        calls.push(input);
+        return ok(JSON.stringify({ id: "send-1", accessUrl: "https://send.example.test/#abc" }));
+      }
+    });
+
+    await provider.createDelivery({
+      deliveryAccountId: "acct-1",
+      expiresAt: new Date(Date.now() + 49 * 60 * 60 * 1000),
+      sourceCredential: { title: "Admin", password: "credential-password", urls: [] }
+    });
+
+    expect(calls[0].args).toContain("--deleteInDays");
+    expect(calls[0].args.at(calls[0].args.indexOf("--deleteInDays") + 1)).toBe("3");
+    expect(calls[0].args.join(" ")).not.toContain("credential-password");
+    expect(calls[0].stdin).toContain("credential-password");
   });
 
   it("does not support access passwords because bw exposes them through process args", async () => {
