@@ -106,7 +106,7 @@ jobs:
         run: cp "$WARDSEN_BUNDLE_ROOT/SHA256SUMS.txt" "$WARDSEN_BUNDLE_ROOT/SHA256SUMS-macos-x64.txt"
 
       - name: Upload macOS Intel artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: wardsen-macos-x64
           path: |

@@ -190,7 +190,7 @@ jobs:
             -Destination ${{ matrix.bundle_root }}/SHA256SUMS-${{ matrix.name }}.txt
 
       - name: Upload workflow artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: wardsen-${{ matrix.name }}
           path: ${{ matrix.artifact_paths }}
