@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import type {
   ConnectionResult,
@@ -12,6 +13,8 @@ import type {
 } from "@wardsen/core";
 import { AccountSessionManager } from "@wardsen/core";
 import { resolveProviderExecutable, runCliCommand, type CliCommandInput, type CliCommandResult } from "@wardsen/security";
+
+const TERMINAL_HANDOFF_TTL_MS = 5 * 60 * 1000;
 
 export type BitwardenCommandRunner = (input: CliCommandInput) => Promise<CliCommandResult>;
 
@@ -149,23 +152,31 @@ export class BitwardenCredentialProvider implements CredentialProvider {
   private powerShellTerminalLoginCommand(accountId: string, input: ProviderLoginInput) {
     const profileDirectory = this.profileDirectory(accountId);
     const profilePath = bitwardenPowerShellProfileExpression(profileDirectory);
-    const handoffPath = bitwardenPowerShellSessionHandoffExpression(profileDirectory);
+    const handoffPath = bitwardenPowerShellSessionHandoffExpression(profileDirectory, accountId);
     const username = input.username ? ` ${powershellSingleQuote(input.username)}` : "";
     const server = input.serverUrl ? `bw config server ${powershellSingleQuote(input.serverUrl)}; ` : "";
-    return `$env:BITWARDENCLI_APPDATA_DIR=${profilePath}; ${server}$bwResult=bw login${username} --raw; if ($LASTEXITCODE -eq 0 -and $bwResult) { Set-Content -LiteralPath ${handoffPath} -Value $bwResult.Trim() -NoNewline }; Remove-Item Env:\\BITWARDENCLI_APPDATA_DIR`;
+    return `$env:BITWARDENCLI_APPDATA_DIR=${profilePath}; ${server}$bwResult=bw login${username} --raw 2>&1; if ($LASTEXITCODE -ne 0 -and "$bwResult" -match "already logged in") { $bwResult=bw unlock --raw }; if ($LASTEXITCODE -eq 0 -and $bwResult) { Set-Content -LiteralPath ${handoffPath} -Value $bwResult.Trim() -NoNewline }; Remove-Item Env:\\BITWARDENCLI_APPDATA_DIR`;
   }
 
   private posixTerminalLoginCommand(accountId: string, input: ProviderLoginInput) {
     const profilePath = bitwardenPosixProfileExpression(this.profileDirectory(accountId));
     const username = input.username ? ` ${posixSingleQuote(input.username)}` : "";
     const server = input.serverUrl ? `bw config server ${posixSingleQuote(input.serverUrl)}; ` : "";
-    return `export BITWARDENCLI_APPDATA_DIR=${profilePath}; ${server}bwResult="$(bw login${username} --raw)"; status=$?; if [ "$status" -eq 0 ] && [ -n "$bwResult" ]; then printf '%s' "$bwResult" > "$BITWARDENCLI_APPDATA_DIR/.wardsen-session"; fi; unset BITWARDENCLI_APPDATA_DIR`;
+    const handoffFile = bitwardenSessionHandoffFile(accountId, this.profileDirectory(accountId));
+    return `export BITWARDENCLI_APPDATA_DIR=${profilePath}; ${server}bwResult="$(bw login${username} --raw 2>&1)"; status=$?; if [ "$status" -ne 0 ] && printf '%s' "$bwResult" | grep -qi "already logged in"; then bwResult="$(bw unlock --raw)"; status=$?; fi; if [ "$status" -eq 0 ] && [ -n "$bwResult" ]; then umask 077; printf '%s' "$bwResult" > "$BITWARDENCLI_APPDATA_DIR/${posixDoubleQuoteLiteral(handoffFile)}"; fi; unset BITWARDENCLI_APPDATA_DIR`;
   }
 
   private consumeTerminalSessionHandoff(accountId: string): string | undefined {
-    const handoffPath = bitwardenSessionHandoffPath(this.profileDirectory(accountId));
+    const profileDirectory = this.profileDirectory(accountId);
+    cleanupLegacySessionHandoff(profileDirectory);
+    const handoffPath = bitwardenSessionHandoffPath(profileDirectory, accountId);
     if (!fs.existsSync(handoffPath)) return undefined;
     try {
+      const stats = fs.statSync(handoffPath);
+      if (Date.now() - stats.mtimeMs > TERMINAL_HANDOFF_TTL_MS) {
+        fs.rmSync(handoffPath, { force: true });
+        return undefined;
+      }
       const token = fs.readFileSync(handoffPath, "utf8").trim();
       fs.rmSync(handoffPath, { force: true });
       return token || undefined;
@@ -215,12 +226,21 @@ function isPathInside(targetPath: string, parentPath: string): boolean {
   return Boolean(relative) && !relative.startsWith("..") && !path.isAbsolute(relative);
 }
 
-function bitwardenPowerShellSessionHandoffExpression(profilePath: string): string {
-  return `$(Join-Path ${bitwardenPowerShellProfileExpression(profilePath)} ${powershellSingleQuote(".wardsen-session")})`;
+function bitwardenPowerShellSessionHandoffExpression(profilePath: string, accountId: string): string {
+  return `$(Join-Path ${bitwardenPowerShellProfileExpression(profilePath)} ${powershellSingleQuote(bitwardenSessionHandoffFile(accountId, profilePath))})`;
 }
 
-function bitwardenSessionHandoffPath(profilePath: string): string {
-  return path.join(profilePath, ".wardsen-session");
+function bitwardenSessionHandoffPath(profilePath: string, accountId: string): string {
+  return path.join(profilePath, bitwardenSessionHandoffFile(accountId, profilePath));
+}
+
+function bitwardenSessionHandoffFile(accountId: string, profilePath: string): string {
+  const entropy = createHash("sha256").update(`${accountId}\0${path.resolve(profilePath)}`).digest("hex").slice(0, 16);
+  return `.wardsen-session-${entropy}`;
+}
+
+function cleanupLegacySessionHandoff(profilePath: string): void {
+  fs.rmSync(path.join(profilePath, ".wardsen-session"), { force: true });
 }
 
 function resolveBitwardenExecutable(): string {

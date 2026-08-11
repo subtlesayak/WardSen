@@ -32,6 +32,7 @@
     "release:verify-public-readiness": "node scripts/verify-public-release-readiness.mjs",
     "release:verify-ref": "node scripts/verify-release-ref.mjs",
     "security:scan-secrets": "node scripts/secret-non-persistence-scan.mjs",
+    "smoke:web": "node scripts/web-smoke.mjs",
     "tauri:build": "tauri build"
   },
   "dependencies": {

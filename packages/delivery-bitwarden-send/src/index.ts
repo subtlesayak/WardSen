@@ -143,7 +143,7 @@ function buildTextSendObject(input: CreateDeliveryInput, text: string): Record<s
   return {
     object: "send",
     name: input.sourceCredential.title,
-    notes: "Created by WardSen",
+    notes: input.operationId ? `Created by WardSen\nWardSen operation: ${input.operationId}` : "Created by WardSen",
     type: 0,
     text: {
       text,

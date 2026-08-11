@@ -21,6 +21,7 @@ const artifacts = findArtifacts(bundleRoot).sort((a, b) => a.localeCompare(b));
 if (artifacts.length === 0) {
   throw new Error(`No release artifacts found under ${bundleRoot}`);
 }
+assertNoStaleMixedArtifacts(artifacts);
 
 mkdirSync(bundleRoot, { recursive: true });
 const lines = [];
@@ -62,6 +63,27 @@ function findArtifacts(dir) {
     }
   }
   return results;
+}
+
+function assertNoStaleMixedArtifacts(artifacts) {
+  if (configuredBundleRoot || process.env.WARDSEN_ALLOW_MIXED_ARTIFACT_TIMES === "true") return;
+  if (artifacts.length < 2) return;
+
+  const artifactStats = artifacts.map((artifact) => ({ artifact, mtimeMs: statSync(artifact).mtimeMs }));
+  const newest = Math.max(...artifactStats.map((artifact) => artifact.mtimeMs));
+  const oldest = Math.min(...artifactStats.map((artifact) => artifact.mtimeMs));
+  const maxSpanMs = Number(process.env.WARDSEN_MAX_ARTIFACT_TIME_SPAN_MS ?? 10 * 60 * 1000);
+  if (newest - oldest <= maxSpanMs) return;
+
+  const details = artifactStats
+    .sort((a, b) => a.mtimeMs - b.mtimeMs)
+    .map(({ artifact, mtimeMs }) => `${new Date(mtimeMs).toISOString()} ${path.relative(bundleRoot, artifact).replaceAll(path.sep, "/")}`)
+    .join("\n");
+  throw new Error([
+    "Release artifacts have mixed modification times; refusing to generate a combined checksum manifest that may bless stale installers.",
+    "Set WARDSEN_BUNDLE_ROOT to the exact fresh bundle folder, clean target/release/bundle before packaging, or set WARDSEN_ALLOW_MIXED_ARTIFACT_TIMES=true after reviewing the artifact list.",
+    details
+  ].join("\n"));
 }
 
 function sha256(filePath) {

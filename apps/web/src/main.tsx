@@ -442,7 +442,7 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
         {selectedAccountIsBitwarden ? (
           <div className="notice compact wide">
             <strong>Bitwarden unlock flow</strong>
-            <span>Use <strong>Terminal login</strong> once, finish Bitwarden in PowerShell or Terminal, then return here and select <strong>Unlock from terminal session</strong>.</span>
+            <span>Use <strong>Terminal login / unlock</strong>, type the Bitwarden password only in PowerShell or Terminal, then return here and select <strong>Unlock from terminal session</strong>.</span>
           </div>
         ) : null}
         <label>Account<select value={selectedAccount?.id ?? ""} onChange={(event) => {
@@ -451,8 +451,8 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
         }}>
           {api.accounts.map((account) => <option key={account.id} value={account.id}>{account.label}</option>)}
         </select></label>
-        <label>Password<input value={accessForm.password} onChange={(event) => setAccessForm((current) => ({ ...current, password: event.target.value }))} placeholder={selectedAccountIsBitwarden ? "Optional after terminal login" : "Master password or database password"} type="password" />
-          {selectedAccountIsBitwarden ? <small className="fieldInstruction">For first Bitwarden login, leave this blank and use Terminal login. Type the Bitwarden password only into the Bitwarden prompt in Terminal or PowerShell.</small> : null}
+        <label>Password<input value={accessForm.password} onChange={(event) => setAccessForm((current) => ({ ...current, password: event.target.value }))} placeholder={selectedAccountIsBitwarden ? "Leave blank for terminal flow" : "Master password or database password"} type="password" />
+          {selectedAccountIsBitwarden ? <small className="fieldInstruction">If Terminal says you are already logged in, the copied command switches to Bitwarden unlock. Type the Bitwarden password at that terminal prompt, not in WardSen.</small> : null}
         </label>
         {selectedAccountIsBitwarden && verificationNeeded ? (
           <label className={verificationNeeded ? "attentionField" : undefined}>Verification code
@@ -486,7 +486,7 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
         <label>Key file path<input name="keyFilePath" value={accessForm.keyFilePath} onChange={(event) => setAccessForm((current) => ({ ...current, keyFilePath: event.target.value }))} placeholder="Optional KeePassXC key file" /></label>
         <label className="check"><input name="sso" checked={accessForm.sso} type="checkbox" onChange={(event) => setAccessForm((current) => ({ ...current, sso: event.target.checked }))} /> Login with SSO</label>
         <div className="buttonRow">
-          <button type="button" className={selectedAccountIsBitwarden || verificationNeeded ? "primary" : undefined} onClick={() => void accountAccess("login")}><ShieldCheck size={16} /> {selectedAccountIsBitwarden ? "Terminal login" : verificationNeeded ? "Submit code and login" : "Login"}</button>
+          <button type="button" className={selectedAccountIsBitwarden || verificationNeeded ? "primary" : undefined} onClick={() => void accountAccess("login")}><ShieldCheck size={16} /> {selectedAccountIsBitwarden ? "Terminal login / unlock" : verificationNeeded ? "Submit code and login" : "Login"}</button>
           <button
             type="button"
             className={selectedAccountIsBitwarden || verificationNeeded ? undefined : "primary"}
@@ -1154,22 +1154,22 @@ function BulkHandoffResults({
     setHandoffStatus((current) => ({ ...current, [resultKey(result)]: "Copied" }));
   }
 
-  function openDraft(result: BulkDeliveryItemResult) {
+  async function openDraft(result: BulkDeliveryItemResult) {
     const delivery = result.delivery;
     if (!delivery?.oneTimeDeliveryUrl) return;
-    const label = personName(result.recipientId);
+    await onCopy(delivery.oneTimeDeliveryUrl);
     if (method === "email") {
       window.open(
-        `mailto:?subject=${encodeURIComponent(`WardSen delivery: ${delivery.credentialName}`)}&body=${encodeURIComponent(`Secure link for ${label}: ${delivery.oneTimeDeliveryUrl}`)}`,
+        `mailto:?subject=${encodeURIComponent(`WardSen delivery: ${delivery.credentialName}`)}&body=${encodeURIComponent("Paste the WardSen delivery link copied to your clipboard. Do not forward this message after the recipient opens it.")}`,
         "_blank",
         "noopener,noreferrer"
       );
-      setHandoffStatus((current) => ({ ...current, [resultKey(result)]: "Email draft opened" }));
+      setHandoffStatus((current) => ({ ...current, [resultKey(result)]: "Copied; email draft opened" }));
       return;
     }
     if (method === "whatsapp") {
-      window.open(`https://wa.me/?text=${encodeURIComponent(`Secure link for ${label}: ${delivery.oneTimeDeliveryUrl}`)}`, "_blank", "noopener,noreferrer");
-      setHandoffStatus((current) => ({ ...current, [resultKey(result)]: "WhatsApp draft opened" }));
+      window.open("https://wa.me/", "_blank", "noopener,noreferrer");
+      setHandoffStatus((current) => ({ ...current, [resultKey(result)]: "Copied; WhatsApp opened" }));
     }
   }
 
@@ -1193,7 +1193,7 @@ function BulkHandoffResults({
               <span>{handoffStatus[key] ?? (result.ok ? "Not handed off" : result.error ?? "Failed")}</span>
               <div className="buttonRow">
                 <button type="button" disabled={!url} onClick={() => void copyLink(result)}><Copy size={15} aria-hidden="true" /> Copy link</button>
-                <button type="button" disabled={!url || method === "copy"} onClick={() => openDraft(result)}><Mail size={15} aria-hidden="true" /> Open draft</button>
+                <button type="button" disabled={!url || method === "copy"} onClick={() => void openDraft(result)}><Mail size={15} aria-hidden="true" /> Copy and open</button>
               </div>
             </div>
           );

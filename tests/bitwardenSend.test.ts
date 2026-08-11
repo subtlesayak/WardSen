@@ -29,6 +29,7 @@ describe("Bitwarden Send delivery provider", () => {
     const expiresAt = new Date("2026-08-01T12:00:00.000Z");
 
     const result = await provider.createDelivery({
+      operationId: "delivery-op-1",
       deliveryAccountId: "acct-1",
       expiresAt,
       viewLimit: 2,
@@ -53,6 +54,7 @@ describe("Bitwarden Send delivery provider", () => {
     expect(calls[0].args).toEqual(["encode"]);
     expect(calls[0].stdin).toContain('"object":"send"');
     expect(calls[0].stdin).toContain('"name":"Production Admin"');
+    expect(calls[0].stdin).toContain('"notes":"Created by WardSen\\nWardSen operation: delivery-op-1"');
     expect(calls[0].stdin).toContain('"deletionDate":"2026-08-01T12:00:00.000Z"');
     expect(calls[0].stdin).toContain('"maxAccessCount":2');
     expect(calls[0].stdin).toContain('"hidden":true');

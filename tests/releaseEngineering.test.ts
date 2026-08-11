@@ -38,15 +38,43 @@ describe("release engineering guardrails", () => {
     expect(workflow).not.toContain("validation suppression");
   });
 
+  it("keeps web smoke testing as a repeatable desktop and mobile release check", () => {
+    const packageJson = JSON.parse(readFileSync(path.join(process.cwd(), "package.json"), "utf8"));
+    const smokeScript = readFileSync(path.join(process.cwd(), "scripts", "web-smoke.mjs"), "utf8");
+
+    expect(packageJson.scripts["smoke:web"]).toBe("node scripts/web-smoke.mjs");
+    expect(smokeScript).toContain("desktop-1280x720.png");
+    expect(smokeScript).toContain("mobile-390x844.png");
+    expect(smokeScript).toContain("WARDSEN_WEB_SMOKE_CHROME");
+    expect(smokeScript).toContain("Asha");
+    expect(smokeScript).toContain("viewed");
+  });
+
   it("pins third-party workflow actions to full SHAs", () => {
-    const workflow = readFileSync(path.join(process.cwd(), ".github", "workflows", "release-installers.yml"), "utf8");
-    const usesLines = workflow.split("\n").filter((line) => line.trim().startsWith("uses:"));
+    const workflowPaths = [
+      path.join(process.cwd(), ".github", "workflows", "release-installers.yml"),
+      path.join(process.cwd(), ".github", "workflows", "build-macos-intel.yml")
+    ];
+    const usesLines = workflowPaths.flatMap((workflowPath) =>
+      readFileSync(workflowPath, "utf8").split("\n").map((line) => line.trim()).filter((line) => line.startsWith("uses:"))
+    );
 
     expect(usesLines.length).toBeGreaterThan(0);
     for (const line of usesLines) {
       expect(line).toMatch(/@[0-9a-f]{40}$/);
       expect(line).not.toMatch(/@(v\d+|stable)$/);
     }
+  });
+
+  it("keeps release workflow write permissions scoped to publishing jobs", () => {
+    const releaseWorkflow = readFileSync(path.join(process.cwd(), ".github", "workflows", "release-installers.yml"), "utf8");
+    const macosIntelWorkflow = readFileSync(path.join(process.cwd(), ".github", "workflows", "build-macos-intel.yml"), "utf8");
+
+    expect(releaseWorkflow).toMatch(/permissions:\n  contents: read\n  actions: read/);
+    expect(releaseWorkflow).toMatch(/publish:\n[\s\S]*permissions:\n      actions: read\n      contents: write/);
+    expect(macosIntelWorkflow).toMatch(/permissions:\n  contents: read\n  actions: read/);
+    expect(macosIntelWorkflow).toMatch(/build:\n[\s\S]*permissions:\n      contents: read/);
+    expect(macosIntelWorkflow).toMatch(/attach:\n[\s\S]*permissions:\n      actions: read\n      contents: write/);
   });
 
   it("fails public release readiness when signing configuration is missing", () => {

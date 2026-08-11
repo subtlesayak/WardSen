@@ -521,6 +521,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     let result: Awaited<ReturnType<DeliveryProvider["createDelivery"]>> | undefined;
     try {
       result = await deliveryProvider.createDelivery({
+        operationId: pending.id,
         sourceCredential: sensitiveCredential,
         recipient: body.recipient,
         expiresAt,

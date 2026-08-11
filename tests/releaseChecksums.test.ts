@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -44,5 +44,34 @@ describe("release checksum generation", () => {
         sizeBytes: "fake dmg content".length
       }]
     });
+  });
+
+  it("fails closed when default bundle checksums would mix stale and fresh installers", () => {
+    const tempDir = mkdtempSync(path.join(os.tmpdir(), "wardsen-checksums-stale-"));
+    tempDirs.push(tempDir);
+
+    const bundleRoot = path.join(tempDir, "apps", "desktop", "src-tauri", "target", "release", "bundle");
+    const msiDir = path.join(bundleRoot, "msi");
+    const nsisDir = path.join(bundleRoot, "nsis");
+    const staleMsi = path.join(msiDir, "WardSen_0.1.0_x64_en-US.msi");
+    const freshNsis = path.join(nsisDir, "WardSen_0.1.0_x64-setup.exe");
+    mkdirSync(msiDir, { recursive: true });
+    mkdirSync(nsisDir, { recursive: true });
+    writeFileSync(staleMsi, "old msi content", "utf8");
+    writeFileSync(freshNsis, "fresh nsis content", "utf8");
+    const staleDate = new Date("2026-08-01T00:00:00.000Z");
+    const freshDate = new Date("2026-08-10T00:00:00.000Z");
+    utimesSync(staleMsi, staleDate, staleDate);
+    utimesSync(freshNsis, freshDate, freshDate);
+
+    expect(() => execFileSync(process.execPath, [path.join(process.cwd(), "scripts", "release-checksums.mjs")], {
+      cwd: tempDir,
+      env: {
+        ...process.env,
+        WARDSEN_BUNDLE_ROOT: "",
+        WARDSEN_MAX_ARTIFACT_TIME_SPAN_MS: "1000"
+      },
+      stdio: "pipe"
+    })).toThrow();
   });
 });

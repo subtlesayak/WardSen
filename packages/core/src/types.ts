@@ -107,6 +107,7 @@ export interface DeliveryRecipient {
 }
 
 export interface CreateDeliveryInput {
+  operationId?: string;
   sourceCredential: SensitiveCredential;
   recipient?: DeliveryRecipient;
   expiresAt: Date;

@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { createHash } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -8,6 +9,11 @@ import { BitwardenCredentialProvider } from "@wardsen/provider-bitwarden";
 
 function ok(stdout = "{}"): CliCommandResult {
   return { exitCode: 0, stdout, stderr: "", durationMs: 1 };
+}
+
+function handoffPath(profileDir: string, accountId: string) {
+  const entropy = createHash("sha256").update(`${accountId}\0${path.resolve(profileDir)}`).digest("hex").slice(0, 16);
+  return path.join(profileDir, `.wardsen-session-${entropy}`);
 }
 
 describe("Bitwarden credential provider", () => {
@@ -68,8 +74,10 @@ describe("Bitwarden credential provider", () => {
         password: "vault-password",
         verificationCode: "123456"
       })
-    ).rejects.toThrow(`$env:BITWARDENCLI_APPDATA_DIR='${expectedProfile}'; $bwResult=bw login 'user@example.com' --raw`);
+    ).rejects.toThrow(`$env:BITWARDENCLI_APPDATA_DIR='${expectedProfile}'; $bwResult=bw login 'user@example.com' --raw 2>&1`);
+    await expect(provider.login("acct-1", { username: "user@example.com" })).rejects.toThrow("bw unlock --raw");
     await expect(provider.login("acct-1", { username: "user@example.com" })).rejects.toThrow("Set-Content -LiteralPath");
+    await expect(provider.login("acct-1", { username: "user@example.com" })).rejects.toThrow(".wardsen-session-");
   });
 
   it("uses PowerShell environment expansion for local app data profiles", async () => {
@@ -113,7 +121,8 @@ describe("Bitwarden credential provider", () => {
         verificationCode: "123456"
       });
 
-      await expect(login).rejects.toThrow("export BITWARDENCLI_APPDATA_DIR=\"$HOME/Library/Application Support/dev.wardsen.desktop/wardsen-data/profiles/acct-1\"; bwResult=\"$(bw login 'user@example.com' --raw)\"");
+      await expect(login).rejects.toThrow("export BITWARDENCLI_APPDATA_DIR=\"$HOME/Library/Application Support/dev.wardsen.desktop/wardsen-data/profiles/acct-1\"; bwResult=\"$(bw login 'user@example.com' --raw 2>&1)\"");
+      await expect(provider.login("acct-1", { username: "user@example.com" })).rejects.toThrow("bw unlock --raw");
       await expect(provider.login("acct-1", { username: "user@example.com" })).rejects.not.toThrow("$env:BITWARDENCLI_APPDATA_DIR");
       await expect(provider.login("acct-1", { username: "user@example.com" })).rejects.not.toThrow("Remove-Item Env:");
     } finally {
@@ -127,7 +136,8 @@ describe("Bitwarden credential provider", () => {
     const profileRoot = fs.mkdtempSync(path.join(os.tmpdir(), "wardsen-bw-"));
     const profileDir = path.join(profileRoot, "acct-1");
     fs.mkdirSync(profileDir, { recursive: true });
-    fs.writeFileSync(path.join(profileDir, ".wardsen-session"), "terminal-session\n");
+    const sessionPath = handoffPath(profileDir, "acct-1");
+    fs.writeFileSync(sessionPath, "terminal-session\n");
     const calls: CliCommandInput[] = [];
     const provider = new BitwardenCredentialProvider({
       profileRoot,
@@ -144,7 +154,7 @@ describe("Bitwarden credential provider", () => {
       await provider.search("acct-1", "mail", { page: 1, pageSize: 10 });
       expect(calls[0]?.args).toEqual(["list", "items", "--search", "mail"]);
       expect(calls[0]?.env?.BW_SESSION).toBe("terminal-session");
-      expect(fs.existsSync(path.join(profileDir, ".wardsen-session"))).toBe(false);
+      expect(fs.existsSync(sessionPath)).toBe(false);
     } finally {
       fs.rmSync(profileRoot, { recursive: true, force: true });
     }
@@ -169,15 +179,41 @@ describe("Bitwarden credential provider", () => {
 
     try {
       await expect(provider.login("acct-1", { username: "user@example.com" })).rejects.toThrow("wardsen-custom-bw-");
-      fs.writeFileSync(path.join(customProfile, ".wardsen-session"), "terminal-session\n");
+      const sessionPath = handoffPath(customProfile, "acct-1");
+      fs.writeFileSync(sessionPath, "terminal-session\n");
       await provider.unlock("acct-1", {});
       await provider.search("acct-1", "", { page: 1, pageSize: 10 });
 
-      expect(fs.existsSync(path.join(customProfile, ".wardsen-session"))).toBe(false);
+      expect(fs.existsSync(sessionPath)).toBe(false);
       expect(calls.at(-1)?.env?.BITWARDENCLI_APPDATA_DIR).toBe(customProfile);
       expect(calls.at(-1)?.env?.BW_SESSION).toBe("terminal-session");
     } finally {
       fs.rmSync(customProfile, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects stale terminal session handoff files and removes legacy handoff files", async () => {
+    const sessions = new AccountSessionManager();
+    const profileRoot = fs.mkdtempSync(path.join(os.tmpdir(), "wardsen-bw-stale-"));
+    const profileDir = path.join(profileRoot, "acct-1");
+    fs.mkdirSync(profileDir, { recursive: true });
+    const sessionPath = handoffPath(profileDir, "acct-1");
+    fs.writeFileSync(sessionPath, "stale-session\n");
+    fs.writeFileSync(path.join(profileDir, ".wardsen-session"), "legacy-session\n");
+    const staleDate = new Date(Date.now() - 10 * 60 * 1000);
+    fs.utimesSync(sessionPath, staleDate, staleDate);
+    const provider = new BitwardenCredentialProvider({
+      profileRoot,
+      sessions,
+      runCommand: async () => ok()
+    });
+
+    try {
+      await expect(provider.unlock("acct-1", {})).rejects.toThrow("Manual same-profile terminal login command:");
+      expect(fs.existsSync(sessionPath)).toBe(false);
+      expect(fs.existsSync(path.join(profileDir, ".wardsen-session"))).toBe(false);
+    } finally {
+      fs.rmSync(profileRoot, { recursive: true, force: true });
     }
   });
 

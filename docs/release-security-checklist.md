@@ -15,6 +15,7 @@ Run this checklist before publishing a public WardSen build.
 - Verify `npm run check`, `npm test` and `npm run build` pass.
 - Confirm delivery creation never persists credential plaintext, TOTP secrets, access passwords, master passwords or provider session tokens.
 - Run `npm run security:scan-secrets` after release smoke tests and attach the output to the release checklist.
+- Run `npm run smoke:web` after `npm run build:web` and attach both desktop and mobile screenshot paths, or record the local browser failure if Chrome/Edge cannot render headlessly on the release machine.
 - Confirm API delivery responses include only metadata and the provider delivery URL, never source credential fields.
 - Confirm provider CLI secrets are supplied through stdin or environment variables, and configured redaction covers stdout and stderr.
 - Confirm SQLite migration tests cover delivery metadata constraints, audit outcome constraints and audit retention pruning.
@@ -36,6 +37,7 @@ Run this checklist before publishing a public WardSen build.
 - Review `docs/rustsec-audit.md` for known warning-class findings.
 - Generate an SBOM with `npm run sbom` and attach it to release artifacts when practical.
 - Generate release checksums with `npm run release:checksums` and attach both `SHA256SUMS-*.txt` and `RELEASE-MANIFEST-*.json`.
+- When only one bundle backend is current, set `WARDSEN_BUNDLE_ROOT` to the exact fresh bundle folder before running `npm run release:checksums`; default checksum generation refuses mixed artifact timestamps to avoid blessing stale installers.
 - Confirm each release manifest lists the release tag, verified git SHA, build timestamp, schema version and installer artifact paths.
 - Review CodeQL, dependency-review and Dependabot status before tagging.
 - Download provider CLIs from official package managers or verified release artifacts only.

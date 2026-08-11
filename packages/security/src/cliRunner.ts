@@ -94,10 +94,11 @@ export async function runCliCommand(input: CliCommandInput): Promise<CliCommandR
     function finalize(exitCode: number): CliCommandResult {
       const stdoutValue = stdout.value();
       const stderrValue = stderr.value();
+      const preserveRawOutput = input.rawOutput && exitCode === 0;
       return {
         exitCode,
-        stdout: input.rawOutput ? stdoutValue : redactSecrets(stdoutValue, input.redact),
-        stderr: input.rawOutput ? stderrValue : redactSecrets(stderrValue, input.redact),
+        stdout: preserveRawOutput ? stdoutValue : redactSecrets(stdoutValue, input.redact),
+        stderr: preserveRawOutput ? stderrValue : redactSecrets(stderrValue, input.redact),
         durationMs: Date.now() - start
       };
     }

@@ -33,6 +33,23 @@ describe("CLI runner", () => {
     });
 
     expect(result.stdout).toContain("abc123");
+    try {
+      await runCliCommand({
+        executable: process.execPath,
+        args: ["-e", "console.error('{\"password\":\"abc123\"}'); process.stdout.write('abc123'); process.exit(2)"],
+        redact: ["abc123"],
+        rawOutput: true
+      });
+      throw new Error("expected command to fail");
+    } catch (error) {
+      expect(error).toMatchObject({
+        result: {
+          stdout: "[REDACTED]",
+          stderr: "{\"password\":\"[REDACTED]\"}"
+        }
+      });
+    }
+
     await expect(runCliCommand({
       executable: process.execPath,
       args: ["-e", "console.error('{\"password\":\"abc123\"}'); process.exit(2)"],

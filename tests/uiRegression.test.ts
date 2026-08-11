@@ -77,6 +77,9 @@ describe("web UI regression guards", () => {
     expect(webSource).toContain("verificationCodeRef");
     expect(webSource).toContain("unlockDisabledForVerification");
     expect(webSource).toContain("Submit code and login");
+    expect(webSource).toContain("Terminal login / unlock");
+    expect(webSource).toContain("If Terminal says you are already logged in");
+    expect(webSource).toContain("Type the Bitwarden password at that terminal prompt, not in WardSen.");
     expect(webSource).toContain("Code type");
     expect(webSource).toContain("Email / new-device code");
     expect(webSource).toContain("Unlock is available after Bitwarden login finishes");
@@ -94,5 +97,13 @@ describe("web UI regression guards", () => {
     expect(webSource).toContain("Choose a person");
     expect(webSource).toContain("All active people");
     expect(webSource).toContain("personId: current.personId || activePeople[0]?.id || \"\"");
+  });
+
+  it("does not put bearer delivery links into external email or WhatsApp URLs", () => {
+    expect(webSource).toContain("Paste the WardSen delivery link copied to your clipboard");
+    expect(webSource).toContain("window.open(\"https://wa.me/\"");
+    expect(webSource).toContain("Copied; WhatsApp opened");
+    expect(webSource).not.toContain("https://wa.me/?text=");
+    expect(webSource).not.toContain("Secure link for ${label}: ${delivery.oneTimeDeliveryUrl}");
   });
 });
