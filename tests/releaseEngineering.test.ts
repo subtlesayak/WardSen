@@ -67,8 +67,8 @@ describe("release engineering guardrails", () => {
   });
 
   it("keeps release workflow write permissions scoped to publishing jobs", () => {
-    const releaseWorkflow = readFileSync(path.join(process.cwd(), ".github", "workflows", "release-installers.yml"), "utf8");
-    const macosIntelWorkflow = readFileSync(path.join(process.cwd(), ".github", "workflows", "build-macos-intel.yml"), "utf8");
+    const releaseWorkflow = readFileSync(path.join(process.cwd(), ".github", "workflows", "release-installers.yml"), "utf8").replace(/\r\n/g, "\n");
+    const macosIntelWorkflow = readFileSync(path.join(process.cwd(), ".github", "workflows", "build-macos-intel.yml"), "utf8").replace(/\r\n/g, "\n");
 
     expect(releaseWorkflow).toMatch(/permissions:\n  contents: read\n  actions: read/);
     expect(releaseWorkflow).toMatch(/publish:\n[\s\S]*permissions:\n      actions: read\n      contents: write/);
