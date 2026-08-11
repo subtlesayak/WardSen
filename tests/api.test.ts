@@ -684,7 +684,8 @@ describe("WardSen API", () => {
     expect(JSON.stringify(replacement.json())).not.toContain("Password123");
 
     const requestList = await app.inject({ method: "GET", url: "/api/credential-requests?page=1&pageSize=10", headers: { host: "127.0.0.1:4777" } });
-    expect(requestList.json().items[0]).toMatchObject({ status: "fulfilled", assignedEmail: "ravi@example.com", replacementCount: 1, previousDeliveryId: approved.json().delivery.id });
+    const listedReplacementRequest = requestList.json().items.find((item: { id: string }) => item.id === accessRequest.json().id);
+    expect(listedReplacementRequest).toMatchObject({ status: "fulfilled", assignedEmail: "ravi@example.com", replacementCount: 1, previousDeliveryId: approved.json().delivery.id });
     await app.close();
   });
 
