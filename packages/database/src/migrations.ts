@@ -119,5 +119,193 @@ BEGIN
   SELECT RAISE(ABORT, 'invalid audit outcome');
 END;
 `
+  },
+  {
+    id: "003_delivery_idempotency",
+    sql: `
+ALTER TABLE deliveries ADD COLUMN operation_id TEXT;
+ALTER TABLE deliveries ADD COLUMN operation_fingerprint TEXT;
+ALTER TABLE deliveries ADD COLUMN policy_snapshot TEXT;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_deliveries_operation_id
+ON deliveries(operation_id)
+WHERE operation_id IS NOT NULL;
+`
+  },
+  {
+    id: "004_employee_request_catalog",
+    sql: `
+CREATE TABLE IF NOT EXISTS employees (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  assigned_email TEXT NOT NULL UNIQUE,
+  team TEXT,
+  role TEXT,
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS credential_catalog (
+  id TEXT PRIMARY KEY,
+  source_provider_id TEXT NOT NULL,
+  source_account_id TEXT NOT NULL,
+  source_item_id TEXT NOT NULL,
+  credential_name TEXT NOT NULL,
+  username TEXT,
+  domain TEXT,
+  tags TEXT NOT NULL DEFAULT '[]',
+  risk_tier TEXT NOT NULL DEFAULT 'medium',
+  allowed_employee_ids TEXT NOT NULL DEFAULT '[]',
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS credential_access_requests (
+  id TEXT PRIMARY KEY,
+  employee_id TEXT NOT NULL,
+  assigned_email TEXT NOT NULL,
+  catalog_entry_id TEXT NOT NULL,
+  source_provider_id TEXT NOT NULL,
+  source_account_id TEXT NOT NULL,
+  source_item_id TEXT NOT NULL,
+  credential_name TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  ticket_ref TEXT,
+  expected_duration_minutes INTEGER,
+  status TEXT NOT NULL,
+  requested_at TEXT NOT NULL,
+  decided_at TEXT,
+  approver TEXT,
+  decision_reason TEXT,
+  delivery_id TEXT,
+  delivery_provider_id TEXT,
+  delivery_account_id TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_employees_active_name ON employees(active, name);
+CREATE INDEX IF NOT EXISTS idx_employees_assigned_email ON employees(assigned_email);
+CREATE INDEX IF NOT EXISTS idx_catalog_active_name ON credential_catalog(active, credential_name);
+CREATE INDEX IF NOT EXISTS idx_access_requests_employee_status ON credential_access_requests(employee_id, status, requested_at);
+CREATE INDEX IF NOT EXISTS idx_access_requests_status_requested ON credential_access_requests(status, requested_at);
+
+CREATE TRIGGER IF NOT EXISTS credential_catalog_validate_insert
+BEFORE INSERT ON credential_catalog
+WHEN NEW.risk_tier NOT IN ('low', 'medium', 'high', 'critical')
+BEGIN
+  SELECT RAISE(ABORT, 'invalid credential catalog risk tier');
+END;
+
+CREATE TRIGGER IF NOT EXISTS credential_catalog_validate_update
+BEFORE UPDATE ON credential_catalog
+WHEN NEW.risk_tier NOT IN ('low', 'medium', 'high', 'critical')
+BEGIN
+  SELECT RAISE(ABORT, 'invalid credential catalog risk tier');
+END;
+
+CREATE TRIGGER IF NOT EXISTS credential_access_requests_validate_insert
+BEFORE INSERT ON credential_access_requests
+WHEN NEW.status NOT IN ('pending', 'approved', 'denied', 'fulfilled', 'cancelled')
+  OR length(trim(NEW.reason)) = 0
+  OR (NEW.expected_duration_minutes IS NOT NULL AND NEW.expected_duration_minutes <= 0)
+BEGIN
+  SELECT RAISE(ABORT, 'invalid credential access request');
+END;
+
+CREATE TRIGGER IF NOT EXISTS credential_access_requests_validate_update
+BEFORE UPDATE ON credential_access_requests
+WHEN NEW.status NOT IN ('pending', 'approved', 'denied', 'fulfilled', 'cancelled')
+  OR length(trim(NEW.reason)) = 0
+  OR (NEW.expected_duration_minutes IS NOT NULL AND NEW.expected_duration_minutes <= 0)
+BEGIN
+  SELECT RAISE(ABORT, 'invalid credential access request');
+END;
+`
+  },
+  {
+    id: "005_employee_portal_auth",
+    sql: `
+CREATE TABLE IF NOT EXISTS employee_sign_in_codes (
+  id TEXT PRIMARY KEY,
+  employee_id TEXT NOT NULL,
+  assigned_email TEXT NOT NULL,
+  code_hash TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  used_at TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS employee_sessions (
+  id TEXT PRIMARY KEY,
+  employee_id TEXT NOT NULL,
+  assigned_email TEXT NOT NULL,
+  token_hash TEXT NOT NULL UNIQUE,
+  expires_at TEXT NOT NULL,
+  revoked_at TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_employee_codes_employee_hash ON employee_sign_in_codes(employee_id, code_hash);
+CREATE INDEX IF NOT EXISTS idx_employee_codes_expiry ON employee_sign_in_codes(expires_at);
+CREATE INDEX IF NOT EXISTS idx_employee_sessions_token ON employee_sessions(token_hash);
+CREATE INDEX IF NOT EXISTS idx_employee_sessions_employee_expiry ON employee_sessions(employee_id, expires_at);
+
+CREATE TRIGGER IF NOT EXISTS employee_sign_in_codes_validate_insert
+BEFORE INSERT ON employee_sign_in_codes
+WHEN length(trim(NEW.code_hash)) < 32 OR NEW.expires_at <= NEW.created_at
+BEGIN
+  SELECT RAISE(ABORT, 'invalid employee sign-in code');
+END;
+
+CREATE TRIGGER IF NOT EXISTS employee_sign_in_codes_validate_update
+BEFORE UPDATE ON employee_sign_in_codes
+WHEN length(trim(NEW.code_hash)) < 32 OR NEW.expires_at <= NEW.created_at
+BEGIN
+  SELECT RAISE(ABORT, 'invalid employee sign-in code');
+END;
+
+CREATE TRIGGER IF NOT EXISTS employee_sessions_validate_insert
+BEFORE INSERT ON employee_sessions
+WHEN length(trim(NEW.token_hash)) < 32 OR NEW.expires_at <= NEW.created_at
+BEGIN
+  SELECT RAISE(ABORT, 'invalid employee session');
+END;
+
+CREATE TRIGGER IF NOT EXISTS employee_sessions_validate_update
+BEFORE UPDATE ON employee_sessions
+WHEN length(trim(NEW.token_hash)) < 32 OR NEW.expires_at <= NEW.created_at
+BEGIN
+  SELECT RAISE(ABORT, 'invalid employee session');
+END;
+`
+  },
+  {
+    id: "006_request_replacement_metadata",
+    sql: `
+ALTER TABLE credential_access_requests ADD COLUMN previous_delivery_id TEXT;
+ALTER TABLE credential_access_requests ADD COLUMN replacement_count INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE credential_access_requests ADD COLUMN last_replacement_at TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_access_requests_delivery_id ON credential_access_requests(delivery_id);
+CREATE INDEX IF NOT EXISTS idx_access_requests_previous_delivery_id ON credential_access_requests(previous_delivery_id);
+`
+  },
+  {
+    id: "007_employee_person_link",
+    sql: `
+ALTER TABLE employees ADD COLUMN person_id TEXT;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_employees_person_id
+ON employees(person_id)
+WHERE person_id IS NOT NULL;
+`
+  },
+  {
+    id: "008_catalog_policy_rules",
+    sql: `
+ALTER TABLE credential_catalog ADD COLUMN allowed_teams TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE credential_catalog ADD COLUMN allowed_roles TEXT NOT NULL DEFAULT '[]';
+`
   }
 ];

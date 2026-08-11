@@ -60,5 +60,11 @@
     "esbuild": "^0.28.1",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
+  },
+  "overrides": {
+    "fast-uri": "3.1.5",
+    "fast-json-stringify": {
+      "fast-uri": "4.1.2"
+    }
   }
 }

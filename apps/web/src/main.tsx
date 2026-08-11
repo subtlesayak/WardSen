@@ -20,12 +20,12 @@ import {
   X
 } from "lucide-react";
 import { parseBulkDeliveryResult, parseCreatedDeliveryRecord, type BulkDeliveryItemResultContract, type BulkDeliveryResultContract, type CreatedDeliveryRecordContract } from "@wardsen/contracts";
-import { apiDownload, apiGet, apiSend, canRestartLocalService, copyExternalUrl, copyTextToClipboard, getLocalServiceStatus, openExternalUrl, restartLocalService, type LocalServiceStatus } from "./api";
+import { apiDownload, apiGet, apiSend, canRestartLocalService, copyExternalUrl, copyTextToClipboard, getLocalServiceStatus, openExternalUrl, openMailDraft, restartLocalService, type LocalServiceStatus } from "./api";
 import { describeError } from "./errorHelp";
 import { appReleaseMetadata, appVersion } from "./version";
 import "./styles.css";
 
-type NavItem = "Overview" | "Vaults" | "Credentials" | "People" | "Deliveries" | "Settings";
+type NavItem = "Overview" | "Vaults" | "Credentials" | "People" | "Requests" | "Deliveries" | "Settings";
 type LoadState = "loading" | "ready" | "error";
 
 interface ProviderInfo {
@@ -57,6 +57,9 @@ interface PersonRecord {
 
 interface DeliveryRecord {
   id: string;
+  operationId?: string;
+  operationFingerprint?: string;
+  policySnapshot?: Record<string, unknown>;
   providerDeliveryId?: string;
   credentialName: string;
   personId?: string;
@@ -83,6 +86,78 @@ interface DeliveryBatchRecord {
   cancelled: boolean;
   createdAt: string;
   completedAt?: string;
+}
+
+interface EmployeeRecord {
+  id: string;
+  personId?: string;
+  name: string;
+  assignedEmail: string;
+  team?: string;
+  role?: string;
+  active: boolean;
+}
+
+interface CredentialCatalogEntry {
+  id: string;
+  sourceProviderId: string;
+  sourceAccountId: string;
+  sourceItemId: string;
+  credentialName: string;
+  username?: string;
+  domain?: string;
+  tags: string[];
+  riskTier: "low" | "medium" | "high" | "critical";
+  allowedEmployeeIds: string[];
+  allowedTeams: string[];
+  allowedRoles: string[];
+  active: boolean;
+}
+
+interface CredentialAccessRequestRecord {
+  id: string;
+  employeeId: string;
+  assignedEmail: string;
+  catalogEntryId: string;
+  credentialName: string;
+  reason: string;
+  ticketRef?: string;
+  expectedDurationMinutes?: number;
+  status: "pending" | "approved" | "denied" | "fulfilled" | "cancelled";
+  requestedAt: string;
+  approver?: string;
+  decisionReason?: string;
+  deliveryId?: string;
+  deliveryProviderId?: string;
+  deliveryAccountId?: string;
+  previousDeliveryId?: string;
+  replacementCount?: number;
+  lastReplacementAt?: string;
+}
+
+interface EmployeeSignInCodeResponse {
+  employeeId: string;
+  assignedEmail: string;
+  code: string;
+  expiresAt: string;
+  delivery: "manual" | "email_draft";
+  emailDraft?: {
+    senderEmail: string;
+    to: string;
+    subject: string;
+    body: string;
+  };
+}
+
+interface BulkEmployeeProvisionResponse {
+  created: EmployeeRecord[];
+  skipped: Array<{ personId: string; reason: string; assignedEmail?: string; employeeId?: string }>;
+}
+
+interface EmployeePortalSession {
+  sessionToken: string;
+  expiresAt: string;
+  employee: EmployeeRecord;
 }
 
 type CreatedDeliveryRecord = CreatedDeliveryRecordContract;
@@ -122,6 +197,9 @@ interface ApiState {
   deliveryProviders: ProviderInfo[];
   accounts: AccountRecord[];
   people: PersonRecord[];
+  employees: EmployeeRecord[];
+  catalogEntries: CredentialCatalogEntry[];
+  credentialRequests: CredentialAccessRequestRecord[];
   deliveries: DeliveryRecord[];
   batches: DeliveryBatchRecord[];
 }
@@ -131,6 +209,7 @@ const navItems: Array<{ id: NavItem; icon: React.ElementType }> = [
   { id: "Vaults", icon: Vault },
   { id: "Credentials", icon: KeyRound },
   { id: "People", icon: UsersRound },
+  { id: "Requests", icon: Archive },
   { id: "Deliveries", icon: Send },
   { id: "Settings", icon: Settings }
 ];
@@ -184,6 +263,7 @@ function App() {
         {active === "Vaults" && <Vaults api={api} />}
         {active === "Credentials" && <Credentials api={api} />}
         {active === "People" && <People api={api} />}
+        {active === "Requests" && <RequestsView api={api} />}
         {active === "Deliveries" && <Deliveries api={api} />}
         {active === "Settings" && <SettingsView providers={api.deliveryProviders} capabilities={deliveryCapabilities} />}
       </main>
@@ -198,6 +278,9 @@ function useWardSenApi() {
     deliveryProviders: [],
     accounts: [],
     people: [],
+    employees: [],
+    catalogEntries: [],
+    credentialRequests: [],
     deliveries: [],
     batches: []
   });
@@ -205,10 +288,13 @@ function useWardSenApi() {
   async function refresh(): Promise<boolean> {
     setState((current) => ({ ...current, status: "loading", error: undefined, loadingMessage: "Loading local WardSen data..." }));
     try {
-      const [providers, accounts, people, deliveries, batches] = await Promise.all([
+      const [providers, accounts, people, employees, catalogEntries, credentialRequests, deliveries, batches] = await Promise.all([
         apiGet<{ credentialProviders: ProviderInfo[]; deliveryProviders: ProviderInfo[] }>("/api/providers"),
         apiGet<AccountRecord[]>("/api/accounts"),
         apiGet<{ items: PersonRecord[] }>("/api/people?page=1&pageSize=50"),
+        apiGet<{ items: EmployeeRecord[] }>("/api/employees?page=1&pageSize=100"),
+        apiGet<{ items: CredentialCatalogEntry[] }>("/api/credential-catalog?page=1&pageSize=100"),
+        apiGet<{ items: CredentialAccessRequestRecord[] }>("/api/credential-requests?page=1&pageSize=100"),
         apiGet<{ items: DeliveryRecord[] }>("/api/deliveries?page=1&pageSize=50"),
         apiGet<{ items: DeliveryBatchRecord[] }>("/api/batches?page=1&pageSize=10")
       ]);
@@ -218,6 +304,9 @@ function useWardSenApi() {
         deliveryProviders: providers.deliveryProviders,
         accounts,
         people: people.items,
+        employees: employees.items,
+        catalogEntries: catalogEntries.items,
+        credentialRequests: credentialRequests.items,
         deliveries: deliveries.items,
         batches: batches.items,
         loadingMessage: undefined
@@ -775,6 +864,592 @@ function People({ api }: { api: ReturnType<typeof useWardSenApi> }) {
   );
 }
 
+function RequestsView({ api }: { api: ReturnType<typeof useWardSenApi> }) {
+  const [employeeForm, setEmployeeForm] = useState({ personId: "", name: "", assignedEmail: "", team: "", role: "" });
+  const [bulkEmployeeForm, setBulkEmployeeForm] = useState<{ personIds: string[]; defaultTeam: string; defaultRole: string }>({ personIds: [], defaultTeam: "", defaultRole: "" });
+  const [codeForm, setCodeForm] = useState({ employeeId: "", ttlMinutes: "15", senderEmail: "" });
+  const [issuedCode, setIssuedCode] = useState<EmployeeSignInCodeResponse | undefined>();
+  const [portalSignInForm, setPortalSignInForm] = useState({ assignedEmail: "", code: "" });
+  const [portalSession, setPortalSession] = useState<EmployeePortalSession | undefined>();
+  const [portalCatalog, setPortalCatalog] = useState<CredentialCatalogEntry[]>([]);
+  const [portalRequests, setPortalRequests] = useState<CredentialAccessRequestRecord[]>([]);
+  const [portalRequestForm, setPortalRequestForm] = useState({
+    catalogEntryId: "",
+    reason: "",
+    ticketRef: "",
+    expectedDurationMinutes: "60"
+  });
+  const [catalogForm, setCatalogForm] = useState({
+    sourceAccountId: "",
+    sourceItemId: "",
+    credentialName: "",
+    username: "",
+    domain: "",
+    tags: "",
+    riskTier: "medium" as CredentialCatalogEntry["riskTier"],
+    allowedEmployeeId: "",
+    allowedTeams: "",
+    allowedRoles: ""
+  });
+  const [requestForm, setRequestForm] = useState({
+    employeeId: "",
+    catalogEntryId: "",
+    reason: "",
+    ticketRef: "",
+    expectedDurationMinutes: "60"
+  });
+  const [approvalForm, setApprovalForm] = useState({
+    approver: "",
+    deliveryProviderId: "",
+    deliveryAccountId: "",
+    expiryHours: "24",
+    viewLimit: "1",
+    viewOnce: true,
+    replacementReason: "Unexpected access or stale link"
+  });
+  const [message, setMessage] = useState<{ status: "idle" | "loading" | "ready" | "error"; text?: string; url?: string }>({ status: "idle" });
+  const activeEmployees = api.employees.filter((employee) => employee.active);
+  const employeePeople = api.people.filter((person) => person.active && person.email);
+  const employeeEmails = new Set(api.employees.map((employee) => employee.assignedEmail));
+  const employeePersonIds = new Set(api.employees.map((employee) => employee.personId).filter(Boolean));
+  const provisionablePeople = employeePeople.filter((person) => {
+    const email = person.email?.trim().toLowerCase();
+    return Boolean(email && !employeeEmails.has(email) && !employeePersonIds.has(person.id));
+  });
+  const sourceAccountId = catalogForm.sourceAccountId || api.accounts[0]?.id || "";
+  const sourceAccount = api.accounts.find((account) => account.id === sourceAccountId);
+  const allowedEmployeeId = catalogForm.allowedEmployeeId;
+  const codeEmployeeId = codeForm.employeeId || activeEmployees[0]?.id || "";
+  const selectedRequestEmployee = activeEmployees.find((employee) => employee.id === requestForm.employeeId);
+  const requestCatalog = api.catalogEntries.filter((entry) => entry.active && (!requestForm.employeeId || catalogEntryAllowsEmployee(entry, selectedRequestEmployee)));
+  const portalSelectedEntry = portalCatalog.find((entry) => entry.id === portalRequestForm.catalogEntryId);
+  const deliveryProviderId = approvalForm.deliveryProviderId || api.deliveryProviders[0]?.id || "";
+  const deliveryAccountId = approvalForm.deliveryAccountId || api.accounts[0]?.id || "";
+
+  async function saveEmployee(event: React.FormEvent) {
+    event.preventDefault();
+    setMessage({ status: "loading", text: "Saving employee identity..." });
+    try {
+      const employee = await apiSend<EmployeeRecord>("/api/employees", {
+        body: JSON.stringify({
+          name: employeeForm.name,
+          assignedEmail: employeeForm.assignedEmail,
+          personId: employeeForm.personId || undefined,
+          team: employeeForm.team || undefined,
+          role: employeeForm.role || undefined
+        })
+      });
+      setEmployeeForm({ personId: "", name: "", assignedEmail: "", team: "", role: "" });
+      setRequestForm((current) => ({ ...current, employeeId: employee.id, catalogEntryId: "" }));
+      setMessage({ status: "ready", text: `Saved ${employee.name} with assigned email ${employee.assignedEmail}.` });
+      await api.refresh();
+    } catch (error) {
+      setMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  function selectEmployeePerson(personId: string) {
+    const person = employeePeople.find((candidate) => candidate.id === personId);
+    setEmployeeForm((current) => ({
+      ...current,
+      personId,
+      name: person?.name ?? current.name,
+      assignedEmail: person?.email ?? current.assignedEmail,
+      team: person?.groupName ?? current.team,
+      role: person?.role ?? current.role
+    }));
+  }
+
+  function toggleBulkEmployeePerson(personId: string, checked: boolean) {
+    setBulkEmployeeForm((current) => ({
+      ...current,
+      personIds: checked
+        ? [...new Set([...current.personIds, personId])]
+        : current.personIds.filter((id) => id !== personId)
+    }));
+  }
+
+  async function provisionEmployeesFromPeople() {
+    const personIds = bulkEmployeeForm.personIds.filter((personId) => provisionablePeople.some((person) => person.id === personId));
+    if (personIds.length === 0) {
+      setMessage({ status: "error", text: "Select at least one eligible Person with an assigned email." });
+      return;
+    }
+    if (!window.confirm(`Provision ${personIds.length} employee request identities from People?\n\nThis grants Employee Portal request access to the selected assigned emails. People without an explicit Employee identity still cannot sign in.`)) {
+      return;
+    }
+    setMessage({ status: "loading", text: `Provisioning ${personIds.length} employee identities...` });
+    try {
+      const result = await apiSend<BulkEmployeeProvisionResponse>("/api/employees/bulk-from-people", {
+        body: JSON.stringify({
+          personIds,
+          defaultTeam: bulkEmployeeForm.defaultTeam || undefined,
+          defaultRole: bulkEmployeeForm.defaultRole || undefined,
+          confirm: "PROVISION EMPLOYEES FROM PEOPLE",
+          confirmRiskSummary: true
+        })
+      });
+      setBulkEmployeeForm({ personIds: [], defaultTeam: "", defaultRole: "" });
+      setMessage({ status: "ready", text: `Provisioned ${result.created.length} employee identities; skipped ${result.skipped.length}.` });
+      await api.refresh();
+    } catch (error) {
+      setMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  async function issueEmployeeCode(event: React.FormEvent) {
+    event.preventDefault();
+    if (!codeEmployeeId) {
+      setMessage({ status: "error", text: "Add an active employee before issuing a sign-in code." });
+      return;
+    }
+    setMessage({ status: "loading", text: "Issuing employee sign-in code..." });
+    try {
+      const result = await apiSend<EmployeeSignInCodeResponse>(`/api/employees/${codeEmployeeId}/sign-in-code`, {
+        body: JSON.stringify({
+          ttlMinutes: Number(codeForm.ttlMinutes) || 15,
+          senderEmail: codeForm.senderEmail || undefined
+        })
+      });
+      setIssuedCode(result);
+      setPortalSignInForm((current) => ({ ...current, assignedEmail: result.assignedEmail, code: "" }));
+      setMessage({ status: "ready", text: result.emailDraft ? `Sign-in code issued and email draft prepared for ${result.assignedEmail}.` : `Sign-in code issued for ${result.assignedEmail}.` });
+    } catch (error) {
+      setMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  async function openIssuedCodeEmailDraft() {
+    if (!issuedCode?.emailDraft) return;
+    setMessage({ status: "loading", text: "Preparing sign-in email draft..." });
+    try {
+      await copyTextToClipboard(issuedCode.emailDraft.body);
+      await openMailDraft(employeeSignInMailtoHref(issuedCode.emailDraft));
+      setMessage({
+        status: "ready",
+        text: `Draft body copied. Send it to ${issuedCode.emailDraft.to} from ${issuedCode.emailDraft.senderEmail}.`
+      });
+    } catch (error) {
+      setMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  async function employeePortalSignIn(event: React.FormEvent) {
+    event.preventDefault();
+    setMessage({ status: "loading", text: "Signing in employee..." });
+    try {
+      const session = await apiSend<EmployeePortalSession>("/api/employee-sessions", {
+        body: JSON.stringify({
+          assignedEmail: portalSignInForm.assignedEmail,
+          code: portalSignInForm.code
+        })
+      });
+      setPortalSession(session);
+      setPortalSignInForm({ assignedEmail: session.employee.assignedEmail, code: "" });
+      setMessage({ status: "ready", text: `${session.employee.name} signed in to the employee portal.` });
+      await loadEmployeePortal(session.sessionToken);
+    } catch (error) {
+      setMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  async function loadEmployeePortal(sessionToken = portalSession?.sessionToken) {
+    if (!sessionToken) return;
+    const headers = employeeSessionHeaders(sessionToken);
+    const [catalog, requests] = await Promise.all([
+      apiSend<{ items: CredentialCatalogEntry[] }>("/api/employee-portal/catalog?page=1&pageSize=100", { method: "GET", headers }),
+      apiSend<{ items: CredentialAccessRequestRecord[] }>("/api/employee-portal/credential-requests?page=1&pageSize=100", { method: "GET", headers })
+    ]);
+    setPortalCatalog(catalog.items);
+    setPortalRequests(requests.items);
+    setPortalRequestForm((current) => ({
+      ...current,
+      catalogEntryId: current.catalogEntryId && catalog.items.some((entry) => entry.id === current.catalogEntryId)
+        ? current.catalogEntryId
+        : catalog.items[0]?.id ?? ""
+    }));
+  }
+
+  async function submitEmployeePortalRequest(event: React.FormEvent) {
+    event.preventDefault();
+    if (!portalSession) {
+      setMessage({ status: "error", text: "Employee sign-in is required before requesting access." });
+      return;
+    }
+    setMessage({ status: "loading", text: "Submitting employee portal request..." });
+    try {
+      const request = await apiSend<CredentialAccessRequestRecord>("/api/employee-portal/credential-requests", {
+        headers: employeeSessionHeaders(portalSession.sessionToken),
+        body: JSON.stringify({
+          catalogEntryId: portalRequestForm.catalogEntryId,
+          reason: portalRequestForm.reason,
+          ticketRef: portalRequestForm.ticketRef || undefined,
+          expectedDurationMinutes: Number(portalRequestForm.expectedDurationMinutes) || undefined
+        })
+      });
+      setPortalRequestForm((current) => ({ ...current, reason: "", ticketRef: "" }));
+      setMessage({ status: "ready", text: `Employee request queued for ${request.credentialName}.` });
+      await loadEmployeePortal(portalSession.sessionToken);
+      await api.refresh();
+    } catch (error) {
+      setMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  async function signOutEmployeePortal() {
+    if (!portalSession) return;
+    setMessage({ status: "loading", text: "Signing out employee..." });
+    try {
+      await apiSend("/api/employee-sessions/current/logout", {
+        headers: employeeSessionHeaders(portalSession.sessionToken)
+      });
+      setPortalSession(undefined);
+      setPortalCatalog([]);
+      setPortalRequests([]);
+      setMessage({ status: "ready", text: "Employee portal signed out." });
+    } catch (error) {
+      setMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  async function saveCatalogEntry(event: React.FormEvent) {
+    event.preventDefault();
+    if (!sourceAccount) {
+      setMessage({ status: "error", text: "Add a vault account before publishing catalog entries." });
+      return;
+    }
+    const allowedTeams = catalogForm.allowedTeams.split(",").map((team) => team.trim()).filter(Boolean);
+    const allowedRoles = catalogForm.allowedRoles.split(",").map((role) => role.trim()).filter(Boolean);
+    const allowedEmployeeIds = allowedEmployeeId ? [allowedEmployeeId] : [];
+    if (allowedEmployeeIds.length === 0 && allowedTeams.length === 0 && allowedRoles.length === 0) {
+      setMessage({ status: "error", text: "Add at least one allowed employee, team or role before publishing a catalog entry." });
+      return;
+    }
+    setMessage({ status: "loading", text: "Publishing credential metadata to the request catalog..." });
+    try {
+      const entry = await apiSend<CredentialCatalogEntry>("/api/credential-catalog", {
+        body: JSON.stringify({
+          sourceProviderId: sourceAccount.providerId,
+          sourceAccountId: sourceAccount.id,
+          sourceItemId: catalogForm.sourceItemId,
+          credentialName: catalogForm.credentialName,
+          username: catalogForm.username || undefined,
+          domain: catalogForm.domain || undefined,
+          tags: catalogForm.tags.split(",").map((tag) => tag.trim()).filter(Boolean),
+          riskTier: catalogForm.riskTier,
+          allowedEmployeeIds,
+          allowedTeams,
+          allowedRoles
+        })
+      });
+      setCatalogForm((current) => ({ ...current, sourceItemId: "", credentialName: "", username: "", domain: "", tags: "", allowedTeams: "", allowedRoles: "" }));
+      setRequestForm((current) => ({ ...current, catalogEntryId: entry.id }));
+      setMessage({ status: "ready", text: `Published ${entry.credentialName} as requestable metadata.` });
+      await api.refresh();
+    } catch (error) {
+      setMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  async function submitAccessRequest(event: React.FormEvent) {
+    event.preventDefault();
+    const assignedEmail = selectedRequestEmployee?.assignedEmail;
+    if (!assignedEmail) {
+      setMessage({ status: "error", text: "Choose an active employee before submitting a credential request." });
+      return;
+    }
+    setMessage({ status: "loading", text: "Submitting employee credential request..." });
+    try {
+      const accessRequest = await apiSend<CredentialAccessRequestRecord>("/api/credential-requests", {
+        body: JSON.stringify({
+          employeeId: requestForm.employeeId,
+          assignedEmail,
+          catalogEntryId: requestForm.catalogEntryId,
+          reason: requestForm.reason,
+          ticketRef: requestForm.ticketRef || undefined,
+          expectedDurationMinutes: Number(requestForm.expectedDurationMinutes) || undefined
+        })
+      });
+      setRequestForm((current) => ({ ...current, reason: "", ticketRef: "" }));
+      setMessage({ status: "ready", text: `Request queued for ${accessRequest.credentialName}.` });
+      await api.refresh();
+    } catch (error) {
+      setMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  async function approveRequest(accessRequest: CredentialAccessRequestRecord) {
+    if (!deliveryProviderId || !deliveryAccountId) {
+      setMessage({ status: "error", text: "Choose a delivery provider and delivery account before approving." });
+      return;
+    }
+    const confirmed = window.confirm(`Approve ${accessRequest.credentialName} for ${accessRequest.assignedEmail}?\n\nWardSen will create a one-access email delivery link for this assigned employee email.`);
+    if (!confirmed) return;
+    setMessage({ status: "loading", text: `Approving ${accessRequest.credentialName}...` });
+    try {
+      const result = await apiSend<{ request: CredentialAccessRequestRecord; delivery: CreatedDeliveryRecord }>(`/api/credential-requests/${accessRequest.id}/approve`, {
+        body: JSON.stringify({
+          approver: approvalForm.approver || "WardSen admin",
+          deliveryProviderId,
+          deliveryAccountId,
+          expiresAt: new Date(Date.now() + (Number(approvalForm.expiryHours) || 24) * 3600000).toISOString(),
+          viewLimit: approvalForm.viewLimit || "1",
+          viewOnce: approvalForm.viewOnce,
+          confirmRiskSummary: true
+        })
+      });
+      setMessage({ status: "ready", text: `${result.request.credentialName} approved for ${result.request.assignedEmail}.`, url: result.delivery.oneTimeDeliveryUrl });
+      await api.refresh();
+    } catch (error) {
+      setMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  async function replaceRequestLink(accessRequest: CredentialAccessRequestRecord) {
+    if (!deliveryProviderId || !deliveryAccountId) {
+      setMessage({ status: "error", text: "Choose a delivery provider and delivery account before replacing a link." });
+      return;
+    }
+    if (!accessRequest.deliveryId) {
+      setMessage({ status: "error", text: "Only fulfilled requests with an existing delivery link can be replaced." });
+      return;
+    }
+    const confirmed = window.confirm(`Replace the delivery link for ${accessRequest.credentialName} and ${accessRequest.assignedEmail}?\n\nWardSen will revoke the previous link before creating a fresh one-access email delivery.`);
+    if (!confirmed) return;
+    setMessage({ status: "loading", text: `Replacing link for ${accessRequest.credentialName}...` });
+    try {
+      const result = await apiSend<{ request: CredentialAccessRequestRecord; delivery: CreatedDeliveryRecord }>(`/api/credential-requests/${accessRequest.id}/replacement-link`, {
+        body: JSON.stringify({
+          approver: approvalForm.approver || "WardSen admin",
+          deliveryProviderId,
+          deliveryAccountId,
+          expiresAt: new Date(Date.now() + (Number(approvalForm.expiryHours) || 24) * 3600000).toISOString(),
+          viewLimit: approvalForm.viewLimit || "1",
+          viewOnce: approvalForm.viewOnce,
+          replacementReason: approvalForm.replacementReason || "Unexpected access or stale link",
+          confirmRiskSummary: true,
+          confirm: `REPLACE REQUEST ${accessRequest.id}`
+        })
+      });
+      setMessage({ status: "ready", text: `Replacement link created for ${result.request.assignedEmail}.`, url: result.delivery.oneTimeDeliveryUrl });
+      await api.refresh();
+    } catch (error) {
+      setMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  async function denyRequest(accessRequest: CredentialAccessRequestRecord) {
+    setMessage({ status: "loading", text: `Denying ${accessRequest.credentialName}...` });
+    try {
+      await apiSend<CredentialAccessRequestRecord>(`/api/credential-requests/${accessRequest.id}/deny`, {
+        body: JSON.stringify({
+          approver: approvalForm.approver || "WardSen admin",
+          decisionReason: "Denied in WardSen admin panel"
+        })
+      });
+      setMessage({ status: "ready", text: `${accessRequest.credentialName} request denied.` });
+      await api.refresh();
+    } catch (error) {
+      setMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  return (
+    <div className="grid">
+      {message.status === "error" && <ErrorNotice message={message.text} />}
+      {message.status !== "idle" && message.status !== "error" && (
+        <div className="notice" role="status" aria-live="polite">
+          {message.text}
+          {message.url ? <CopyFeedbackButton value={message.url} label="Copy approved link" copiedLabel="Approved link copied" /> : null}
+        </div>
+      )}
+      <form className="panel formGrid" onSubmit={saveEmployee}>
+        <PanelTitle icon={UsersRound} title="Admin Employee Identity" action="Refresh" onAction={api.refresh} />
+        <label className="spanAll">Link person<select name="employeePersonId" value={employeeForm.personId} onChange={(event) => selectEmployeePerson(event.target.value)}>
+          <option value="">No linked person</option>
+          {employeePeople.map((person) => <option key={person.id} value={person.id}>{person.name} / {person.email}</option>)}
+        </select></label>
+        <label>Name<input name="employeeName" required value={employeeForm.name} onChange={(event) => setEmployeeForm((current) => ({ ...current, name: event.target.value }))} placeholder="Ravi Menon" /></label>
+        <label>Assigned email<input name="assignedEmail" required type="email" value={employeeForm.assignedEmail} onChange={(event) => setEmployeeForm((current) => ({ ...current, assignedEmail: event.target.value }))} placeholder="ravi@example.com" /></label>
+        <label>Team<input name="employeeTeam" value={employeeForm.team} onChange={(event) => setEmployeeForm((current) => ({ ...current, team: event.target.value }))} placeholder="Ops" /></label>
+        <label>Role<input name="employeeRole" value={employeeForm.role} onChange={(event) => setEmployeeForm((current) => ({ ...current, role: event.target.value }))} placeholder="Engineer" /></label>
+        <button className="primary full"><UsersRound size={16} aria-hidden="true" /> Save employee</button>
+      </form>
+      <section className="panel formGrid">
+        <PanelTitle icon={UsersRound} title="Bulk Employee Provisioning" action="Refresh" onAction={api.refresh} />
+        <label>Default team<input value={bulkEmployeeForm.defaultTeam} onChange={(event) => setBulkEmployeeForm((current) => ({ ...current, defaultTeam: event.target.value }))} placeholder="Ops" /></label>
+        <label>Default role<input value={bulkEmployeeForm.defaultRole} onChange={(event) => setBulkEmployeeForm((current) => ({ ...current, defaultRole: event.target.value }))} placeholder="Member" /></label>
+        <div className="riskSummary spanAll">
+          <strong>{bulkEmployeeForm.personIds.length} selected / {provisionablePeople.length} eligible</strong>
+          <div className="buttonRow">
+            <button type="button" disabled={provisionablePeople.length === 0} onClick={() => setBulkEmployeeForm((current) => ({ ...current, personIds: provisionablePeople.map((person) => person.id) }))}>Select all eligible</button>
+            <button type="button" disabled={bulkEmployeeForm.personIds.length === 0} onClick={() => setBulkEmployeeForm((current) => ({ ...current, personIds: [] }))}>Clear</button>
+          </div>
+          {provisionablePeople.slice(0, 12).map((person) => (
+            <label key={person.id} className="checkboxLine">
+              <input
+                type="checkbox"
+                checked={bulkEmployeeForm.personIds.includes(person.id)}
+                onChange={(event) => toggleBulkEmployeePerson(person.id, event.target.checked)}
+              />
+              <span>{person.name} / {person.email}</span>
+            </label>
+          ))}
+          {provisionablePeople.length > 12 ? <span>{provisionablePeople.length - 12} more eligible People not shown in this compact panel.</span> : null}
+          {provisionablePeople.length === 0 ? <span>No eligible People with unused assigned emails.</span> : null}
+        </div>
+        <button type="button" className="primary full" disabled={bulkEmployeeForm.personIds.length === 0} onClick={() => void provisionEmployeesFromPeople()}><UsersRound size={16} aria-hidden="true" /> Provision selected</button>
+      </section>
+      <form className="panel formGrid" onSubmit={issueEmployeeCode}>
+        <PanelTitle icon={KeyRound} title="Employee Sign-In Code" action="Refresh" onAction={api.refresh} />
+        <label>Employee<select value={codeEmployeeId} onChange={(event) => setCodeForm((current) => ({ ...current, employeeId: event.target.value }))}>
+          {activeEmployees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name} / {employee.assignedEmail}</option>)}
+        </select></label>
+        <label>Code minutes<input inputMode="numeric" value={codeForm.ttlMinutes} onChange={(event) => setCodeForm((current) => ({ ...current, ttlMinutes: event.target.value }))} /></label>
+        <label className="spanAll">Sender email<input type="email" value={codeForm.senderEmail} onChange={(event) => setCodeForm((current) => ({ ...current, senderEmail: event.target.value }))} placeholder="security@example.com" /></label>
+        {issuedCode ? (
+          <div className="riskSummary spanAll">
+            <strong>{issuedCode.assignedEmail}</strong>
+            <code>{issuedCode.code}</code>
+            <span>Expires {formatDate(issuedCode.expiresAt)}</span>
+            <CopyFeedbackButton value={issuedCode.code} label="Copy code" copiedLabel="Code copied" />
+            {issuedCode.emailDraft ? (
+              <>
+                <span>Email draft: {issuedCode.emailDraft.senderEmail} to {issuedCode.emailDraft.to}</span>
+                <CopyFeedbackButton value={issuedCode.emailDraft.body} label="Copy draft body" copiedLabel="Draft body copied" />
+                <button type="button" onClick={() => void openIssuedCodeEmailDraft()}><Mail size={15} aria-hidden="true" /> Copy body and open draft</button>
+              </>
+            ) : null}
+          </div>
+        ) : null}
+        <button className="primary full" disabled={!codeEmployeeId}><KeyRound size={16} aria-hidden="true" /> Issue code</button>
+      </form>
+      <form className="panel formGrid" onSubmit={saveCatalogEntry}>
+        <PanelTitle icon={KeyRound} title="Admin Catalog Metadata" action="Refresh" onAction={api.refresh} />
+        <label>Vault account<select value={sourceAccountId} onChange={(event) => setCatalogForm((current) => ({ ...current, sourceAccountId: event.target.value }))}>
+          {api.accounts.map((account) => <option key={account.id} value={account.id}>{account.label}</option>)}
+        </select></label>
+        <label>Source item ID<input required value={catalogForm.sourceItemId} onChange={(event) => setCatalogForm((current) => ({ ...current, sourceItemId: event.target.value }))} placeholder="Vault item id" /></label>
+        <label>Credential name<input required value={catalogForm.credentialName} onChange={(event) => setCatalogForm((current) => ({ ...current, credentialName: event.target.value }))} placeholder="GitHub Production" /></label>
+        <label>Allowed employee<select value={allowedEmployeeId} onChange={(event) => setCatalogForm((current) => ({ ...current, allowedEmployeeId: event.target.value }))}>
+          <option value="">No exact employee</option>
+          {activeEmployees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name} / {employee.assignedEmail}</option>)}
+        </select></label>
+        <label>Allowed teams<input value={catalogForm.allowedTeams} onChange={(event) => setCatalogForm((current) => ({ ...current, allowedTeams: event.target.value }))} placeholder="Ops, Support" /></label>
+        <label>Allowed roles<input value={catalogForm.allowedRoles} onChange={(event) => setCatalogForm((current) => ({ ...current, allowedRoles: event.target.value }))} placeholder="Engineer, Admin" /></label>
+        <label>Username<input value={catalogForm.username} onChange={(event) => setCatalogForm((current) => ({ ...current, username: event.target.value }))} placeholder="Optional metadata" /></label>
+        <label>Domain<input value={catalogForm.domain} onChange={(event) => setCatalogForm((current) => ({ ...current, domain: event.target.value }))} placeholder="example.com" /></label>
+        <label>Tags<input value={catalogForm.tags} onChange={(event) => setCatalogForm((current) => ({ ...current, tags: event.target.value }))} placeholder="prod, deploy" /></label>
+        <label>Risk tier<select value={catalogForm.riskTier} onChange={(event) => setCatalogForm((current) => ({ ...current, riskTier: event.target.value as CredentialCatalogEntry["riskTier"] }))}>
+          <option value="low">Low</option>
+          <option value="medium">Medium</option>
+          <option value="high">High</option>
+          <option value="critical">Critical</option>
+        </select></label>
+        <button className="primary full" disabled={!sourceAccountId}><KeyRound size={16} aria-hidden="true" /> Publish metadata</button>
+      </form>
+      <form className="panel formGrid" onSubmit={submitAccessRequest}>
+        <PanelTitle icon={Archive} title="Employee-Side Request" action="Refresh" onAction={api.refresh} />
+        <label>Employee<select required value={requestForm.employeeId} onChange={(event) => {
+          setRequestForm((current) => ({ ...current, employeeId: event.target.value, catalogEntryId: "" }));
+        }}>
+          <option value="">Choose employee</option>
+          {activeEmployees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}
+        </select></label>
+        <label>Assigned email<input required readOnly aria-readonly="true" type="email" value={selectedRequestEmployee?.assignedEmail ?? ""} placeholder="assigned email from employee record" /></label>
+        <label>Credential<select required value={requestForm.catalogEntryId} onChange={(event) => setRequestForm((current) => ({ ...current, catalogEntryId: event.target.value }))}>
+          <option value="">Choose credential metadata</option>
+          {requestCatalog.map((entry) => <option key={entry.id} value={entry.id}>{entry.credentialName} / {titleStatus(entry.riskTier)}</option>)}
+        </select></label>
+        <label>Expected minutes<input inputMode="numeric" value={requestForm.expectedDurationMinutes} onChange={(event) => setRequestForm((current) => ({ ...current, expectedDurationMinutes: event.target.value }))} /></label>
+        <label className="spanAll">Reason<textarea required value={requestForm.reason} onChange={(event) => setRequestForm((current) => ({ ...current, reason: event.target.value }))} placeholder="Emergency deploy rollback" /></label>
+        <label>Ticket<input value={requestForm.ticketRef} onChange={(event) => setRequestForm((current) => ({ ...current, ticketRef: event.target.value }))} placeholder="Optional ticket" /></label>
+        <button className="primary full" disabled={!requestForm.employeeId || !requestForm.catalogEntryId}><Archive size={16} aria-hidden="true" /> Request access</button>
+      </form>
+      {!portalSession ? (
+        <form className="panel formGrid" onSubmit={employeePortalSignIn}>
+          <PanelTitle icon={Lock} title="Employee Portal Sign-In" action="Refresh" onAction={api.refresh} />
+          <label>Assigned email<input required type="email" value={portalSignInForm.assignedEmail} onChange={(event) => setPortalSignInForm((current) => ({ ...current, assignedEmail: event.target.value }))} placeholder="ravi@example.com" /></label>
+          <label>One-time code<input required value={portalSignInForm.code} onChange={(event) => setPortalSignInForm((current) => ({ ...current, code: event.target.value }))} placeholder="Code" /></label>
+          <button className="primary full"><Lock size={16} aria-hidden="true" /> Sign in</button>
+        </form>
+      ) : (
+        <form className="panel formGrid" onSubmit={submitEmployeePortalRequest}>
+          <PanelTitle icon={Archive} title="Employee Portal Request" action="Sign out" onAction={() => void signOutEmployeePortal()} />
+          <label>Employee<input readOnly aria-readonly="true" value={`${portalSession.employee.name} / ${portalSession.employee.assignedEmail}`} /></label>
+          <label>Credential<select required value={portalRequestForm.catalogEntryId} onChange={(event) => setPortalRequestForm((current) => ({ ...current, catalogEntryId: event.target.value }))}>
+            <option value="">Choose credential metadata</option>
+            {portalCatalog.map((entry) => <option key={entry.id} value={entry.id}>{entry.credentialName} / {titleStatus(entry.riskTier)}</option>)}
+          </select></label>
+          <label>Expected minutes<input inputMode="numeric" value={portalRequestForm.expectedDurationMinutes} onChange={(event) => setPortalRequestForm((current) => ({ ...current, expectedDurationMinutes: event.target.value }))} /></label>
+          <label>Ticket<input value={portalRequestForm.ticketRef} onChange={(event) => setPortalRequestForm((current) => ({ ...current, ticketRef: event.target.value }))} placeholder="Optional ticket" /></label>
+          <label className="spanAll">Reason<textarea required value={portalRequestForm.reason} onChange={(event) => setPortalRequestForm((current) => ({ ...current, reason: event.target.value }))} placeholder="Emergency deploy rollback" /></label>
+          {portalSelectedEntry ? <small className="spanAll">Selected: {portalSelectedEntry.credentialName} / {portalSelectedEntry.domain ?? portalSelectedEntry.sourceAccountId}</small> : null}
+          <button className="primary full" disabled={!portalRequestForm.catalogEntryId}><Archive size={16} aria-hidden="true" /> Submit portal request</button>
+          <div className="table spanAll">
+            <div className="tableHead requests">
+              <span>Credential</span><span>Employee</span><span>Assigned email</span><span>Reason</span><span>Status</span><span>Actions</span>
+            </div>
+            {portalRequests.map((accessRequest) => (
+              <div className="tableRow requests" key={accessRequest.id}>
+                <strong>{accessRequest.credentialName}</strong>
+                <span>{portalSession.employee.name}</span>
+                <span>{accessRequest.assignedEmail}</span>
+                <span>{accessRequest.reason}</span>
+                <Status value={titleStatus(accessRequest.status)} />
+                <span>{accessRequest.ticketRef ?? formatDate(accessRequest.requestedAt)}</span>
+              </div>
+            ))}
+            {portalRequests.length === 0 ? <EmptyState text="No employee portal requests yet." /> : null}
+          </div>
+        </form>
+      )}
+      <section className="panel">
+        <PanelTitle icon={Send} title="Admin Request Queue" action="Refresh" onAction={api.refresh} />
+        <div className="filters">
+          <input aria-label="Approver name" value={approvalForm.approver} onChange={(event) => setApprovalForm((current) => ({ ...current, approver: event.target.value }))} placeholder="Approver" />
+          <select aria-label="Approval delivery provider" value={deliveryProviderId} onChange={(event) => setApprovalForm((current) => ({ ...current, deliveryProviderId: event.target.value }))}>
+            {api.deliveryProviders.map((provider) => <option key={provider.id} value={provider.id}>{provider.displayName}</option>)}
+          </select>
+          <select aria-label="Approval delivery account" value={deliveryAccountId} onChange={(event) => setApprovalForm((current) => ({ ...current, deliveryAccountId: event.target.value }))}>
+            {api.accounts.map((account) => <option key={account.id} value={account.id}>{account.label}</option>)}
+          </select>
+          <input aria-label="Approval expiry hours" inputMode="numeric" value={approvalForm.expiryHours} onChange={(event) => setApprovalForm((current) => ({ ...current, expiryHours: event.target.value }))} placeholder="Hours" />
+          <input aria-label="Approval view limit" inputMode="numeric" value={approvalForm.viewLimit} onChange={(event) => setApprovalForm((current) => ({ ...current, viewLimit: event.target.value }))} placeholder="Views" />
+          <input aria-label="Replacement reason" value={approvalForm.replacementReason} onChange={(event) => setApprovalForm((current) => ({ ...current, replacementReason: event.target.value }))} placeholder="Replacement reason" />
+          <label className="inlineCheck"><input type="checkbox" checked={approvalForm.viewOnce} onChange={(event) => setApprovalForm((current) => ({ ...current, viewOnce: event.target.checked }))} /> One access</label>
+        </div>
+        {api.credentialRequests.length === 0 ? <EmptyState text="No credential requests yet." /> : (
+          <div className="table">
+            <div className="tableHead requests">
+              <span>Credential</span><span>Employee</span><span>Assigned email</span><span>Reason</span><span>Status</span><span>Actions</span>
+            </div>
+            {api.credentialRequests.map((accessRequest) => (
+              <div className="tableRow requests" key={accessRequest.id}>
+                <div>
+                  <strong>{accessRequest.credentialName}</strong>
+                  <span>{accessRequest.ticketRef ?? formatDate(accessRequest.requestedAt)}</span>
+                  {(accessRequest.replacementCount ?? 0) > 0 ? <span>{accessRequest.replacementCount} replacement{accessRequest.replacementCount === 1 ? "" : "s"} / previous {accessRequest.previousDeliveryId ?? "link"}</span> : null}
+                </div>
+                <span>{employeeLabel(api.employees, accessRequest.employeeId)}</span>
+                <span>{accessRequest.assignedEmail}</span>
+                <span>{accessRequest.reason}</span>
+                <Status value={titleStatus(accessRequest.status)} />
+                <div className="actions">
+                  <button type="button" disabled={accessRequest.status !== "pending"} onClick={() => void approveRequest(accessRequest)}><Send size={15} aria-hidden="true" /> Approve</button>
+                  <button type="button" disabled={accessRequest.status !== "fulfilled" || !accessRequest.deliveryId} onClick={() => void replaceRequestLink(accessRequest)}><RotateCcw size={15} aria-hidden="true" /> Replace</button>
+                  <button type="button" disabled={accessRequest.status !== "pending"} onClick={() => void denyRequest(accessRequest)}><X size={15} aria-hidden="true" /> Deny</button>
+                  {accessRequest.deliveryId ? <button type="button" aria-label={`Copy delivery ID for ${accessRequest.credentialName}`} title="Copy delivery ID" onClick={() => navigator.clipboard?.writeText(accessRequest.deliveryId ?? "")}><Copy size={15} aria-hidden="true" /></button> : null}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
 function Deliveries({ api }: { api: ReturnType<typeof useWardSenApi> }) {
   const [batchDetails, setBatchDetails] = useState<{ status: LoadState | "idle"; batchId?: string; deliveries: DeliveryRecord[]; error?: string }>({
     status: "idle",
@@ -922,6 +1597,7 @@ function DeliveryComposer({ api, selectedCredential }: { api: ReturnType<typeof 
     setBulkResults([]);
     try {
       const payload = {
+        operationId: newOperationId(form.mode === "bulk" ? "bulk" : "delivery"),
         sourceProviderId: selectedCredential.providerId,
         sourceAccountId: selectedCredential.accountId,
         sourceItemId: selectedCredential.id,
@@ -1023,7 +1699,7 @@ function DeliveryComposer({ api, selectedCredential }: { api: ReturnType<typeof 
       {submit.status !== "idle" && submit.status !== "error" && (
         <div className="notice compact" role="status" aria-live="polite">
           {submit.message}
-          {submit.url && <button type="button" onClick={() => copyTextToClipboard(submit.url ?? "")}><Copy size={15} aria-hidden="true" /> Copy link</button>}
+          {submit.url && <CopyFeedbackButton value={submit.url} label="Copy link" />}
         </div>
       )}
       {bulkResults.length > 0 && (
@@ -1094,7 +1770,7 @@ function DeliveryTable({ api }: { api: ReturnType<typeof useWardSenApi> }) {
       {message.status !== "idle" && message.status !== "error" && (
         <div className="notice compact" role="status" aria-live="polite">
           {message.text}
-          {message.url && <button type="button" onClick={() => navigator.clipboard?.writeText(message.url ?? "")}><Copy size={15} aria-hidden="true" /> Copy retry link</button>}
+          {message.url && <CopyFeedbackButton value={message.url} label="Copy retry link" copiedLabel="Retry link copied" />}
         </div>
       )}
       <div className="filters">
@@ -1134,6 +1810,46 @@ function DeliveryTable({ api }: { api: ReturnType<typeof useWardSenApi> }) {
   );
 }
 
+function CopyFeedbackButton({
+  value,
+  label,
+  copiedLabel = "Link copied",
+  onCopy,
+  onCopied,
+  disabled = false
+}: {
+  value: string;
+  label: string;
+  copiedLabel?: string;
+  onCopy?: (value: string) => Promise<void>;
+  onCopied?: () => void;
+  disabled?: boolean;
+}) {
+  const [state, setState] = useState<"idle" | "copied" | "error">("idle");
+
+  async function handleCopy() {
+    setState("idle");
+    try {
+      await (onCopy ?? copyTextToClipboard)(value);
+      setState("copied");
+      onCopied?.();
+    } catch {
+      setState("error");
+    }
+  }
+
+  const Icon = state === "copied" ? CheckCircle2 : Copy;
+  return (
+    <span className="copyFeedback">
+      <button type="button" disabled={disabled || !value} className={state === "copied" ? "copySuccess" : undefined} onClick={() => void handleCopy()}>
+        <Icon size={15} aria-hidden="true" /> {state === "copied" ? copiedLabel : label}
+      </button>
+      {state === "copied" ? <small className="copyFeedbackStatus" role="status" aria-live="polite">Link copied to clipboard.</small> : null}
+      {state === "error" ? <small className="copyFeedbackError" role="alert">Copy was blocked. Try again or copy the link manually.</small> : null}
+    </span>
+  );
+}
+
 function BulkHandoffResults({
   results,
   personName,
@@ -1147,29 +1863,27 @@ function BulkHandoffResults({
 }) {
   const [handoffStatus, setHandoffStatus] = useState<Record<string, string>>({});
 
-  async function copyLink(result: BulkDeliveryItemResult) {
-    const url = result.delivery?.oneTimeDeliveryUrl;
-    if (!url) return;
-    await onCopy(url);
-    setHandoffStatus((current) => ({ ...current, [resultKey(result)]: "Copied" }));
-  }
-
   async function openDraft(result: BulkDeliveryItemResult) {
     const delivery = result.delivery;
     if (!delivery?.oneTimeDeliveryUrl) return;
-    await onCopy(delivery.oneTimeDeliveryUrl);
+    try {
+      await onCopy(delivery.oneTimeDeliveryUrl);
+    } catch {
+      setHandoffStatus((current) => ({ ...current, [resultKey(result)]: "Copy failed; draft not opened" }));
+      return;
+    }
     if (method === "email") {
       window.open(
         `mailto:?subject=${encodeURIComponent(`WardSen delivery: ${delivery.credentialName}`)}&body=${encodeURIComponent("Paste the WardSen delivery link copied to your clipboard. Do not forward this message after the recipient opens it.")}`,
         "_blank",
         "noopener,noreferrer"
       );
-      setHandoffStatus((current) => ({ ...current, [resultKey(result)]: "Copied; email draft opened" }));
+      setHandoffStatus((current) => ({ ...current, [resultKey(result)]: "Link copied; email draft opened" }));
       return;
     }
     if (method === "whatsapp") {
       window.open("https://wa.me/", "_blank", "noopener,noreferrer");
-      setHandoffStatus((current) => ({ ...current, [resultKey(result)]: "Copied; WhatsApp opened" }));
+      setHandoffStatus((current) => ({ ...current, [resultKey(result)]: "Link copied; WhatsApp opened" }));
     }
   }
 
@@ -1192,7 +1906,13 @@ function BulkHandoffResults({
               <Status value={result.ok ? "Created" : "Failed"} />
               <span>{handoffStatus[key] ?? (result.ok ? "Not handed off" : result.error ?? "Failed")}</span>
               <div className="buttonRow">
-                <button type="button" disabled={!url} onClick={() => void copyLink(result)}><Copy size={15} aria-hidden="true" /> Copy link</button>
+                <CopyFeedbackButton
+                  value={url ?? ""}
+                  label="Copy link"
+                  onCopy={onCopy}
+                  disabled={!url}
+                  onCopied={() => setHandoffStatus((current) => ({ ...current, [key]: "Link copied" }))}
+                />
                 <button type="button" disabled={!url || method === "copy"} onClick={() => void openDraft(result)}><Mail size={15} aria-hidden="true" /> Copy and open</button>
               </div>
             </div>
@@ -1491,8 +2211,35 @@ function accountLabel(accounts: AccountRecord[], accountId: string) {
   return accounts.find((account) => account.id === accountId)?.label ?? accountId;
 }
 
+function employeeLabel(employees: EmployeeRecord[], employeeId: string) {
+  const employee = employees.find((candidate) => candidate.id === employeeId);
+  return employee ? employee.name : employeeId;
+}
+
+function catalogEntryAllowsEmployee(entry: CredentialCatalogEntry, employee?: EmployeeRecord): boolean {
+  if (!employee) return false;
+  const team = employee.team?.trim().toLowerCase();
+  const role = employee.role?.trim().toLowerCase();
+  return entry.allowedEmployeeIds.includes(employee.id)
+    || Boolean(team && entry.allowedTeams.some((candidate) => candidate.trim().toLowerCase() === team))
+    || Boolean(role && entry.allowedRoles.some((candidate) => candidate.trim().toLowerCase() === role));
+}
+
+function employeeSessionHeaders(sessionToken: string): HeadersInit {
+  return { "x-wardsen-employee-session": sessionToken };
+}
+
+function employeeSignInMailtoHref(draft: { to: string; subject: string }): string {
+  return `mailto:${encodeURIComponent(draft.to)}?subject=${encodeURIComponent(draft.subject)}`;
+}
+
 function providerLabel(providers: ProviderInfo[], providerId: string) {
   return providers.find((provider) => provider.id === providerId)?.displayName ?? providerId;
+}
+
+function newOperationId(prefix: "delivery" | "bulk"): string {
+  const random = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return `${prefix}-${random}`;
 }
 
 function buildBulkRiskSummary(input: {

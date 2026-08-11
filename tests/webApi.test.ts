@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { apiGet, apiSend, apiUrl, canRestartLocalService, copyExternalUrl, copyTextToClipboard, getLocalServiceStatus, openExternalUrl, restartLocalService } from "../apps/web/src/api";
+import { apiGet, apiSend, apiUrl, canRestartLocalService, copyExternalUrl, copyTextToClipboard, getLocalServiceStatus, openExternalUrl, openMailDraft, restartLocalService } from "../apps/web/src/api";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async () => undefined)
@@ -137,6 +137,27 @@ describe("web API helpers", () => {
 
   it("rejects non-web external links", async () => {
     await expect(openExternalUrl("file:///C:/Windows/System32/calc.exe")).rejects.toThrow("HTTP or HTTPS");
+  });
+
+  it("opens mail drafts through the Tauri opener without accepting arbitrary protocols", async () => {
+    vi.stubGlobal("window", {
+      location: { protocol: "tauri:", hostname: "localhost" }
+    });
+
+    await openMailDraft("mailto:ravi@example.com?subject=WardSen%20code");
+
+    expect(openUrl).toHaveBeenCalledWith("mailto:ravi@example.com?subject=WardSen%20code");
+    await expect(openMailDraft("https://example.com")).rejects.toThrow("mailto protocol");
+  });
+
+  it("opens mail drafts with location fallback in the web build", async () => {
+    const location = { protocol: "http:", hostname: "127.0.0.1", href: "" };
+    vi.stubGlobal("window", { location });
+
+    await openMailDraft("mailto:ravi@example.com?subject=WardSen%20code");
+
+    expect(location.href).toBe("mailto:ravi@example.com?subject=WardSen%20code");
+    expect(openUrl).not.toHaveBeenCalled();
   });
 
   it("copies help links for users whose default browser cannot open", async () => {

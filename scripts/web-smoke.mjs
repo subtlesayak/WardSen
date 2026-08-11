@@ -10,6 +10,7 @@ const outputRoot = path.resolve(root, process.env.WARDSEN_WEB_SMOKE_OUTPUT ?? pa
 const host = process.env.WARDSEN_WEB_SMOKE_HOST ?? "127.0.0.1";
 const port = Number(process.env.WARDSEN_WEB_SMOKE_PORT ?? 5177);
 const captureTimeoutMs = Number(process.env.WARDSEN_WEB_SMOKE_TIMEOUT_MS ?? 30_000);
+const httpOnly = process.env.WARDSEN_WEB_SMOKE_HTTP_ONLY === "1";
 const baseUrl = `http://${host}:${port}/`;
 
 if (!existsSync(path.join(distRoot, "index.html"))) {
@@ -25,14 +26,34 @@ const server = createServer((request, response) => {
 
 await new Promise((resolve) => server.listen(port, host, resolve));
 try {
-  const chromePath = findChrome();
-  const desktop = capture(chromePath, "desktop-1280x720.png", "1280,720");
-  const mobile = capture(chromePath, "mobile-390x844.png", "390,844");
-  console.log(`WardSen web smoke passed at ${baseUrl}`);
-  console.log(`Desktop screenshot: ${desktop}`);
-  console.log(`Mobile screenshot: ${mobile}`);
+  if (httpOnly) {
+    await assertHttpSmoke();
+    console.log(`WardSen web HTTP smoke passed at ${baseUrl}`);
+    console.log("Browser screenshot capture skipped because WARDSEN_WEB_SMOKE_HTTP_ONLY=1.");
+  } else {
+    const chromePath = findChrome();
+    const desktop = capture(chromePath, "desktop-1280x720.png", "1280,720");
+    const mobile = capture(chromePath, "mobile-390x844.png", "390,844");
+    console.log(`WardSen web smoke passed at ${baseUrl}`);
+    console.log(`Desktop screenshot: ${desktop}`);
+    console.log(`Mobile screenshot: ${mobile}`);
+  }
 } finally {
   await new Promise((resolve) => server.close(resolve));
+}
+
+async function assertHttpSmoke() {
+  const indexResponse = await fetch(baseUrl);
+  const index = await indexResponse.text();
+  if (!indexResponse.ok || !index.includes('<div id="root">')) {
+    throw new Error(`HTTP smoke failed to load WardSen index at ${baseUrl}`);
+  }
+
+  const healthResponse = await fetch(new URL("/api/health", baseUrl));
+  const health = await healthResponse.json();
+  if (!healthResponse.ok || health.ok !== true) {
+    throw new Error("HTTP smoke failed to load mocked API health.");
+  }
 }
 
 function capture(chromePath, fileName, windowSize) {

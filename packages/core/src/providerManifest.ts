@@ -44,6 +44,56 @@ export const builtInProviderManifests: ProviderManifest[] = [
     notes: "Supported delivery provider through Bitwarden Send."
   },
   {
+    id: "ente-paste",
+    displayName: "Ente Paste",
+    kind: "delivery",
+    maturity: "planned",
+    packageName: "@wardsen/provider-scaffolds",
+    documentationUrl: "https://paste.ente.com/",
+    enabledByDefault: false,
+    notes: "Candidate delivery provider only. The public page advertises private E2EE, one-time view and 24-hour auto-delete; do not enable until a supported API or CLI and provider status/revoke semantics pass conformance."
+  },
+  {
+    id: "password-pusher",
+    displayName: "Password Pusher",
+    kind: "delivery",
+    maturity: "planned",
+    packageName: "@wardsen/provider-scaffolds",
+    documentationUrl: "https://docs.pwpush.com/docs/api-v1/",
+    enabledByDefault: false,
+    notes: "Candidate delivery provider only. Its documented API includes expiration and view controls; verify instance authentication, redaction, revoke behavior and access telemetry before implementation."
+  },
+  {
+    id: "yopass",
+    displayName: "Yopass",
+    kind: "delivery",
+    maturity: "planned",
+    packageName: "@wardsen/provider-scaffolds",
+    documentationUrl: "https://github.com/jhaals/yopass",
+    enabledByDefault: false,
+    notes: "Candidate self-hostable delivery provider only. Its official project documents browser encryption, one-time URLs, expiry and a CLI; verify deployment ownership and status/revoke semantics before implementation."
+  },
+  {
+    id: "onetime-secret",
+    displayName: "Onetime Secret",
+    kind: "delivery",
+    maturity: "planned",
+    packageName: "@wardsen/provider-scaffolds",
+    documentationUrl: "https://docs.onetimesecret.com/en/rest-api/",
+    enabledByDefault: false,
+    notes: "Candidate delivery provider only. Its official documentation describes REST API versions, TTL and burn operations; verify regional endpoint policy, sender-side status and revocation before implementation."
+  },
+  {
+    id: "onepassword-item-share",
+    displayName: "1Password item sharing",
+    kind: "delivery",
+    maturity: "planned",
+    packageName: "@wardsen/provider-scaffolds",
+    documentationUrl: "https://support.1password.com/share-items/",
+    enabledByDefault: false,
+    notes: "Candidate delivery provider only. 1Password documents unique links, expiry and recipient restrictions in its apps and web product; do not infer a supported CLI/API adapter until one is documented."
+  },
+  {
     id: "onepassword",
     displayName: "1Password",
     kind: "credential",

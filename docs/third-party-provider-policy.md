@@ -1,6 +1,6 @@
 # Third-Party Provider Policy
 
-WardSen is an independent open-source project. It is not affiliated with, endorsed by, sponsored by or approved by Bitwarden, 1Password, Proton, KeePassXC, Keeper or their respective companies.
+WardSen is an independent open-source project. It is not affiliated with, endorsed by, sponsored by or approved by Bitwarden, 1Password, Proton, KeePassXC, Keeper, Ente, Password Pusher, Yopass, Onetime Secret or their respective companies.
 
 This document defines the provider and trademark rules maintainers should check before publishing a WardSen release.
 
@@ -39,6 +39,8 @@ Avoid wording:
 - `Powered by Bitwarden`
 - `Partnered with Bitwarden`
 - Any phrase that implies endorsement, sponsorship, affiliation or provider control.
+
+The same rule applies to planned delivery candidates such as Ente Paste, Password Pusher, Yopass, Onetime Secret and 1Password item sharing.
 
 ## Bitwarden Notes
 

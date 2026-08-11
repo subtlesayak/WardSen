@@ -1,9 +1,10 @@
 import path from "node:path";
+import { createHash } from "node:crypto";
 import Fastify from "fastify";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import sensible from "@fastify/sensible";
-import { nanoid } from "nanoid";
+import { customAlphabet, nanoid } from "nanoid";
 import { z } from "zod";
 import {
   AccountSessionManager,
@@ -13,7 +14,18 @@ import {
   builtInProviderManifests,
   parseViewLimit
 } from "@wardsen/core";
-import type { AccountRecord, CredentialProvider, CredentialSummary, DeliveryProvider, DeliveryRecord } from "@wardsen/core";
+import type {
+  AccountRecord,
+  CredentialAccessRequestRecord,
+  CredentialCatalogEntry,
+  CredentialProvider,
+  CredentialSummary,
+  DeliveryPolicySnapshot,
+  DeliveryProvider,
+  DeliveryRecord,
+  EmployeeRecord,
+  EmployeeSessionRecord
+} from "@wardsen/core";
 import { InMemoryWardSenRepository } from "@wardsen/database";
 import type { WardSenRepository } from "@wardsen/database";
 import { BitwardenCredentialProvider } from "@wardsen/provider-bitwarden";
@@ -47,6 +59,8 @@ export async function buildApp(options: BuildAppOptions = {}) {
   const registry = new ProviderRegistry();
   const profileRoot = path.resolve(options.profileRoot ?? path.join(process.cwd(), ".wardsen-profiles"));
   const accountProfileDirectories = new Map<string, string>();
+  const deliveryOperationTails = new Map<string, Promise<void>>();
+  const deliveryUrlCache = new Map<string, string>();
   const autoLockIntervalMs = Math.max(1_000, options.autoLockIntervalMs ?? 30_000);
   const autoLockTimer = setInterval(() => {
     void enforceAutoLock();
@@ -389,13 +403,420 @@ export async function buildApp(options: BuildAppOptions = {}) {
     return { ok: true };
   });
 
+  app.get("/api/employees", async (request) => {
+    const query = employeeQuerySchema.parse(request.query);
+    return repository.listEmployees(query);
+  });
+
+  app.post("/api/employees", async (request) => {
+    const body = employeeSchema.parse(request.body);
+    await assertEmployeePersonLink(body.personId, body.assignedEmail);
+    const employee = await repository.upsertEmployee({ ...body, active: body.active ?? true });
+    await audit("employee.upsert", "success", { safeDetails: `employee=${employee.id}` });
+    return employee;
+  });
+
+  app.post("/api/employees/bulk-from-people", async (request) => {
+    const body = bulkEmployeeProvisionSchema.parse(request.body);
+    const uniquePersonIds = [...new Set(body.personIds)];
+    const created: EmployeeRecord[] = [];
+    const skipped: Array<{ personId: string; reason: string; assignedEmail?: string; employeeId?: string }> = [];
+    for (const personId of uniquePersonIds) {
+      const person = await repository.getPerson(personId);
+      if (!person || !person.active) {
+        skipped.push({ personId, reason: "Person is missing or inactive." });
+        continue;
+      }
+      if (!person.email) {
+        skipped.push({ personId, reason: "Person has no assigned email." });
+        continue;
+      }
+      const assignedEmail = normalizeEmail(person.email);
+      const existingEmployee = await repository.getEmployeeByAssignedEmail(assignedEmail);
+      if (existingEmployee) {
+        skipped.push({ personId, assignedEmail, employeeId: existingEmployee.id, reason: "Assigned email already has an employee identity." });
+        continue;
+      }
+      try {
+        const employee = await repository.upsertEmployee({
+          personId: person.id,
+          name: person.name,
+          assignedEmail,
+          team: person.groupName ?? body.defaultTeam,
+          role: person.role ?? body.defaultRole,
+          active: body.active ?? true
+        });
+        created.push(employee);
+      } catch (error) {
+        skipped.push({ personId, assignedEmail, reason: safeErrorMessage(error) });
+      }
+    }
+    await audit("employee.bulk_from_people", "success", { safeDetails: `created=${created.length};skipped=${skipped.length}` });
+    return { created, skipped };
+  });
+
+  app.put("/api/employees/:id", async (request) => {
+    const { id } = idParams.parse(request.params);
+    const existing = await repository.getEmployee(id);
+    if (!existing) throw app.httpErrors.notFound("Employee not found");
+    const body = employeeSchema.partial().parse(request.body);
+    if (body.assignedEmail && normalizeEmail(body.assignedEmail) !== existing.assignedEmail) {
+      throw new Error("Employee assigned email is admin-controlled. Create a new employee record to change identity.");
+    }
+    const personId = body.personId ?? existing.personId;
+    await assertEmployeePersonLink(personId, existing.assignedEmail);
+    const employee = await repository.upsertEmployee({
+      id,
+      personId,
+      name: body.name ?? existing.name,
+      assignedEmail: existing.assignedEmail,
+      team: body.team ?? existing.team,
+      role: body.role ?? existing.role,
+      active: body.active ?? existing.active
+    });
+    await audit("employee.update", "success", { safeDetails: `employee=${employee.id}` });
+    return employee;
+  });
+
+  app.post("/api/employees/:id/sign-in-code", async (request) => {
+    const { id } = idParams.parse(request.params);
+    const body = issueEmployeeSignInCodeSchema.parse(request.body ?? {});
+    const employee = await repository.getEmployee(id);
+    if (!employee || !employee.active) {
+      throw app.httpErrors.notFound("Employee not found");
+    }
+    const code = employeeCode();
+    const expiresAt = new Date(Date.now() + (body.ttlMinutes ?? EMPLOYEE_SIGN_IN_CODE_TTL_MS / 60000) * 60000).toISOString();
+    await repository.createEmployeeSignInCode({
+      employeeId: employee.id,
+      assignedEmail: employee.assignedEmail,
+      codeHash: employeeSecretHash("code", employee.id, normalizeEmployeeCode(code)),
+      expiresAt
+    });
+    const emailDraft = body.senderEmail ? buildEmployeeSignInEmailDraft({
+      senderEmail: body.senderEmail,
+      employeeName: employee.name,
+      assignedEmail: employee.assignedEmail,
+      code,
+      expiresAt
+    }) : undefined;
+    const delivery = emailDraft ? "email_draft" : "manual";
+    await audit("employee.sign_in_code.issue", "success", { safeDetails: `employee=${employee.id};delivery=${delivery};expires=${expiresAt}` });
+    return {
+      employeeId: employee.id,
+      assignedEmail: employee.assignedEmail,
+      code,
+      expiresAt,
+      delivery,
+      emailDraft
+    };
+  });
+
+  app.post("/api/employee-sessions", async (request) => {
+    const body = employeeSessionSchema.parse(request.body);
+    const employee = await repository.getEmployeeByAssignedEmail(body.assignedEmail);
+    const invalidMessage = "Invalid or expired employee sign-in code.";
+    if (!employee || !employee.active) {
+      throw app.httpErrors.unauthorized(invalidMessage);
+    }
+    const codeHash = employeeSecretHash("code", employee.id, normalizeEmployeeCode(body.code));
+    const signInCode = await repository.getEmployeeSignInCodeByHash(employee.id, codeHash);
+    if (!signInCode || signInCode.usedAt || new Date(signInCode.expiresAt).getTime() <= Date.now()) {
+      throw app.httpErrors.unauthorized(invalidMessage);
+    }
+    await repository.updateEmployeeSignInCode(signInCode.id, { usedAt: new Date().toISOString() });
+    const sessionToken = `employee_${nanoid(40)}`;
+    const expiresAt = new Date(Date.now() + EMPLOYEE_SESSION_TTL_MS).toISOString();
+    const session = await repository.createEmployeeSession({
+      employeeId: employee.id,
+      assignedEmail: employee.assignedEmail,
+      tokenHash: employeeSecretHash("session", "employee-session", sessionToken),
+      expiresAt
+    });
+    await audit("employee.session.create", "success", { safeDetails: `employee=${employee.id};session=${session.id}` });
+    return { sessionToken, expiresAt, employee };
+  });
+
+  app.get("/api/employee-portal/me", async (request) => {
+    const { employee, session } = await requireEmployeeSession(request);
+    return { employee, expiresAt: session.expiresAt };
+  });
+
+  app.get("/api/employee-portal/catalog", async (request) => {
+    const { employee } = await requireEmployeeSession(request);
+    const query = employeePortalCatalogQuerySchema.parse(request.query);
+    return repository.listCredentialCatalog({
+      page: query.page,
+      pageSize: query.pageSize,
+      active: true,
+      employeeId: employee.id,
+      employeeTeam: employee.team,
+      employeeRole: employee.role,
+      search: query.search
+    });
+  });
+
+  app.get("/api/employee-portal/credential-requests", async (request) => {
+    const { employee } = await requireEmployeeSession(request);
+    const query = credentialAccessRequestQuerySchema.parse(request.query);
+    return repository.listCredentialAccessRequests({
+      page: query.page,
+      pageSize: query.pageSize,
+      employeeId: employee.id,
+      status: query.status
+    });
+  });
+
+  app.post("/api/employee-portal/credential-requests", async (request) => {
+    const { employee } = await requireEmployeeSession(request);
+    const body = employeePortalRequestSchema.parse(request.body);
+    const entry = await assertEmployeeCanRequestCatalogEntry(employee, body.catalogEntryId);
+    const accessRequest = await repository.createCredentialAccessRequest({
+      employeeId: employee.id,
+      assignedEmail: employee.assignedEmail,
+      catalogEntryId: entry.id,
+      sourceProviderId: entry.sourceProviderId,
+      sourceAccountId: entry.sourceAccountId,
+      sourceItemId: entry.sourceItemId,
+      credentialName: entry.credentialName,
+      reason: body.reason,
+      ticketRef: body.ticketRef,
+      expectedDurationMinutes: body.expectedDurationMinutes
+    });
+    await audit("credential_request.employee_portal_create", "success", { sourceAccountId: entry.sourceAccountId, safeDetails: `request=${accessRequest.id};employee=${employee.id}` });
+    return accessRequest;
+  });
+
+  app.post("/api/employee-sessions/current/logout", async (request) => {
+    const { session } = await requireEmployeeSession(request);
+    await repository.updateEmployeeSession(session.id, { revokedAt: new Date().toISOString() });
+    await audit("employee.session.revoke", "success", { safeDetails: `employee=${session.employeeId};session=${session.id}` });
+    return { ok: true };
+  });
+
+  app.get("/api/credential-catalog", async (request) => {
+    const query = credentialCatalogQuerySchema.parse(request.query);
+    const employee = query.employeeId ? await repository.getEmployee(query.employeeId) : undefined;
+    return repository.listCredentialCatalog({
+      ...query,
+      employeeTeam: employee?.team,
+      employeeRole: employee?.role
+    });
+  });
+
+  app.get("/api/employee-catalog", async (request) => {
+    const query = employeeCatalogQuerySchema.parse(request.query);
+    const employee = await assertEmployeeAssignedEmail(query.employeeId, query.assignedEmail);
+    return repository.listCredentialCatalog({
+      page: query.page,
+      pageSize: query.pageSize,
+      active: true,
+      employeeId: employee.id,
+      employeeTeam: employee.team,
+      employeeRole: employee.role,
+      search: query.search
+    });
+  });
+
+  app.post("/api/credential-catalog", async (request) => {
+    const body = credentialCatalogEntrySchema.parse(request.body);
+    await assertCatalogPolicy(body);
+    const sourceAccount = await findAccount(repository, body.sourceAccountId);
+    if (sourceAccount.providerId !== body.sourceProviderId) {
+      throw new Error("Catalog source account does not belong to the requested credential provider");
+    }
+    const entry = await repository.upsertCredentialCatalogEntry({ ...body, active: body.active ?? true });
+    await audit("credential_catalog.upsert", "success", { sourceAccountId: body.sourceAccountId, safeDetails: `entry=${entry.id}` });
+    return entry;
+  });
+
+  app.put("/api/credential-catalog/:id", async (request) => {
+    const { id } = idParams.parse(request.params);
+    const existing = await repository.getCredentialCatalogEntry(id);
+    if (!existing) throw app.httpErrors.notFound("Credential catalog entry not found");
+    const body = credentialCatalogEntryPatchSchema.parse(request.body);
+    const updated = {
+      id,
+      sourceProviderId: body.sourceProviderId ?? existing.sourceProviderId,
+      sourceAccountId: body.sourceAccountId ?? existing.sourceAccountId,
+      sourceItemId: body.sourceItemId ?? existing.sourceItemId,
+      credentialName: body.credentialName ?? existing.credentialName,
+      username: body.username ?? existing.username,
+      domain: body.domain ?? existing.domain,
+      tags: body.tags ?? existing.tags,
+      riskTier: body.riskTier ?? existing.riskTier,
+      allowedEmployeeIds: body.allowedEmployeeIds ?? existing.allowedEmployeeIds,
+      allowedTeams: body.allowedTeams ?? existing.allowedTeams,
+      allowedRoles: body.allowedRoles ?? existing.allowedRoles,
+      active: body.active ?? existing.active
+    };
+    await assertCatalogPolicy(updated);
+    const sourceAccount = await findAccount(repository, updated.sourceAccountId);
+    if (sourceAccount.providerId !== updated.sourceProviderId) {
+      throw new Error("Catalog source account does not belong to the requested credential provider");
+    }
+    const entry = await repository.upsertCredentialCatalogEntry(updated);
+    await audit("credential_catalog.update", "success", { sourceAccountId: entry.sourceAccountId, safeDetails: `entry=${entry.id}` });
+    return entry;
+  });
+
+  app.get("/api/credential-requests", async (request) => {
+    const query = credentialAccessRequestQuerySchema.parse(request.query);
+    return repository.listCredentialAccessRequests(query);
+  });
+
+  app.post("/api/credential-requests", async (request) => {
+    const body = credentialAccessRequestSchema.parse(request.body);
+    const employee = await assertEmployeeAssignedEmail(body.employeeId, body.assignedEmail);
+    const entry = await assertEmployeeCanRequestCatalogEntry(employee, body.catalogEntryId);
+    const accessRequest = await repository.createCredentialAccessRequest({
+      employeeId: employee.id,
+      assignedEmail: employee.assignedEmail,
+      catalogEntryId: entry.id,
+      sourceProviderId: entry.sourceProviderId,
+      sourceAccountId: entry.sourceAccountId,
+      sourceItemId: entry.sourceItemId,
+      credentialName: entry.credentialName,
+      reason: body.reason,
+      ticketRef: body.ticketRef,
+      expectedDurationMinutes: body.expectedDurationMinutes
+    });
+    await audit("credential_request.create", "success", { sourceAccountId: entry.sourceAccountId, safeDetails: `request=${accessRequest.id};employee=${employee.id}` });
+    return accessRequest;
+  });
+
+  app.post("/api/credential-requests/:id/deny", async (request) => {
+    const { id } = idParams.parse(request.params);
+    const body = credentialAccessDecisionSchema.parse(request.body);
+    const accessRequest = await findCredentialAccessRequest(repository, id);
+    if (accessRequest.status !== "pending") {
+      throw app.httpErrors.conflict("Only pending credential requests can be denied.");
+    }
+    const updated = await repository.updateCredentialAccessRequest(id, {
+      status: "denied",
+      decidedAt: new Date().toISOString(),
+      approver: body.approver,
+      decisionReason: body.decisionReason
+    });
+    await audit("credential_request.deny", "success", { sourceAccountId: updated.sourceAccountId, safeDetails: `request=${id}` });
+    return updated;
+  });
+
+  app.post("/api/credential-requests/:id/approve", async (request) => {
+    const { id } = idParams.parse(request.params);
+    const body = credentialAccessApprovalSchema.parse(request.body);
+    if (body.confirmRiskSummary !== true) {
+      throw new Error("Approving a credential request requires confirmation of requester, assigned email, credential, expiry and view limit");
+    }
+    const accessRequest = await findCredentialAccessRequest(repository, id);
+    if (accessRequest.status !== "pending") {
+      throw app.httpErrors.conflict("Only pending credential requests can be approved.");
+    }
+    const employee = await repository.getEmployee(accessRequest.employeeId);
+    if (!employee || !employee.active || employee.assignedEmail !== accessRequest.assignedEmail) {
+      throw new Error("Credential request employee identity is no longer active or no longer matches the assigned email.");
+    }
+    const delivery = await createOneDelivery({
+      operationId: operationIdFromRequest(request.headers["x-wardsen-idempotency-key"], body.operationId) ?? `request-${id}`,
+      sourceProviderId: accessRequest.sourceProviderId,
+      sourceAccountId: accessRequest.sourceAccountId,
+      sourceItemId: accessRequest.sourceItemId,
+      deliveryProviderId: body.deliveryProviderId,
+      deliveryAccountId: body.deliveryAccountId,
+      recipient: { id: employee.id, name: employee.name, email: accessRequest.assignedEmail },
+      expiresAt: body.expiresAt,
+      viewLimit: body.viewLimit,
+      viewOnce: body.viewOnce,
+      accessPassword: body.accessPassword,
+      hideText: body.hideText,
+      deliveryMethod: "email"
+    });
+    const updated = await repository.updateCredentialAccessRequest(id, {
+      status: "fulfilled",
+      decidedAt: new Date().toISOString(),
+      approver: body.approver,
+      decisionReason: body.decisionReason,
+      deliveryId: delivery.id,
+      deliveryProviderId: body.deliveryProviderId,
+      deliveryAccountId: body.deliveryAccountId
+    });
+    await audit("credential_request.approve", "success", {
+      sourceAccountId: accessRequest.sourceAccountId,
+      deliveryAccountId: body.deliveryAccountId,
+      deliveryId: delivery.id,
+      safeDetails: `request=${id};employee=${employee.id}`
+    });
+    return { request: updated, delivery };
+  });
+
+  app.post("/api/credential-requests/:id/replacement-link", async (request) => {
+    const { id } = idParams.parse(request.params);
+    const body = credentialAccessReplacementSchema.parse(request.body);
+    assertDestructiveConfirmation(request.body, confirmationPhrase("REPLACE REQUEST", id));
+    if (body.confirmRiskSummary !== true) {
+      throw new Error("Replacing a credential request link requires confirmation of requester, assigned email, credential, expiry, view limit and previous link revoke.");
+    }
+    const accessRequest = await findCredentialAccessRequest(repository, id);
+    if (accessRequest.status !== "fulfilled" || !accessRequest.deliveryId) {
+      throw app.httpErrors.conflict("Only fulfilled credential requests with an existing delivery link can be replaced.");
+    }
+    const employee = await repository.getEmployee(accessRequest.employeeId);
+    if (!employee || !employee.active || employee.assignedEmail !== accessRequest.assignedEmail) {
+      throw new Error("Credential request employee identity is no longer active or no longer matches the assigned email.");
+    }
+    const previousDelivery = await repository.getDelivery(accessRequest.deliveryId);
+    if (!previousDelivery) {
+      throw new Error("Credential request delivery could not be found for replacement.");
+    }
+    await revokeDeliveryBeforeReplacement(previousDelivery);
+    const delivery = await createOneDelivery({
+      operationId: operationIdFromRequest(request.headers["x-wardsen-idempotency-key"], body.operationId) ?? `request-replacement-${id}-${nanoid()}`,
+      sourceProviderId: accessRequest.sourceProviderId,
+      sourceAccountId: accessRequest.sourceAccountId,
+      sourceItemId: accessRequest.sourceItemId,
+      deliveryProviderId: body.deliveryProviderId,
+      deliveryAccountId: body.deliveryAccountId,
+      recipient: { id: employee.id, name: employee.name, email: accessRequest.assignedEmail },
+      expiresAt: body.expiresAt,
+      viewLimit: body.viewLimit,
+      viewOnce: body.viewOnce,
+      accessPassword: body.accessPassword,
+      hideText: body.hideText,
+      deliveryMethod: "email"
+    });
+    const replacedAt = new Date().toISOString();
+    const updated = await repository.updateCredentialAccessRequest(id, {
+      status: "fulfilled",
+      decidedAt: replacedAt,
+      approver: body.approver,
+      decisionReason: body.decisionReason ?? `Replacement link issued: ${body.replacementReason}`,
+      deliveryId: delivery.id,
+      deliveryProviderId: body.deliveryProviderId,
+      deliveryAccountId: body.deliveryAccountId,
+      previousDeliveryId: previousDelivery.id,
+      replacementCount: (accessRequest.replacementCount ?? 0) + 1,
+      lastReplacementAt: replacedAt
+    });
+    await audit("credential_request.replace_link", "success", {
+      sourceAccountId: accessRequest.sourceAccountId,
+      deliveryAccountId: body.deliveryAccountId,
+      deliveryId: delivery.id,
+      safeDetails: `request=${id};employee=${employee.id};previous=${previousDelivery.id}`
+    });
+    return { request: updated, previousDelivery: await repository.getDelivery(previousDelivery.id), delivery };
+  });
+
   app.post("/api/deliveries", async (request) => {
     const body = deliverySchema.parse(request.body);
-    return createOneDelivery(body);
+    return createOneDelivery({
+      ...body,
+      operationId: operationIdFromRequest(request.headers["x-wardsen-idempotency-key"], body.operationId)
+    });
   });
 
   app.post("/api/deliveries/bulk", async (request) => {
     const body = bulkDeliverySchema.parse(request.body);
+    const bulkOperationId = operationIdFromRequest(request.headers["x-wardsen-idempotency-key"], body.operationId);
     if (body.confirmRiskSummary !== true) {
       throw new Error("Bulk delivery requires confirmation of credential, vault, provider, recipient count, expiry and view limit");
     }
@@ -419,7 +840,12 @@ export async function buildApp(options: BuildAppOptions = {}) {
         index += 1;
         if ((await repository.getBatch(batchId))?.cancelled) break;
         try {
-          const delivery = await createOneDelivery({ ...body, recipient: current, batchId });
+          const delivery = await createOneDelivery({
+            ...body,
+            operationId: bulkOperationId ? childOperationId(bulkOperationId, current.id) : undefined,
+            recipient: current,
+            batchId
+          });
           results.push({ recipientId: current.id, ok: true, delivery });
         } catch (error) {
           await audit("delivery.create", "failure", {
@@ -482,6 +908,19 @@ export async function buildApp(options: BuildAppOptions = {}) {
   });
 
   async function createOneDelivery(body: z.infer<typeof deliverySchema> & { batchId?: string }) {
+    const operationId = body.operationId ?? nanoid();
+    return withDeliveryOperation(operationId, () => createOneDeliveryLocked(body, operationId));
+  }
+
+  async function createOneDeliveryLocked(body: z.infer<typeof deliverySchema> & { batchId?: string }, operationId: string) {
+    const viewLimit = parseViewLimit(body.viewLimit);
+    const expiresAt = new Date(body.expiresAt);
+    const policySnapshot = deliveryPolicySnapshot(body, expiresAt, viewLimit);
+    const operationFingerprint = deliveryOperationFingerprint(policySnapshot);
+    const existing = await repository.getDeliveryByOperationId(operationId);
+    if (existing) return existingOperationResponse(existing, operationFingerprint);
+
+    assertFutureExpiry(expiresAt);
     const sourceAccount = await findAccount(repository, body.sourceAccountId);
     rememberAccountProfile(sourceAccount);
     if (sourceAccount.providerId !== body.sourceProviderId) {
@@ -494,9 +933,6 @@ export async function buildApp(options: BuildAppOptions = {}) {
     const deliveryProvider = registry.getDeliveryProvider(body.deliveryProviderId);
     const capabilities = await deliveryProvider.getCapabilities();
     await assertDeliveryProviderReady(deliveryProvider, body.deliveryAccountId, deliveryAccount);
-    const viewLimit = parseViewLimit(body.viewLimit);
-    const expiresAt = new Date(body.expiresAt);
-    assertFutureExpiry(expiresAt);
     assertDeliveryOptionsSupported(capabilities, {
       viewLimit,
       viewOnce: body.viewOnce,
@@ -505,6 +941,9 @@ export async function buildApp(options: BuildAppOptions = {}) {
     });
     const sensitiveCredential = await sourceProvider.getCredential(body.sourceAccountId, body.sourceItemId);
     const pending = await repository.createDelivery({
+      operationId,
+      operationFingerprint,
+      policySnapshot,
       sourceProviderId: body.sourceProviderId,
       sourceAccountId: body.sourceAccountId,
       sourceItemId: body.sourceItemId,
@@ -521,7 +960,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     let result: Awaited<ReturnType<DeliveryProvider["createDelivery"]>> | undefined;
     try {
       result = await deliveryProvider.createDelivery({
-        operationId: pending.id,
+        operationId: pending.operationId ?? pending.id,
         sourceCredential: sensitiveCredential,
         recipient: body.recipient,
         expiresAt,
@@ -537,6 +976,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
         viewLimit: result.viewLimit,
         status: "active"
       });
+      deliveryUrlCache.set(record.id, result.url);
       await audit("delivery.create", "success", {
         sourceAccountId: body.sourceAccountId,
         deliveryAccountId: body.deliveryAccountId,
@@ -549,6 +989,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
       if (result?.deliveryId) {
         await deliveryProvider.revoke(body.deliveryAccountId, result.deliveryId).catch(() => undefined);
       }
+      deliveryUrlCache.delete(pending.id);
       await repository.updateDelivery(pending.id, { status: "failed", providerDeliveryId: result?.deliveryId }).catch(() => undefined);
       await audit("delivery.create", "failure", {
         sourceAccountId: body.sourceAccountId,
@@ -559,6 +1000,42 @@ export async function buildApp(options: BuildAppOptions = {}) {
       });
       throw error;
     }
+  }
+
+  async function withDeliveryOperation<T>(operationId: string, operation: () => Promise<T>): Promise<T> {
+    const previous = deliveryOperationTails.get(operationId) ?? Promise.resolve();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const tail = previous.catch(() => undefined).then(() => gate);
+    deliveryOperationTails.set(operationId, tail);
+    await previous.catch(() => undefined);
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (deliveryOperationTails.get(operationId) === tail) {
+        deliveryOperationTails.delete(operationId);
+      }
+    }
+  }
+
+  function existingOperationResponse(existing: DeliveryRecord, expectedFingerprint: string) {
+    if (existing.operationFingerprint !== expectedFingerprint) {
+      throw app.httpErrors.conflict("Delivery operation id was already used for a different request.");
+    }
+    const cachedUrl = deliveryUrlCache.get(existing.id);
+    if (cachedUrl && isReturnableDelivery(existing)) {
+      return sanitizeDelivery(existing, cachedUrl);
+    }
+    if (existing.status === "creating" || existing.status === "queued") {
+      throw app.httpErrors.conflict("Delivery operation is already in progress.");
+    }
+    if (existing.status === "failed") {
+      throw app.httpErrors.conflict("Delivery operation failed previously. Review the audit log and retry with a new operation id if a replacement link is required.");
+    }
+    throw app.httpErrors.conflict("Delivery operation already exists, but its one-time URL is no longer available in this app session. Review or revoke the existing delivery before creating a replacement link.");
   }
 
   app.get("/api/deliveries", async (request) => {
@@ -619,6 +1096,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     const provider = registry.getDeliveryProvider(delivery.deliveryProviderId);
     await provider.revoke(delivery.deliveryAccountId, delivery.providerDeliveryId ?? delivery.id);
     const updated = await repository.updateDelivery(id, { status: "revoked", revokedAt: new Date().toISOString() });
+    deliveryUrlCache.delete(id);
     await audit("delivery.revoke", "success", { deliveryAccountId: delivery.deliveryAccountId, deliveryId: id });
     return updated;
   });
@@ -675,6 +1153,92 @@ export async function buildApp(options: BuildAppOptions = {}) {
     });
   }
 
+  async function assertEmployeeAssignedEmail(employeeId: string, assignedEmail: string): Promise<EmployeeRecord> {
+    const employee = await repository.getEmployee(employeeId);
+    if (!employee || !employee.active) {
+      throw new Error("Employee is not active or does not exist.");
+    }
+    if (employee.assignedEmail !== normalizeEmail(assignedEmail)) {
+      throw new Error("Credential requests must use the employee assigned email.");
+    }
+    return employee;
+  }
+
+  async function assertEmployeePersonLink(personId: string | undefined, assignedEmail: string): Promise<void> {
+    if (!personId) return;
+    const person = await repository.getPerson(personId);
+    if (!person || !person.active) {
+      throw app.httpErrors.badRequest("Linked person must be an active WardSen person.");
+    }
+    if (!person.email) {
+      throw app.httpErrors.badRequest("Linked person must have an email before employee request access can be granted.");
+    }
+    if (normalizeEmail(person.email) !== normalizeEmail(assignedEmail)) {
+      throw app.httpErrors.badRequest("Employee assigned email must match the linked person's email.");
+    }
+  }
+
+  async function assertEmployeeCanRequestCatalogEntry(employee: EmployeeRecord, catalogEntryId: string): Promise<CredentialCatalogEntry> {
+    const entry = await repository.getCredentialCatalogEntry(catalogEntryId);
+    if (!entry || !entry.active) {
+      throw new Error("Credential catalog entry is not available.");
+    }
+    if (!catalogEntryAllowsEmployee(entry, employee)) {
+      throw new Error("Employee is not allowed to request this credential catalog entry.");
+    }
+    return entry;
+  }
+
+  async function requireEmployeeSession(request: { headers: Record<string, string | string[] | undefined> }): Promise<{ employee: EmployeeRecord; session: EmployeeSessionRecord }> {
+    const token = employeeSessionTokenFromHeaders(request.headers);
+    if (!token) {
+      throw app.httpErrors.unauthorized("Employee session required.");
+    }
+    const tokenHash = employeeSecretHash("session", "employee-session", token);
+    const session = await repository.getEmployeeSessionByTokenHash(tokenHash);
+    if (!session || session.revokedAt || new Date(session.expiresAt).getTime() <= Date.now()) {
+      throw app.httpErrors.unauthorized("Employee session is invalid or expired.");
+    }
+    const employee = await repository.getEmployee(session.employeeId);
+    if (!employee || !employee.active || employee.assignedEmail !== session.assignedEmail) {
+      throw app.httpErrors.unauthorized("Employee session no longer matches an active employee.");
+    }
+    return { employee, session };
+  }
+
+  async function revokeDeliveryBeforeReplacement(delivery: DeliveryRecord): Promise<void> {
+    if (["revoked", "expired", "failed", "cancelled"].includes(delivery.status)) return;
+    const provider = registry.getDeliveryProvider(delivery.deliveryProviderId);
+    await provider.revoke(delivery.deliveryAccountId, delivery.providerDeliveryId ?? delivery.id);
+    await repository.updateDelivery(delivery.id, { status: "revoked", revokedAt: new Date().toISOString() });
+    deliveryUrlCache.delete(delivery.id);
+    await audit("delivery.revoke", "success", {
+      deliveryAccountId: delivery.deliveryAccountId,
+      deliveryId: delivery.id,
+      safeDetails: "request_replacement"
+    });
+  }
+
+  async function assertCatalogPolicy(policy: Pick<CredentialCatalogEntry, "allowedEmployeeIds" | "allowedTeams" | "allowedRoles">): Promise<void> {
+    if (policy.allowedEmployeeIds.length === 0 && policy.allowedTeams.length === 0 && policy.allowedRoles.length === 0) {
+      throw new Error("Catalog entries must name at least one allowed employee, team or role.");
+    }
+    for (const employeeId of policy.allowedEmployeeIds) {
+      const employee = await repository.getEmployee(employeeId);
+      if (!employee || !employee.active) {
+        throw new Error(`Catalog allowed employee is not active or does not exist: ${employeeId}`);
+      }
+    }
+  }
+
+  function catalogEntryAllowsEmployee(entry: CredentialCatalogEntry, employee: EmployeeRecord): boolean {
+    const team = employee.team?.trim().toLowerCase();
+    const role = employee.role?.trim().toLowerCase();
+    return entry.allowedEmployeeIds.includes(employee.id)
+      || Boolean(team && entry.allowedTeams.some((candidate) => candidate.trim().toLowerCase() === team))
+      || Boolean(role && entry.allowedRoles.some((candidate) => candidate.trim().toLowerCase() === role));
+  }
+
   function rememberAccountProfile(account: Pick<AccountRecord, "id" | "profileDirectory">): void {
     accountProfileDirectories.set(account.id, account.profileDirectory);
   }
@@ -686,15 +1250,43 @@ export async function buildApp(options: BuildAppOptions = {}) {
       for (const delivery of deliveries.items) {
         const status = String(delivery.status);
         if (status !== "creating" && status !== "handoff_pending") continue;
+        const recoveryDetail = await recoverStuckDeliveryFromProvider(delivery);
+        if (recoveryDetail?.recovered) continue;
         await repository.updateDelivery(delivery.id, { status: "failed" });
         await audit("delivery.reconcile", "failure", {
           deliveryAccountId: delivery.deliveryAccountId,
           deliveryId: delivery.id,
-          safeDetails: `stuck_status=${status}`
+          safeDetails: recoveryDetail?.safeDetails ? `stuck_status=${status};${recoveryDetail.safeDetails}` : `stuck_status=${status}`
         });
       }
       if (page * deliveries.pageSize >= deliveries.total) break;
       page += 1;
+    }
+  }
+
+  async function recoverStuckDeliveryFromProvider(delivery: DeliveryRecord): Promise<{ recovered: boolean; safeDetails?: string } | undefined> {
+    if (!delivery.operationId) return undefined;
+    const provider = registry.getDeliveryProvider(delivery.deliveryProviderId);
+    if (!provider.findDeliveryByOperationId) return undefined;
+    try {
+      const status = await provider.findDeliveryByOperationId(delivery.deliveryAccountId, delivery.operationId);
+      if (!status) return undefined;
+      await repository.updateDelivery(delivery.id, {
+        providerDeliveryId: status.deliveryId,
+        status: status.status,
+        accessCount: status.accessCount,
+        expiresAt: status.expiresAt?.toISOString() ?? delivery.expiresAt,
+        revokedAt: status.revokedAt?.toISOString() ?? delivery.revokedAt,
+        lastCheckedAt: new Date().toISOString()
+      });
+      await audit("delivery.reconcile", "success", {
+        deliveryAccountId: delivery.deliveryAccountId,
+        deliveryId: delivery.id,
+        safeDetails: `recovered_operation=${delivery.operationId}`
+      });
+      return { recovered: true };
+    } catch (error) {
+      return { recovered: false, safeDetails: `provider_lookup_failed=${safeErrorMessage(error)}` };
     }
   }
 }
@@ -711,11 +1303,21 @@ function firstHeaderValue(header: string | string[] | undefined): string | undef
   return Array.isArray(header) ? header[0] : header;
 }
 
+function operationIdFromRequest(header: string | string[] | undefined, bodyOperationId?: string): string | undefined {
+  const headerValue = firstHeaderValue(header);
+  if (!headerValue) return bodyOperationId;
+  const parsed = operationIdSchema.parse(headerValue);
+  if (bodyOperationId && bodyOperationId !== parsed) {
+    throw new Error("Body operationId and X-WardSen-Idempotency-Key must match when both are provided.");
+  }
+  return parsed;
+}
+
 function applyCorsHeaders(reply: { header: (name: string, value: string) => unknown }, origin: string): void {
   reply.header("access-control-allow-origin", origin);
   reply.header("vary", "Origin");
   reply.header("access-control-allow-methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
-  reply.header("access-control-allow-headers", "content-type,x-wardsen-api-token");
+  reply.header("access-control-allow-headers", "content-type,x-wardsen-api-token,x-wardsen-idempotency-key,x-wardsen-employee-session");
   reply.header("access-control-max-age", "600");
 }
 
@@ -737,6 +1339,7 @@ const paginationSchema = z.object({
 });
 
 const idParams = z.object({ id: z.string().min(1) });
+const BULK_EMPLOYEE_PROVISION_CONFIRMATION = "PROVISION EMPLOYEES FROM PEOPLE";
 const accountSchema = z.object({
   id: z.string().optional(),
   providerId: z.string().min(1),
@@ -780,6 +1383,11 @@ const hardDeleteSchema = z.object({
 const destructiveConfirmationSchema = z.object({
   confirm: z.string()
 });
+const operationIdSchema = z.string()
+  .trim()
+  .min(8)
+  .max(128)
+  .regex(/^[A-Za-z0-9._:-]+$/, "Operation id may contain letters, numbers, dots, underscores, colons and hyphens only");
 const personSchema = z.object({
   id: z.string().optional(),
   name: z.string().min(1),
@@ -790,10 +1398,109 @@ const personSchema = z.object({
   notes: z.string().optional(),
   active: z.boolean().optional()
 });
+const normalizedEmailSchema = z.string().email().transform((value) => normalizeEmail(value));
+const employeeQuerySchema = paginationSchema.extend({
+  active: z.coerce.boolean().optional(),
+  search: z.string().optional()
+});
+const employeeSchema = z.object({
+  id: z.string().optional(),
+  personId: z.string().min(1).optional(),
+  name: z.string().min(1),
+  assignedEmail: normalizedEmailSchema,
+  team: z.string().optional(),
+  role: z.string().optional(),
+  active: z.boolean().optional()
+});
+const bulkEmployeeProvisionSchema = z.object({
+  personIds: z.array(z.string().min(1)).min(1).max(100),
+  confirm: z.literal(BULK_EMPLOYEE_PROVISION_CONFIRMATION),
+  confirmRiskSummary: z.literal(true),
+  defaultTeam: z.string().optional(),
+  defaultRole: z.string().optional(),
+  active: z.boolean().optional()
+});
+const issueEmployeeSignInCodeSchema = z.object({
+  ttlMinutes: z.coerce.number().int().min(5).max(60).optional(),
+  senderEmail: normalizedEmailSchema.optional()
+});
+const employeeSessionSchema = z.object({
+  assignedEmail: normalizedEmailSchema,
+  code: z.string().trim().min(6).max(32)
+});
+const credentialCatalogQuerySchema = paginationSchema.extend({
+  active: z.coerce.boolean().optional(),
+  employeeId: z.string().optional(),
+  search: z.string().optional()
+});
+const employeeCatalogQuerySchema = paginationSchema.extend({
+  employeeId: z.string().min(1),
+  assignedEmail: normalizedEmailSchema,
+  search: z.string().optional()
+});
+const employeePortalCatalogQuerySchema = paginationSchema.extend({
+  search: z.string().optional()
+});
+const credentialCatalogEntryBaseSchema = z.object({
+  id: z.string().optional(),
+  sourceProviderId: z.string().min(1),
+  sourceAccountId: z.string().min(1),
+  sourceItemId: z.string().min(1),
+  credentialName: z.string().min(1),
+  username: z.string().optional(),
+  domain: z.string().optional(),
+  tags: z.array(z.string().min(1)).default([]),
+  riskTier: z.enum(["low", "medium", "high", "critical"]).default("medium"),
+  allowedEmployeeIds: z.array(z.string().min(1)).default([]),
+  allowedTeams: z.array(z.string().min(1)).default([]),
+  allowedRoles: z.array(z.string().min(1)).default([]),
+  active: z.boolean().optional()
+});
+const credentialCatalogEntrySchema = credentialCatalogEntryBaseSchema.refine((value) => value.allowedEmployeeIds.length > 0 || value.allowedTeams.length > 0 || value.allowedRoles.length > 0, {
+  message: "Catalog entries must name at least one allowed employee, team or role."
+});
+const credentialCatalogEntryPatchSchema = credentialCatalogEntryBaseSchema.partial();
+const credentialAccessRequestQuerySchema = paginationSchema.extend({
+  employeeId: z.string().optional(),
+  status: z.enum(["pending", "approved", "denied", "fulfilled", "cancelled"]).optional()
+});
+const credentialAccessRequestSchema = z.object({
+  employeeId: z.string().min(1),
+  assignedEmail: normalizedEmailSchema,
+  catalogEntryId: z.string().min(1),
+  reason: z.string().trim().min(8).max(1000),
+  ticketRef: z.string().trim().min(1).max(200).optional(),
+  expectedDurationMinutes: z.number().int().positive().max(60 * 24 * 30).optional()
+});
+const employeePortalRequestSchema = z.object({
+  catalogEntryId: z.string().min(1),
+  reason: z.string().trim().min(8).max(1000),
+  ticketRef: z.string().trim().min(1).max(200).optional(),
+  expectedDurationMinutes: z.number().int().positive().max(60 * 24 * 30).optional()
+});
+const credentialAccessDecisionSchema = z.object({
+  approver: z.string().trim().min(1).max(200),
+  decisionReason: z.string().trim().min(1).max(1000).optional()
+});
+const credentialAccessApprovalSchema = credentialAccessDecisionSchema.extend({
+  operationId: operationIdSchema.optional(),
+  deliveryProviderId: z.string().min(1),
+  deliveryAccountId: z.string().min(1),
+  expiresAt: z.string(),
+  viewLimit: z.union([z.string(), z.number()]).optional(),
+  viewOnce: z.boolean().optional(),
+  accessPassword: z.string().optional(),
+  hideText: z.boolean().optional(),
+  confirmRiskSummary: z.boolean().optional()
+});
+const credentialAccessReplacementSchema = credentialAccessApprovalSchema.extend({
+  replacementReason: z.string().trim().min(8).max(1000)
+});
 const csvImportSchema = z.object({
   csv: z.string().max(1024 * 1024)
 });
 const deliverySchema = z.object({
+  operationId: operationIdSchema.optional(),
   sourceProviderId: z.string(),
   sourceAccountId: z.string(),
   sourceItemId: z.string(),
@@ -814,11 +1521,69 @@ const bulkDeliverySchema = deliverySchema.omit({ recipient: true }).extend({
   largeBatchConfirmation: z.string().optional()
 });
 const LARGE_BATCH_RECIPIENT_THRESHOLD = 25;
+const EMPLOYEE_SIGN_IN_CODE_TTL_MS = 15 * 60 * 1000;
+const EMPLOYEE_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
+const employeeCode = customAlphabet("23456789ABCDEFGHJKLMNPQRSTUVWXYZ", 10);
 
 async function findAccount(repository: WardSenRepository, id: string): Promise<AccountRecord> {
   const account = (await repository.listAccounts()).find((candidate) => candidate.id === id);
   if (!account) throw new Error(`Account not found: ${id}`);
   return account;
+}
+
+async function findCredentialAccessRequest(repository: WardSenRepository, id: string): Promise<CredentialAccessRequestRecord> {
+  const accessRequest = await repository.getCredentialAccessRequest(id);
+  if (!accessRequest) throw new Error(`Credential access request not found: ${id}`);
+  return accessRequest;
+}
+
+function normalizeEmail(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function normalizeEmployeeCode(value: string): string {
+  return value.trim().replace(/\s+/g, "").toUpperCase();
+}
+
+function employeeSecretHash(kind: "code" | "session", scope: string, value: string): string {
+  return createHash("sha256").update(`wardsen-employee-${kind}-v1:${scope}:${value}`).digest("hex");
+}
+
+function buildEmployeeSignInEmailDraft(input: {
+  senderEmail: string;
+  employeeName: string;
+  assignedEmail: string;
+  code: string;
+  expiresAt: string;
+}) {
+  return {
+    senderEmail: input.senderEmail,
+    to: input.assignedEmail,
+    subject: "WardSen employee portal sign-in code",
+    body: [
+      `Hi ${input.employeeName},`,
+      "",
+      "Use this one-time code to sign in to the WardSen employee portal:",
+      input.code,
+      "",
+      `Assigned email: ${input.assignedEmail}`,
+      `Expires: ${input.expiresAt}`,
+      "",
+      "WardSen does not use a permanent employee password for this flow. Only use this code if you expected a WardSen access request."
+    ].join("\n")
+  };
+}
+
+function employeeSessionTokenFromHeaders(headers: Record<string, string | string[] | undefined>): string | undefined {
+  const direct = firstHeader(headers["x-wardsen-employee-session"]);
+  if (direct) return direct.trim();
+  const authorization = firstHeader(headers.authorization);
+  const bearer = authorization?.match(/^Bearer\s+(.+)$/i)?.[1];
+  return bearer?.trim();
+}
+
+function firstHeader(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
 }
 
 function sanitizeDelivery(record: DeliveryRecord, url: string) {
@@ -874,7 +1639,7 @@ function managedProfileDirectory(profileRoot: string, accountId: string): string
   return resolved;
 }
 
-function confirmationPhrase(action: "DELETE ACCOUNT" | "DELETE PERSON" | "REVOKE DELIVERY" | "CANCEL BATCH", id: string): string {
+function confirmationPhrase(action: "DELETE ACCOUNT" | "DELETE PERSON" | "REVOKE DELIVERY" | "CANCEL BATCH" | "REPLACE REQUEST", id: string): string {
   return `${action} ${id}`;
 }
 
@@ -883,4 +1648,33 @@ function assertDestructiveConfirmation(body: unknown, expected: string): void {
   if (!parsed.success || parsed.data.confirm !== expected) {
     throw new Error(`Destructive action requires confirmation phrase: ${expected}`);
   }
+}
+
+function childOperationId(parentOperationId: string, childId: string): string {
+  return `${parentOperationId}:${createHash("sha256").update(childId).digest("hex").slice(0, 16)}`;
+}
+
+function deliveryPolicySnapshot(body: z.infer<typeof deliverySchema> & { batchId?: string }, expiresAt: Date, viewLimit?: number): DeliveryPolicySnapshot {
+  return {
+    sourceProviderId: body.sourceProviderId,
+    sourceAccountId: body.sourceAccountId,
+    sourceItemId: body.sourceItemId,
+    deliveryProviderId: body.deliveryProviderId,
+    deliveryAccountId: body.deliveryAccountId,
+    recipientId: body.recipient?.id,
+    deliveryMethod: body.deliveryMethod,
+    expiresAt: expiresAt.toISOString(),
+    viewLimit,
+    viewOnce: body.viewOnce === true,
+    accessSecretRequired: Boolean(body.accessPassword),
+    hideText: body.hideText === true
+  };
+}
+
+function deliveryOperationFingerprint(policySnapshot: DeliveryPolicySnapshot): string {
+  return createHash("sha256").update(JSON.stringify(policySnapshot)).digest("hex");
+}
+
+function isReturnableDelivery(delivery: DeliveryRecord): boolean {
+  return delivery.status === "active" || delivery.status === "viewed" || delivery.status === "limit_reached";
 }

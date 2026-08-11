@@ -22,6 +22,8 @@ describe("SqliteWardSenRepository", () => {
     expect(people.items[0].id).toBe(person.id);
 
     const delivery = await repo.createDelivery({
+      operationId: "delivery-op-1",
+      operationFingerprint: "fingerprint-1",
       providerDeliveryId: "provider-id",
       sourceProviderId: "bitwarden",
       sourceAccountId: "source-account",
@@ -37,6 +39,7 @@ describe("SqliteWardSenRepository", () => {
     expect(JSON.stringify(await repo.listDeliveries({ page: 1, pageSize: 10 }))).not.toContain("https://");
     expect((await repo.listDeliveries({ page: 1, pageSize: 10, batchId: "missing" })).total).toBe(0);
     expect(delivery.providerDeliveryId).toBe("provider-id");
+    expect(await repo.getDeliveryByOperationId("delivery-op-1")).toMatchObject({ id: delivery.id, operationFingerprint: "fingerprint-1" });
     repo.close();
   });
 
@@ -95,6 +98,144 @@ describe("SqliteWardSenRepository", () => {
       viewLimit: 0,
       status: "active"
     })).rejects.toThrow("invalid delivery metadata");
+    repo.close();
+  });
+
+  it("enforces unique delivery operation ids", async () => {
+    tempDir = mkdtempSync(path.join(os.tmpdir(), "wardsen-sqlite-"));
+    const repo = new SqliteWardSenRepository(path.join(tempDir, "wardsen.sqlite"));
+
+    const baseDelivery = {
+      operationId: "delivery-op-1",
+      operationFingerprint: "fingerprint-1",
+      providerDeliveryId: "provider-id",
+      sourceProviderId: "bitwarden",
+      sourceAccountId: "source-account",
+      sourceItemId: "item-id",
+      deliveryProviderId: "bitwarden-send",
+      deliveryAccountId: "delivery-account",
+      credentialName: "CMS",
+      expiresAt: new Date(Date.now() + 3600000).toISOString(),
+      status: "active" as const
+    };
+    await repo.createDelivery(baseDelivery);
+
+    await expect(repo.createDelivery({ ...baseDelivery, id: "delivery-2", providerDeliveryId: "provider-id-2" })).rejects.toThrow();
+    repo.close();
+  });
+
+  it("persists employee credential request catalog metadata", async () => {
+    tempDir = mkdtempSync(path.join(os.tmpdir(), "wardsen-sqlite-"));
+    const repo = new SqliteWardSenRepository(path.join(tempDir, "wardsen.sqlite"));
+
+    const employee = await repo.upsertEmployee({
+      id: "employee-1",
+      personId: "person-ravi",
+      name: "Ravi",
+      assignedEmail: "Ravi@Example.com",
+      team: "Ops",
+      role: "Engineer"
+    });
+    const entry = await repo.upsertCredentialCatalogEntry({
+      id: "catalog-1",
+      sourceProviderId: "mock-source",
+      sourceAccountId: "source",
+      sourceItemId: "cms",
+      credentialName: "CMS Login",
+      username: "ops",
+      domain: "example.com",
+      tags: ["prod"],
+      riskTier: "high",
+      allowedEmployeeIds: [employee.id]
+    });
+    const policyEntry = await repo.upsertCredentialCatalogEntry({
+      id: "catalog-policy",
+      sourceProviderId: "mock-source",
+      sourceAccountId: "source",
+      sourceItemId: "deploy",
+      credentialName: "Deploy Root",
+      riskTier: "high",
+      allowedTeams: ["Ops"],
+      allowedRoles: ["Engineer"]
+    });
+    const request = await repo.createCredentialAccessRequest({
+      employeeId: employee.id,
+      assignedEmail: "RAVI@example.com",
+      catalogEntryId: entry.id,
+      sourceProviderId: entry.sourceProviderId,
+      sourceAccountId: entry.sourceAccountId,
+      sourceItemId: entry.sourceItemId,
+      credentialName: entry.credentialName,
+      reason: "Emergency deploy rollback"
+    });
+    await repo.updateCredentialAccessRequest(request.id, {
+      status: "denied",
+      approver: "admin@example.com",
+      decidedAt: new Date().toISOString(),
+      deliveryId: "delivery-2",
+      previousDeliveryId: "delivery-1",
+      replacementCount: 1,
+      lastReplacementAt: "2026-08-11T00:00:00.000Z"
+    });
+
+    expect((await repo.listEmployees({ page: 1, pageSize: 10 })).items[0]).toMatchObject({ personId: "person-ravi", assignedEmail: "ravi@example.com" });
+    expect(policyEntry).toMatchObject({ allowedEmployeeIds: [], allowedTeams: ["Ops"], allowedRoles: ["Engineer"] });
+    expect((await repo.listCredentialCatalog({ page: 1, pageSize: 10, employeeId: employee.id, employeeTeam: employee.team, employeeRole: employee.role })).items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ credentialName: "CMS Login", tags: ["prod"] }),
+      expect.objectContaining({ credentialName: "Deploy Root", allowedTeams: ["Ops"], allowedRoles: ["Engineer"] })
+    ]));
+    expect((await repo.listCredentialCatalog({ page: 1, pageSize: 10, employeeId: "employee-other", employeeTeam: "Finance", employeeRole: "Analyst" })).items).toHaveLength(0);
+    expect((await repo.listCredentialAccessRequests({ page: 1, pageSize: 10, status: "denied" })).items[0]).toMatchObject({
+      id: request.id,
+      approver: "admin@example.com",
+      deliveryId: "delivery-2",
+      previousDeliveryId: "delivery-1",
+      replacementCount: 1
+    });
+    repo.close();
+  });
+
+  it("persists employee sign-in codes and sessions without raw code or token values", async () => {
+    tempDir = mkdtempSync(path.join(os.tmpdir(), "wardsen-sqlite-"));
+    const databasePath = path.join(tempDir, "wardsen.sqlite");
+    const repo = new SqliteWardSenRepository(databasePath);
+    const employee = await repo.upsertEmployee({
+      id: "employee-1",
+      name: "Ravi",
+      assignedEmail: "Ravi@Example.com"
+    });
+    const rawCode = "EMPLOYEE-CODE-RAW";
+    const rawToken = "employee_session_raw";
+    const codeHash = "c".repeat(64);
+    const tokenHash = "s".repeat(64);
+    const expiresAt = new Date(Date.now() + 3600000).toISOString();
+
+    const code = await repo.createEmployeeSignInCode({
+      employeeId: employee.id,
+      assignedEmail: employee.assignedEmail,
+      codeHash,
+      expiresAt
+    });
+    const session = await repo.createEmployeeSession({
+      employeeId: employee.id,
+      assignedEmail: employee.assignedEmail,
+      tokenHash,
+      expiresAt
+    });
+    await repo.updateEmployeeSignInCode(code.id, { usedAt: "used" });
+    await repo.updateEmployeeSession(session.id, { revokedAt: "revoked" });
+
+    expect(await repo.getEmployeeByAssignedEmail("ravi@example.com")).toMatchObject({ id: employee.id });
+    expect(await repo.getEmployeeSignInCodeByHash(employee.id, codeHash)).toMatchObject({ usedAt: "used", codeHash });
+    expect(await repo.getEmployeeSessionByTokenHash(tokenHash)).toMatchObject({ revokedAt: "revoked", tokenHash });
+    const db = new DatabaseSync(databasePath);
+    const codeRows = db.prepare("SELECT code_hash FROM employee_sign_in_codes").all();
+    const sessionRows = db.prepare("SELECT token_hash FROM employee_sessions").all();
+    db.close();
+    expect(JSON.stringify(codeRows)).toContain(codeHash);
+    expect(JSON.stringify(sessionRows)).toContain(tokenHash);
+    expect(JSON.stringify(codeRows)).not.toContain(rawCode);
+    expect(JSON.stringify(sessionRows)).not.toContain(rawToken);
     repo.close();
   });
 

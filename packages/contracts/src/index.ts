@@ -12,8 +12,26 @@ export const deliveryStatusValueSchema = z.enum([
 
 export const deliveryMethodSchema = z.enum(["copy", "whatsapp", "email"]);
 
+export const deliveryPolicySnapshotSchema = z.object({
+  sourceProviderId: z.string().min(1),
+  sourceAccountId: z.string().min(1),
+  sourceItemId: z.string().min(1),
+  deliveryProviderId: z.string().min(1),
+  deliveryAccountId: z.string().min(1),
+  recipientId: z.string().min(1).optional(),
+  deliveryMethod: deliveryMethodSchema.optional(),
+  expiresAt: z.string().min(1),
+  viewLimit: z.number().int().positive().optional(),
+  viewOnce: z.boolean(),
+  accessSecretRequired: z.boolean(),
+  hideText: z.boolean()
+});
+
 export const deliveryRecordSchema = z.object({
   id: z.string().min(1),
+  operationId: z.string().min(1).optional(),
+  operationFingerprint: z.string().min(1).optional(),
+  policySnapshot: deliveryPolicySnapshotSchema.optional(),
   providerDeliveryId: z.string().min(1).optional(),
   credentialName: z.string().min(1),
   personId: z.string().min(1).optional(),

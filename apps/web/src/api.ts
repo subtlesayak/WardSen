@@ -81,6 +81,20 @@ export async function openExternalUrl(url: string): Promise<void> {
   }
 }
 
+export async function openMailDraft(url: string): Promise<void> {
+  const parsed = new URL(url);
+  if (parsed.protocol !== "mailto:") {
+    throw new Error("WardSen can only open mail draft links with the mailto protocol.");
+  }
+
+  if (isTauriOrigin()) {
+    await openUrl(parsed.toString());
+    return;
+  }
+
+  window.location.href = parsed.toString();
+}
+
 export async function copyExternalUrl(url: string): Promise<void> {
   const parsed = new URL(url);
   if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {

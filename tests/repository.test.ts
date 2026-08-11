@@ -60,4 +60,140 @@ describe("people repository", () => {
     expect(result.total).toBe(1);
     expect(result.items[0].id).toBe("delivery-2");
   });
+
+  it("finds deliveries by operation id and rejects duplicate operations", async () => {
+    const repo = new InMemoryWardSenRepository();
+    await repo.createDelivery({
+      id: "delivery-1",
+      operationId: "delivery-op-1",
+      operationFingerprint: "fingerprint-1",
+      providerDeliveryId: "provider-1",
+      sourceProviderId: "mock-source",
+      sourceAccountId: "source",
+      sourceItemId: "cms",
+      deliveryProviderId: "mock-delivery",
+      deliveryAccountId: "delivery",
+      credentialName: "CMS",
+      expiresAt: new Date(Date.now() + 3600000).toISOString(),
+      status: "active"
+    });
+
+    await expect(repo.getDeliveryByOperationId("delivery-op-1")).resolves.toMatchObject({ id: "delivery-1" });
+    await expect(repo.createDelivery({
+      id: "delivery-2",
+      operationId: "delivery-op-1",
+      operationFingerprint: "fingerprint-1",
+      providerDeliveryId: "provider-2",
+      sourceProviderId: "mock-source",
+      sourceAccountId: "source",
+      sourceItemId: "cms",
+      deliveryProviderId: "mock-delivery",
+      deliveryAccountId: "delivery",
+      credentialName: "CMS",
+      expiresAt: new Date(Date.now() + 3600000).toISOString(),
+      status: "active"
+    })).rejects.toThrow("Duplicate delivery operation id: delivery-op-1");
+  });
+
+  it("stores employee catalog requests without raw secret values", async () => {
+    const repo = new InMemoryWardSenRepository();
+    const employee = await repo.upsertEmployee({
+      id: "employee-1",
+      personId: "person-ravi",
+      name: "Ravi",
+      assignedEmail: "Ravi@Example.com",
+      team: "Ops",
+      role: "Engineer"
+    });
+    const entry = await repo.upsertCredentialCatalogEntry({
+      id: "catalog-1",
+      sourceProviderId: "mock-source",
+      sourceAccountId: "source",
+      sourceItemId: "cms",
+      credentialName: "CMS Login",
+      username: "ops",
+      domain: "example.com",
+      tags: ["prod", "prod"],
+      riskTier: "high",
+      allowedEmployeeIds: [employee.id]
+    });
+    const policyEntry = await repo.upsertCredentialCatalogEntry({
+      id: "catalog-policy",
+      sourceProviderId: "mock-source",
+      sourceAccountId: "source",
+      sourceItemId: "deploy",
+      credentialName: "Deploy Root",
+      riskTier: "high",
+      allowedTeams: ["Ops"],
+      allowedRoles: ["Engineer"]
+    });
+    const request = await repo.createCredentialAccessRequest({
+      employeeId: employee.id,
+      assignedEmail: "RAVI@example.com",
+      catalogEntryId: entry.id,
+      sourceProviderId: entry.sourceProviderId,
+      sourceAccountId: entry.sourceAccountId,
+      sourceItemId: entry.sourceItemId,
+      credentialName: entry.credentialName,
+      reason: "Emergency deploy rollback"
+    });
+
+    expect(employee).toMatchObject({ personId: "person-ravi", assignedEmail: "ravi@example.com" });
+    await expect(repo.upsertEmployee({
+      id: "employee-duplicate-person",
+      personId: "person-ravi",
+      name: "Duplicate Ravi",
+      assignedEmail: "duplicate@example.com"
+    })).rejects.toThrow("Duplicate employee person link: person-ravi");
+    expect(entry.tags).toEqual(["prod"]);
+    expect(policyEntry).toMatchObject({ allowedEmployeeIds: [], allowedTeams: ["Ops"], allowedRoles: ["Engineer"] });
+    expect((await repo.listCredentialCatalog({ page: 1, pageSize: 10, employeeId: employee.id, employeeTeam: employee.team, employeeRole: employee.role })).items).toHaveLength(2);
+    expect((await repo.listCredentialCatalog({ page: 1, pageSize: 10, employeeId: "employee-other", employeeTeam: "Finance", employeeRole: "Analyst" })).items).toHaveLength(0);
+    expect(request).toMatchObject({ assignedEmail: "ravi@example.com", status: "pending", replacementCount: 0 });
+    await repo.updateCredentialAccessRequest(request.id, {
+      deliveryId: "delivery-2",
+      previousDeliveryId: "delivery-1",
+      replacementCount: 1,
+      lastReplacementAt: "2026-08-11T00:00:00.000Z"
+    });
+    expect(await repo.getCredentialAccessRequest(request.id)).toMatchObject({
+      deliveryId: "delivery-2",
+      previousDeliveryId: "delivery-1",
+      replacementCount: 1
+    });
+    expect(JSON.stringify(await repo.listCredentialAccessRequests({ page: 1, pageSize: 10 }))).not.toContain("Password123");
+  });
+
+  it("stores employee sign-in codes and sessions as hashes", async () => {
+    const repo = new InMemoryWardSenRepository();
+    const employee = await repo.upsertEmployee({
+      id: "employee-1",
+      name: "Ravi",
+      assignedEmail: "Ravi@Example.com"
+    });
+    const codeHash = "c".repeat(64);
+    const tokenHash = "s".repeat(64);
+    const expiresAt = new Date(Date.now() + 3600000).toISOString();
+
+    const code = await repo.createEmployeeSignInCode({
+      employeeId: employee.id,
+      assignedEmail: "RAVI@example.com",
+      codeHash,
+      expiresAt
+    });
+    const session = await repo.createEmployeeSession({
+      employeeId: employee.id,
+      assignedEmail: "RAVI@example.com",
+      tokenHash,
+      expiresAt
+    });
+
+    expect(await repo.getEmployeeByAssignedEmail("ravi@example.com")).toMatchObject({ id: employee.id });
+    expect(await repo.getEmployeeSignInCodeByHash(employee.id, codeHash)).toMatchObject({ id: code.id, assignedEmail: "ravi@example.com" });
+    expect(await repo.getEmployeeSessionByTokenHash(tokenHash)).toMatchObject({ id: session.id, assignedEmail: "ravi@example.com" });
+    await repo.updateEmployeeSignInCode(code.id, { usedAt: "used" });
+    await repo.updateEmployeeSession(session.id, { revokedAt: "revoked" });
+    expect(await repo.getEmployeeSignInCodeByHash(employee.id, codeHash)).toMatchObject({ usedAt: "used" });
+    expect(await repo.getEmployeeSessionByTokenHash(tokenHash)).toMatchObject({ revokedAt: "revoked" });
+  });
 });

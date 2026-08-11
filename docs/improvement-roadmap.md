@@ -14,6 +14,7 @@ WardSen should stabilize the existing local credential retrieval to provider-hos
 | **P0** | Make auto-lock timer-driven | Locks idle vaults without requiring another API request |
 | **P0** | Build releases from the exact tag | Prevents incorrectly labelled binaries |
 | **P1** | Add per-recipient viewer attribution and leak alerts | Shows which assigned link was accessed and enables fast revoke/replacement without overclaiming device identity |
+| **P1** | Add employee credential request catalog | Lets employees request approved credentials from their assigned email while giving admins a full audit trail |
 | **P1** | Replace session-token files with authenticated IPC | Removes a sensitive disk handoff |
 | **P1** | Add crash-safe delivery state and idempotency | Prevents orphaned or duplicate active links |
 | **P1** | Introduce shared API contracts | Stops frontend/server response drift |
@@ -211,7 +212,61 @@ Exit criteria:
 - WardSen can show which intended recipient's assigned link was accessed.
 - WardSen never claims the actual viewer identity/device unless provider-verified telemetry exists.
 
-## Phase 9: Release Engineering
+## Phase 9: Employee Credential Request Catalog
+
+Goal: let employees find and request credentials without granting broad direct secret visibility.
+
+WardSen should support an employee-facing catalog where a worker can search credential records they are allowed to request, choose the required credential, and submit a reason from an admin-provisioned email identity. The default model should expose metadata and request controls, not raw password values.
+
+Identity rule: each employee must use a set email provided by the organization. The employee should not type an arbitrary recipient address at request time. Admins map employee records to approved email addresses, and all request, approval, delivery, view-status, revoke, and replacement-link events must retain that assigned email in the audit trail.
+
+Safe request model:
+
+```text
+Employee:         Ravi
+Assigned email:   ravi@company.example
+Credential:       GitHub Production
+Reason:           Emergency deploy rollback
+Request status:   Pending admin approval
+Delivery status:  Not sent
+```
+
+Deliverables:
+
+- Add an employee credential catalog showing allowed credential names, provider, account owner, tags, rotation age, and risk tier without exposing secret values.
+- Add employee records with immutable or admin-controlled assigned email addresses.
+- Require employees to submit access requests from their assigned email identity.
+- Require a request reason, optional ticket/reference, and expected access duration.
+- Add admin approval, denial, auto-approval policy, and emergency break-glass states.
+- Deliver approved credentials only to the employee's assigned email or a provider-verified equivalent identity.
+- Use per-employee, per-request delivery links and reuse the Phase 8 wording: "Ravi's link was viewed," not "Ravi viewed it."
+- Add admin audit views for requested credential, requester email, reason, approver, delivery link status, access count, expiry, revoke, and replacement workflow.
+- Add role-based catalog filtering so employees can request only credentials within their team, project, or policy scope.
+- Add server-enforced authorization tests proving employees cannot request as another email, change their assigned email, view raw secrets directly, or access catalog entries outside their policy.
+
+Current MVP status:
+
+- Implemented employee identity records with normalized, admin-controlled assigned email addresses.
+- Implemented optional Person-to-Employee linking with server validation that the linked contact email matches the assigned employee email.
+- Implemented exact-confirmation bulk provisioning from selected People into linked Employee identities.
+- Implemented requestable catalog metadata and per-employee catalog filtering.
+- Implemented employee request creation, admin approval/denial and approval-to-delivery handoff.
+- Implemented server tests for assigned-email enforcement, metadata-only catalog responses, approval confirmation and out-of-scope catalog request rejection.
+- Implemented passwordless employee portal sessions with admin-issued one-time codes, code hashes and session-token hashes.
+- Implemented sender-labelled email draft handoff for employee sign-in codes without placing the one-time code into a `mailto:` URL.
+- Implemented request-bound replacement links that require `REPLACE REQUEST <id>`, revoke the previous delivery, and preserve replacement metadata on the original request.
+- Implemented a local Requests view for admin setup, employee sign-in, employee-side request submission and admin review in one desktop screen.
+- Implemented server-enforced catalog policy rules for exact employees, teams and roles.
+- Documented the future employee portal flow in [Employee Credential Request Flow](employee-request-flow.md).
+- Remaining: separate hosted employee portal, SMTP/magic-link delivery or SSO/OIDC, automatic approval policy and emergency break-glass workflow.
+
+Exit criteria:
+
+- Employees can request credentials from a catalog using only their assigned email identity.
+- Admins can see request, approval, delivery, viewed-link, revoke, and replacement status.
+- No employee-facing path lists or returns all raw passwords.
+
+## Phase 10: Release Engineering
 
 Goal: make releases fail closed.
 
@@ -230,7 +285,7 @@ Exit criteria:
 
 - A release named for a tag is built from exactly that tag.
 
-## Phase 10: Security Beta Hardening
+## Phase 11: Security Beta Hardening
 
 Goal: prepare for external security review.
 
@@ -247,7 +302,7 @@ Exit criteria:
 
 - The core workflow survives failure, timeout, crash, and packaging tests without leaking secrets.
 
-## Phase 11: Trusted Public Release
+## Phase 12: Trusted Public Release
 
 Goal: ship to ordinary users.
 
@@ -264,7 +319,7 @@ Exit criteria:
 
 - Public installers are signed, verifiable, and tied to build provenance.
 
-## Phase 12: Provider Expansion
+## Phase 13: Provider Expansion
 
 Goal: add more providers only after the core path is stable.
 
@@ -273,6 +328,7 @@ Deliverables:
 - Add a provider manifest.
 - Add a provider conformance suite.
 - Implement one new provider at a time.
+- Evaluate Ente Paste first among secure-link candidates, followed by API-oriented or self-hosted options documented in [Delivery Provider Candidates](delivery-provider-comparison.md).
 - Mark new providers experimental first.
 - Promote only after packaged tests pass.
 

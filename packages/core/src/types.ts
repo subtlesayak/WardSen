@@ -10,6 +10,8 @@ export type DeliveryStatusValue =
   | "revoked"
   | "failed"
   | "cancelled";
+export type CredentialRiskTier = "low" | "medium" | "high" | "critical";
+export type CredentialAccessRequestStatus = "pending" | "approved" | "denied" | "fulfilled" | "cancelled";
 
 export interface PaginationInput {
   page: number;
@@ -133,12 +135,28 @@ export interface DeliveryStatus {
   revokedAt?: Date;
 }
 
+export interface DeliveryPolicySnapshot {
+  sourceProviderId: string;
+  sourceAccountId: string;
+  sourceItemId: string;
+  deliveryProviderId: string;
+  deliveryAccountId: string;
+  recipientId?: string;
+  deliveryMethod?: "copy" | "whatsapp" | "email";
+  expiresAt: string;
+  viewLimit?: number;
+  viewOnce: boolean;
+  accessSecretRequired: boolean;
+  hideText: boolean;
+}
+
 export interface DeliveryProvider {
   id: string;
   displayName: string;
   getCapabilities(): Promise<DeliveryProviderCapabilities>;
   testConnection(accountId: string): Promise<ConnectionResult>;
   createDelivery(input: CreateDeliveryInput): Promise<DeliveryResult>;
+  findDeliveryByOperationId?(accountId: string, operationId: string): Promise<DeliveryStatus | undefined>;
   revoke(accountId: string, deliveryId: string): Promise<void>;
   getStatus(accountId: string, deliveryId: string): Promise<DeliveryStatus>;
 }
@@ -172,8 +190,86 @@ export interface PersonRecord {
   updatedAt: string;
 }
 
+export interface EmployeeRecord {
+  id: string;
+  personId?: string;
+  name: string;
+  assignedEmail: string;
+  team?: string;
+  role?: string;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EmployeeSignInCodeRecord {
+  id: string;
+  employeeId: string;
+  assignedEmail: string;
+  codeHash: string;
+  expiresAt: string;
+  usedAt?: string;
+  createdAt: string;
+}
+
+export interface EmployeeSessionRecord {
+  id: string;
+  employeeId: string;
+  assignedEmail: string;
+  tokenHash: string;
+  expiresAt: string;
+  revokedAt?: string;
+  createdAt: string;
+}
+
+export interface CredentialCatalogEntry {
+  id: string;
+  sourceProviderId: string;
+  sourceAccountId: string;
+  sourceItemId: string;
+  credentialName: string;
+  username?: string;
+  domain?: string;
+  tags: string[];
+  riskTier: CredentialRiskTier;
+  allowedEmployeeIds: string[];
+  allowedTeams: string[];
+  allowedRoles: string[];
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CredentialAccessRequestRecord {
+  id: string;
+  employeeId: string;
+  assignedEmail: string;
+  catalogEntryId: string;
+  sourceProviderId: string;
+  sourceAccountId: string;
+  sourceItemId: string;
+  credentialName: string;
+  reason: string;
+  ticketRef?: string;
+  expectedDurationMinutes?: number;
+  status: CredentialAccessRequestStatus;
+  requestedAt: string;
+  decidedAt?: string;
+  approver?: string;
+  decisionReason?: string;
+  deliveryId?: string;
+  deliveryProviderId?: string;
+  deliveryAccountId?: string;
+  previousDeliveryId?: string;
+  replacementCount?: number;
+  lastReplacementAt?: string;
+}
+
 export interface DeliveryRecord {
   id: string;
+  operationId?: string;
+  operationFingerprint?: string;
+  policySnapshot?: DeliveryPolicySnapshot;
   providerDeliveryId?: string;
   sourceProviderId: string;
   sourceAccountId: string;

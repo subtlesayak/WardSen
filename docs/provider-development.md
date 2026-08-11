@@ -25,4 +25,8 @@ Before promoting a new provider to `active`:
 - Confirm the manifest id, display name, kind, maturity, and enabled-by-default state match the real adapter.
 - Keep the provider disabled from normal account creation until these tests pass in the release packaging workflow.
 
+For delivery candidates, also verify the provider's supported API or CLI contract, expiry and view-limit mapping, revoke behavior, access telemetry, endpoint/account isolation and whether link previews can consume a one-time secret. A public web page that can create a link is not sufficient evidence for an adapter.
+
+Delivery providers that can look up provider-side metadata by WardSen `operationId` may implement `findDeliveryByOperationId`. The method must return status metadata only; do not return secure-link URLs from reconciliation paths, and do not infer viewer identity from access counts.
+
 No partially implemented provider should appear as functional.

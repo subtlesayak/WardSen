@@ -163,7 +163,7 @@ export class BitwardenCredentialProvider implements CredentialProvider {
     const username = input.username ? ` ${posixSingleQuote(input.username)}` : "";
     const server = input.serverUrl ? `bw config server ${posixSingleQuote(input.serverUrl)}; ` : "";
     const handoffFile = bitwardenSessionHandoffFile(accountId, this.profileDirectory(accountId));
-    return `export BITWARDENCLI_APPDATA_DIR=${profilePath}; ${server}bwResult="$(bw login${username} --raw 2>&1)"; status=$?; if [ "$status" -ne 0 ] && printf '%s' "$bwResult" | grep -qi "already logged in"; then bwResult="$(bw unlock --raw)"; status=$?; fi; if [ "$status" -eq 0 ] && [ -n "$bwResult" ]; then umask 077; printf '%s' "$bwResult" > "$BITWARDENCLI_APPDATA_DIR/${posixDoubleQuoteLiteral(handoffFile)}"; fi; unset BITWARDENCLI_APPDATA_DIR`;
+    return `export BITWARDENCLI_APPDATA_DIR=${profilePath}; ${server}bwResult="$(bw login${username} --raw 2>&1)"; bwExitCode=$?; if [ "$bwExitCode" -ne 0 ] && printf '%s' "$bwResult" | grep -qi "already logged in"; then bwResult="$(bw unlock --raw)"; bwExitCode=$?; fi; if [ "$bwExitCode" -eq 0 ] && [ -n "$bwResult" ]; then umask 077; printf '%s' "$bwResult" > "$BITWARDENCLI_APPDATA_DIR/${posixDoubleQuoteLiteral(handoffFile)}"; fi; unset BITWARDENCLI_APPDATA_DIR`;
   }
 
   private consumeTerminalSessionHandoff(accountId: string): string | undefined {

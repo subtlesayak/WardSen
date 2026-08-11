@@ -51,6 +51,10 @@ input, select, textarea {
   color: #14211d;
   background: #fbfdfc;
 }
+input[readonly] {
+  color: #52665e;
+  background: #f0f5f3;
+}
 textarea {
   min-height: 116px;
   padding: 10px 12px;
@@ -431,6 +435,27 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
   gap: 8px;
   flex-wrap: wrap;
 }
+.copyFeedback {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.copyFeedback button.copySuccess {
+  color: #0d5f44;
+  background: #ccefe2;
+}
+.copyFeedbackStatus,
+.copyFeedbackError {
+  color: #0d5f44;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.copyFeedbackError {
+  color: #7b2f2f;
+}
 .buttonRow button {
   display: inline-flex;
   align-items: center;
@@ -498,6 +523,7 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
 .tableHead.batch, .tableRow.batch { grid-template-columns: minmax(220px, 1.3fr) 0.7fr 0.7fr 0.7fr 0.8fr 1fr 136px; }
 .tableHead.batchDeliveries, .tableRow.batchDeliveries { grid-template-columns: 1.2fr 1fr 0.8fr 0.7fr 1fr 1.1fr; }
 .tableHead.handoff, .tableRow.handoff { grid-template-columns: 1fr 0.7fr 1fr 220px; min-width: 720px; }
+.tableHead.requests, .tableRow.requests { grid-template-columns: 1.1fr 0.9fr 1fr 1.2fr 0.7fr 172px; min-width: 1020px; }
 .tableHead { min-height: 34px; color: #70827c; font-size: 12px; text-transform: uppercase; }
 .tableRow { background: #f4f8f6; }
 .tableRow.selected {
@@ -589,8 +615,27 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
   white-space: pre-line;
 }
 .riskSummary strong { color: #44340d; }
+.checkboxLine {
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
+  color: inherit;
+  font-size: 13px;
+}
+.checkboxLine input {
+  width: auto;
+  min-height: auto;
+}
 .check { display: flex !important; align-items: center; gap: 8px; }
 .check input { min-height: auto; }
+.inlineCheck {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #52665e;
+  font-size: 13px;
+}
+.inlineCheck input { min-height: auto; }
 .segmented {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

@@ -21,7 +21,7 @@ WardSen is an independent open-source project and is not affiliated with, endors
 - Bitwarden credential adapter through the official `bw` CLI
 - Bitwarden Send delivery adapter through the official `bw` CLI
 - KeePassXC credential adapter through `keepassxc-cli`
-- Provider-neutral scaffolds for 1Password, Proton Pass and Keeper
+- Provider-neutral scaffolds for 1Password, Proton Pass, Keeper and planned secure-link providers such as Ente Paste
 - SQLite metadata persistence with safe audit logs
 - Cross-origin mutation protection and user-facing error help
 - Windows and macOS setup helpers
@@ -36,15 +36,17 @@ WardSen is an independent open-source project and is not affiliated with, endors
 - [Desktop packaging](docs/desktop-packaging.md)
 - [Installer signing](docs/installer-signing.md)
 - [Third-party provider policy](docs/third-party-provider-policy.md)
+- [Delivery provider candidates](docs/delivery-provider-comparison.md)
+- [Employee request flow](docs/employee-request-flow.md)
 - [Security design](docs/security-design.md)
 - [Threat model](THREAT_MODEL.md)
 - [Release checklist](docs/release-security-checklist.md)
 
 ## Status
 
-`v0.1.0-rc.42` is the latest installer prerelease. It is suitable for developer review, security review and platform packaging validation.
+`v0.1.0-rc.43` is the latest installer prerelease. It is suitable for developer review, security review and platform packaging validation.
 
-Unsigned Windows MSI and macOS Apple Silicon installers are attached to the GitHub prerelease. The previous unsigned Windows setup EXE was pulled after Microsoft Defender flagged it as `Trojan:Win32/Wacatac.B!ml`; `v0.1.0-rc.42` does not publish that NSIS setup EXE. Windows SmartScreen, Microsoft Defender and macOS Gatekeeper may warn until signing certificates and notarization are configured. See [installer signing](docs/installer-signing.md) before publishing a fully trusted end-user release.
+Unsigned Windows MSI and macOS Apple Silicon installers are attached to the GitHub prerelease. The previous unsigned Windows setup EXE was pulled after Microsoft Defender flagged it as `Trojan:Win32/Wacatac.B!ml`; `v0.1.0-rc.43` does not publish that NSIS setup EXE. Windows SmartScreen, Microsoft Defender and macOS Gatekeeper may warn until signing certificates and notarization are configured. See [installer signing](docs/installer-signing.md) before publishing a fully trusted end-user release.
 
 This release contains:
 
@@ -52,11 +54,15 @@ This release contains:
 - Bitwarden credential adapter using the official `bw` CLI
 - Bitwarden Send delivery adapter using the official `bw` CLI
 - KeePassXC credential adapter using the official `keepassxc-cli`
-- Typed scaffolds for 1Password, Proton Pass and Keeper
+- Typed scaffolds for 1Password, Proton Pass, Keeper and planned delivery providers
 - Localhost-only Fastify API
 - React/Vite desktop administration interface
 - SQLite migration contract
 - Delivery batch and safe audit-log persistence
+- Employee request catalog with assigned-email enforcement and metadata-only credential choices
+- Optional Person-to-Employee linking so contacts can provide the assigned request email without automatically granting request access
+- Guarded bulk provisioning from selected People into linked Employee request identities
+- Catalog access policy rules for exact employees, teams and roles
 - Safe CLI process runner
 - API coverage for accounts, people CSV, delivery retry, bulk batches and safe delivery history
 - Tests for sessions, view limits, people pagination, SQLite persistence and CLI behavior
@@ -84,7 +90,13 @@ This release contains:
 - Bitwarden terminal commands keep `bw login` intact in copyable error help while still redacting real secrets
 - Bitwarden terminal login commands are platform-aware: Windows gets PowerShell syntax, while macOS and Linux get zsh/bash syntax
 - Bitwarden terminal login avoids repeatedly burning email/new-device codes in hidden CLI prompts
+- macOS terminal login uses a zsh-safe exit-code variable and falls back to `bw unlock --raw` when the CLI reports an existing login
 - Bitwarden Send delivery uses the same isolated WardSen account profile as Vaults, checks the selected delivery account before creating links and tells users to unlock the account first when `bw` is not logged in
+- Requests view lets admins provision employee emails, publish requestable credential metadata, review requests and approve one-access delivery links only to the assigned employee email
+- Employee portal sign-in uses admin-issued one-time codes and hash-only session storage instead of employee passwords
+- Employee sign-in code handoff can prepare a sender-labelled email draft for the employee's assigned email without putting the code into a `mailto:` URL
+- Employee request replacements revoke the previous delivery and keep replacement count, previous delivery ID and latest replacement time on the original request
+- Employee request docs describe the employee-side catalog request flow and keep link access wording to "Ravi's link was viewed," not "Ravi viewed it"
 - Third-party provider and trademark policy documents that WardSen is independent, user-installed-provider-tool based and not endorsed by supported providers
 - macOS first-install docs cover the unsigned-prerelease `"WardSen" is damaged and can't be opened` Gatekeeper message
 - Windows and macOS prerequisite and desktop packaging scripts
@@ -97,7 +109,7 @@ Go to [GitHub Releases](https://github.com/subtlesayak/WardSen/releases) and dow
 
 - Windows: `WardSen_0.1.0_x64_en-US.msi`
 - macOS Apple Silicon: `WardSen_0.1.0_aarch64.dmg`
-- macOS Intel: not attached to `v0.1.0-rc.42`; maintainers can build it from the manual Intel workflow
+- macOS Intel: not attached to `v0.1.0-rc.43`; maintainers can build it from the manual Intel workflow
 
 Windows first install:
 
@@ -217,7 +229,7 @@ npm install -g @bitwarden/cli
 
 Maintainers build installers from the source checkout. End users only receive the final installer file.
 
-Current unsigned prerelease workflow uploads Windows MSI only. The NSIS setup EXE path below is a possible Tauri output for future signed releases, not a `v0.1.0-rc.42` asset.
+Current unsigned prerelease workflow uploads Windows MSI only. The NSIS setup EXE path below is a possible Tauri output for future signed releases, not a `v0.1.0-rc.43` asset.
 
 Build output stays on the release machine under:
 

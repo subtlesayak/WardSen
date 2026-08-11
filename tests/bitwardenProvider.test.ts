@@ -125,6 +125,8 @@ describe("Bitwarden credential provider", () => {
       await expect(provider.login("acct-1", { username: "user@example.com" })).rejects.toThrow("bw unlock --raw");
       await expect(provider.login("acct-1", { username: "user@example.com" })).rejects.not.toThrow("$env:BITWARDENCLI_APPDATA_DIR");
       await expect(provider.login("acct-1", { username: "user@example.com" })).rejects.not.toThrow("Remove-Item Env:");
+      await expect(provider.login("acct-1", { username: "user@example.com" })).rejects.toThrow("bwExitCode=$?");
+      await expect(provider.login("acct-1", { username: "user@example.com" })).rejects.not.toThrow("status=$?");
     } finally {
       if (previous === undefined) delete process.env.HOME;
       else process.env.HOME = previous;

@@ -68,6 +68,17 @@ export class BitwardenSendDeliveryProvider implements DeliveryProvider {
     await this.run(accountId, ["send", "delete", deliveryId]);
   }
 
+  async findDeliveryByOperationId(accountId: string, operationId: string): Promise<DeliveryStatus | undefined> {
+    const result = await this.run(accountId, ["send", "list"]);
+    const sends = safeJsonArray(result.stdout, "Bitwarden Send list response");
+    const match = sends.find((send) => {
+      return optionalString(send.notes)?.split(/\r?\n/).some((line) => line.trim() === operationMarker(operationId)) === true;
+    });
+    const id = match ? optionalString(match.id) : undefined;
+    if (!id) return undefined;
+    return this.getStatus(accountId, id);
+  }
+
   async getStatus(accountId: string, deliveryId: string): Promise<DeliveryStatus> {
     const result = await this.run(accountId, ["send", "get", deliveryId]);
     const parsed = safeJsonObject(result.stdout, "Bitwarden Send status response");
@@ -143,7 +154,7 @@ function buildTextSendObject(input: CreateDeliveryInput, text: string): Record<s
   return {
     object: "send",
     name: input.sourceCredential.title,
-    notes: input.operationId ? `Created by WardSen\nWardSen operation: ${input.operationId}` : "Created by WardSen",
+    notes: input.operationId ? `Created by WardSen\n${operationMarker(input.operationId)}` : "Created by WardSen",
     type: 0,
     text: {
       text,
@@ -158,6 +169,10 @@ function buildTextSendObject(input: CreateDeliveryInput, text: string): Record<s
     disabled: false,
     hideEmail: false
   };
+}
+
+function operationMarker(operationId: string): string {
+  return `WardSen operation: ${operationId}`;
 }
 
 function sensitiveValues(input: CreateDeliveryInput, ...values: Array<string | undefined>): string[] {
@@ -196,6 +211,12 @@ function safeJsonObject(value: string, label: string): Record<string, unknown> {
   const parsed = safeJson(value, label);
   if (isRecord(parsed)) return parsed;
   throw new Error(`${label} did not return a JSON object`);
+}
+
+function safeJsonArray(value: string, label: string): Array<Record<string, unknown>> {
+  const parsed = safeJson(value, label);
+  if (Array.isArray(parsed) && parsed.every(isRecord)) return parsed;
+  throw new Error(`${label} did not return a JSON array`);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

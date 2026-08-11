@@ -87,12 +87,13 @@ describe("WardSen API", () => {
         host: "127.0.0.1:4777",
         origin: "tauri://localhost",
         "access-control-request-method": "GET",
-        "access-control-request-headers": "x-wardsen-api-token"
+        "access-control-request-headers": "x-wardsen-api-token,x-wardsen-employee-session"
       }
     });
     expect(preflight.statusCode).toBe(204);
     expect(preflight.headers["access-control-allow-origin"]).toBe("tauri://localhost");
     expect(preflight.headers["access-control-allow-headers"]).toContain("x-wardsen-api-token");
+    expect(preflight.headers["access-control-allow-headers"]).toContain("x-wardsen-employee-session");
 
     const accepted = await app.inject({
       method: "GET",
@@ -326,6 +327,542 @@ describe("WardSen API", () => {
     await app.close();
   });
 
+  it("enforces assigned-email credential requests and lets admins approve to delivery", async () => {
+    const deliveryProvider = new MockDeliveryProvider();
+    const app = await buildApp({
+      credentialProviders: [new MockCredentialProvider()],
+      deliveryProviders: [deliveryProvider]
+    });
+    const headers = { host: "127.0.0.1:4777", origin: "http://127.0.0.1:4777" };
+    await app.inject({ method: "POST", url: "/api/accounts", headers, payload: { id: "source", providerId: "mock-source", label: "Mock source" } });
+    await app.inject({ method: "POST", url: "/api/accounts", headers, payload: { id: "delivery", providerId: "mock-source", label: "Mock delivery" } });
+    await app.inject({
+      method: "POST",
+      url: "/api/people",
+      headers,
+      payload: { id: "person-ravi", name: "Ravi Menon", email: "ravi@example.com", groupName: "Ops", role: "Engineer" }
+    });
+
+    const employee = await app.inject({
+      method: "POST",
+      url: "/api/employees",
+      headers,
+      payload: { id: "employee-1", personId: "person-ravi", name: "Ravi", assignedEmail: "Ravi@Example.com", team: "Ops", role: "Engineer" }
+    });
+    expect(employee.statusCode).toBe(200);
+    expect(employee.json()).toMatchObject({ id: "employee-1", personId: "person-ravi", assignedEmail: "ravi@example.com" });
+
+    const mismatchedPersonLink = await app.inject({
+      method: "POST",
+      url: "/api/employees",
+      headers,
+      payload: { id: "employee-wrong-link", personId: "person-ravi", name: "Wrong Link", assignedEmail: "wrong@example.com" }
+    });
+    expect(mismatchedPersonLink.statusCode).toBe(400);
+    expect(mismatchedPersonLink.json().error).toContain("must match the linked person's email");
+
+    const otherEmployee = await app.inject({
+      method: "POST",
+      url: "/api/employees",
+      headers,
+      payload: { id: "employee-2", name: "Nia", assignedEmail: "nia@example.com", team: "Finance" }
+    });
+    expect(otherEmployee.statusCode).toBe(200);
+
+    const emailChange = await app.inject({
+      method: "PUT",
+      url: "/api/employees/employee-1",
+      headers,
+      payload: { assignedEmail: "someone-else@example.com" }
+    });
+    expect(emailChange.statusCode).toBe(400);
+    expect(emailChange.json().error).toContain("assigned email is admin-controlled");
+
+    await app.inject({
+      method: "POST",
+      url: "/api/people",
+      headers,
+      payload: { id: "person-asha", name: "Asha Rao", email: "asha@example.com", groupName: "Support" }
+    });
+    await app.inject({
+      method: "POST",
+      url: "/api/people",
+      headers,
+      payload: { id: "person-nia", name: "Nia", email: "nia@example.com", groupName: "Finance" }
+    });
+    await app.inject({
+      method: "POST",
+      url: "/api/people",
+      headers,
+      payload: { id: "person-no-email", name: "No Email" }
+    });
+    const unconfirmedBulkProvision = await app.inject({
+      method: "POST",
+      url: "/api/employees/bulk-from-people",
+      headers,
+      payload: { personIds: ["person-asha"], confirmRiskSummary: true }
+    });
+    expect(unconfirmedBulkProvision.statusCode).toBe(400);
+
+    const bulkProvision = await app.inject({
+      method: "POST",
+      url: "/api/employees/bulk-from-people",
+      headers,
+      payload: {
+        personIds: ["person-asha", "person-nia", "person-no-email"],
+        confirm: "PROVISION EMPLOYEES FROM PEOPLE",
+        confirmRiskSummary: true,
+        defaultRole: "Member"
+      }
+    });
+    expect(bulkProvision.statusCode).toBe(200);
+    expect(bulkProvision.json().created).toHaveLength(1);
+    expect(bulkProvision.json().created[0]).toMatchObject({ personId: "person-asha", assignedEmail: "asha@example.com", team: "Support", role: "Member" });
+    expect(bulkProvision.json().skipped).toEqual(expect.arrayContaining([
+      expect.objectContaining({ personId: "person-nia", reason: "Assigned email already has an employee identity." }),
+      expect.objectContaining({ personId: "person-no-email", reason: "Person has no assigned email." })
+    ]));
+
+    const catalog = await app.inject({
+      method: "POST",
+      url: "/api/credential-catalog",
+      headers,
+      payload: {
+        id: "catalog-1",
+        sourceProviderId: "mock-source",
+        sourceAccountId: "source",
+        sourceItemId: "cms",
+        credentialName: "CMS Login",
+        username: "mira",
+        domain: "example.com",
+        tags: ["prod"],
+        riskTier: "high",
+        allowedEmployeeIds: ["employee-1"]
+      }
+    });
+    expect(catalog.statusCode).toBe(200);
+    expect(catalog.json()).toMatchObject({ id: "catalog-1", allowedEmployeeIds: ["employee-1"], allowedTeams: [], allowedRoles: [] });
+
+    const emptyPolicyCatalog = await app.inject({
+      method: "POST",
+      url: "/api/credential-catalog",
+      headers,
+      payload: {
+        id: "catalog-empty-policy",
+        sourceProviderId: "mock-source",
+        sourceAccountId: "source",
+        sourceItemId: "empty",
+        credentialName: "Empty Policy",
+        allowedEmployeeIds: []
+      }
+    });
+    expect(emptyPolicyCatalog.statusCode).toBe(400);
+    expect(emptyPolicyCatalog.json().error).toContain("at least one allowed employee, team or role");
+
+    const teamCatalog = await app.inject({
+      method: "POST",
+      url: "/api/credential-catalog",
+      headers,
+      payload: {
+        id: "catalog-team",
+        sourceProviderId: "mock-source",
+        sourceAccountId: "source",
+        sourceItemId: "ops-runbook",
+        credentialName: "Ops Runbook",
+        riskTier: "medium",
+        allowedTeams: ["Ops"]
+      }
+    });
+    expect(teamCatalog.statusCode).toBe(200);
+    expect(teamCatalog.json()).toMatchObject({ id: "catalog-team", allowedEmployeeIds: [], allowedTeams: ["Ops"], allowedRoles: [] });
+
+    const roleCatalog = await app.inject({
+      method: "POST",
+      url: "/api/credential-catalog",
+      headers,
+      payload: {
+        id: "catalog-role",
+        sourceProviderId: "mock-source",
+        sourceAccountId: "source",
+        sourceItemId: "deploy-root",
+        credentialName: "Deploy Root",
+        riskTier: "high",
+        allowedRoles: ["Engineer"]
+      }
+    });
+    expect(roleCatalog.statusCode).toBe(200);
+    expect(roleCatalog.json()).toMatchObject({ id: "catalog-role", allowedEmployeeIds: [], allowedTeams: [], allowedRoles: ["Engineer"] });
+
+    const wrongCatalog = await app.inject({
+      method: "GET",
+      url: "/api/employee-catalog?employeeId=employee-1&assignedEmail=attacker@example.com",
+      headers: { host: "127.0.0.1:4777" }
+    });
+    expect(wrongCatalog.statusCode).toBe(400);
+    expect(wrongCatalog.json().error).toBe("Credential requests must use the employee assigned email.");
+
+    const employeeCatalog = await app.inject({
+      method: "GET",
+      url: "/api/employee-catalog?employeeId=employee-1&assignedEmail=ravi@example.com",
+      headers: { host: "127.0.0.1:4777" }
+    });
+    expect(employeeCatalog.statusCode).toBe(200);
+    expect(employeeCatalog.json().items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ credentialName: "CMS Login", username: "mira" }),
+      expect.objectContaining({ credentialName: "Ops Runbook", allowedTeams: ["Ops"] }),
+      expect.objectContaining({ credentialName: "Deploy Root", allowedRoles: ["Engineer"] })
+    ]));
+    expect(JSON.stringify(employeeCatalog.json())).not.toContain("Password123");
+
+    const outsideCatalog = await app.inject({
+      method: "GET",
+      url: "/api/employee-catalog?employeeId=employee-2&assignedEmail=nia@example.com",
+      headers: { host: "127.0.0.1:4777" }
+    });
+    expect(outsideCatalog.statusCode).toBe(200);
+    expect(outsideCatalog.json().items).toEqual([]);
+
+    const wrongRequest = await app.inject({
+      method: "POST",
+      url: "/api/credential-requests",
+      headers,
+      payload: {
+        employeeId: "employee-1",
+        assignedEmail: "other@example.com",
+        catalogEntryId: "catalog-1",
+        reason: "Emergency rollback"
+      }
+    });
+    expect(wrongRequest.statusCode).toBe(400);
+
+    const unauthorizedRequest = await app.inject({
+      method: "POST",
+      url: "/api/credential-requests",
+      headers,
+      payload: {
+        employeeId: "employee-2",
+        assignedEmail: "nia@example.com",
+        catalogEntryId: "catalog-1",
+        reason: "Need production access"
+      }
+    });
+    expect(unauthorizedRequest.statusCode).toBe(400);
+    expect(unauthorizedRequest.json().error).toBe("Employee is not allowed to request this credential catalog entry.");
+
+    const teamPolicyRequest = await app.inject({
+      method: "POST",
+      url: "/api/credential-requests",
+      headers,
+      payload: {
+        employeeId: "employee-1",
+        assignedEmail: "ravi@example.com",
+        catalogEntryId: "catalog-team",
+        reason: "Need team runbook access"
+      }
+    });
+    expect(teamPolicyRequest.statusCode).toBe(200);
+
+    const rolePolicyRequest = await app.inject({
+      method: "POST",
+      url: "/api/credential-requests",
+      headers,
+      payload: {
+        employeeId: "employee-1",
+        assignedEmail: "ravi@example.com",
+        catalogEntryId: "catalog-role",
+        reason: "Need deploy owner access"
+      }
+    });
+    expect(rolePolicyRequest.statusCode).toBe(200);
+
+    const accessRequest = await app.inject({
+      method: "POST",
+      url: "/api/credential-requests",
+      headers,
+      payload: {
+        employeeId: "employee-1",
+        assignedEmail: "ravi@example.com",
+        catalogEntryId: "catalog-1",
+        reason: "Emergency rollback",
+        expectedDurationMinutes: 60
+      }
+    });
+    expect(accessRequest.statusCode).toBe(200);
+    expect(accessRequest.json()).toMatchObject({
+      employeeId: "employee-1",
+      assignedEmail: "ravi@example.com",
+      credentialName: "CMS Login",
+      status: "pending"
+    });
+
+    const approvalWithoutConfirmation = await app.inject({
+      method: "POST",
+      url: `/api/credential-requests/${accessRequest.json().id}/approve`,
+      headers,
+      payload: {
+        approver: "admin@example.com",
+        deliveryProviderId: "mock-delivery",
+        deliveryAccountId: "delivery",
+        expiresAt: new Date(Date.now() + 3600000).toISOString(),
+        viewLimit: 1
+      }
+    });
+    expect(approvalWithoutConfirmation.statusCode).toBe(400);
+    expect(approvalWithoutConfirmation.json().error).toContain("requires confirmation");
+
+    const approved = await app.inject({
+      method: "POST",
+      url: `/api/credential-requests/${accessRequest.json().id}/approve`,
+      headers,
+      payload: {
+        approver: "admin@example.com",
+        deliveryProviderId: "mock-delivery",
+        deliveryAccountId: "delivery",
+        expiresAt: new Date(Date.now() + 3600000).toISOString(),
+        viewLimit: 1,
+        viewOnce: true,
+        confirmRiskSummary: true
+      }
+    });
+    expect(approved.statusCode).toBe(200);
+    expect(approved.json().request).toMatchObject({ status: "fulfilled", deliveryProviderId: "mock-delivery" });
+    expect(approved.json().delivery.oneTimeDeliveryUrl).toMatch(/^https:\/\/mock.local\/send\//);
+    expect(deliveryProvider.inputs[0].recipient).toMatchObject({ id: "employee-1", email: "ravi@example.com" });
+    expect(JSON.stringify(approved.json())).not.toContain("Password123");
+
+    const replacementWithoutConfirmation = await app.inject({
+      method: "POST",
+      url: `/api/credential-requests/${accessRequest.json().id}/replacement-link`,
+      headers,
+      payload: {
+        approver: "admin@example.com",
+        deliveryProviderId: "mock-delivery",
+        deliveryAccountId: "delivery",
+        expiresAt: new Date(Date.now() + 7200000).toISOString(),
+        viewLimit: 1,
+        viewOnce: true,
+        replacementReason: "Unexpected access",
+        confirmRiskSummary: true
+      }
+    });
+    expect(replacementWithoutConfirmation.statusCode).toBe(400);
+    expect(replacementWithoutConfirmation.json().error).toBe(`Destructive action requires confirmation phrase: REPLACE REQUEST ${accessRequest.json().id}`);
+
+    const replacement = await app.inject({
+      method: "POST",
+      url: `/api/credential-requests/${accessRequest.json().id}/replacement-link`,
+      headers,
+      payload: {
+        approver: "security@example.com",
+        deliveryProviderId: "mock-delivery",
+        deliveryAccountId: "delivery",
+        expiresAt: new Date(Date.now() + 7200000).toISOString(),
+        viewLimit: 1,
+        viewOnce: true,
+        replacementReason: "Unexpected access",
+        confirmRiskSummary: true,
+        confirm: `REPLACE REQUEST ${accessRequest.json().id}`
+      }
+    });
+    expect(replacement.statusCode).toBe(200);
+    expect(replacement.json().delivery.oneTimeDeliveryUrl).toMatch(/^https:\/\/mock.local\/send\//);
+    expect(replacement.json().request).toMatchObject({
+      id: accessRequest.json().id,
+      status: "fulfilled",
+      assignedEmail: "ravi@example.com",
+      previousDeliveryId: approved.json().delivery.id,
+      deliveryId: replacement.json().delivery.id,
+      replacementCount: 1
+    });
+    expect(deliveryProvider.revoked).toContainEqual({ accountId: "delivery", deliveryId: "mock-1" });
+    const previousDelivery = await app.inject({
+      method: "GET",
+      url: `/api/deliveries/${approved.json().delivery.id}`,
+      headers: { host: "127.0.0.1:4777" }
+    });
+    expect(previousDelivery.json()).toMatchObject({ status: "revoked", revokedAt: expect.any(String) });
+    expect(JSON.stringify(replacement.json())).not.toContain("Password123");
+
+    const requestList = await app.inject({ method: "GET", url: "/api/credential-requests?page=1&pageSize=10", headers: { host: "127.0.0.1:4777" } });
+    expect(requestList.json().items[0]).toMatchObject({ status: "fulfilled", assignedEmail: "ravi@example.com", replacementCount: 1, previousDeliveryId: approved.json().delivery.id });
+    await app.close();
+  });
+
+  it("lets employees sign in with one-time codes and request only allowed catalog entries", async () => {
+    const app = await buildApp({
+      credentialProviders: [new MockCredentialProvider()],
+      deliveryProviders: [new MockDeliveryProvider()]
+    });
+    const headers = { host: "127.0.0.1:4777", origin: "http://127.0.0.1:4777" };
+    await app.inject({ method: "POST", url: "/api/accounts", headers, payload: { id: "source", providerId: "mock-source", label: "Mock source" } });
+
+    await app.inject({
+      method: "POST",
+      url: "/api/employees",
+      headers,
+      payload: { id: "employee-1", name: "Ravi", assignedEmail: "ravi@example.com", team: "Ops" }
+    });
+    await app.inject({
+      method: "POST",
+      url: "/api/employees",
+      headers,
+      payload: { id: "employee-2", name: "Nia", assignedEmail: "nia@example.com", team: "Finance" }
+    });
+    await app.inject({
+      method: "POST",
+      url: "/api/credential-catalog",
+      headers,
+      payload: {
+        id: "catalog-1",
+        sourceProviderId: "mock-source",
+        sourceAccountId: "source",
+        sourceItemId: "cms",
+        credentialName: "CMS Login",
+        username: "mira",
+        domain: "example.com",
+        tags: ["prod"],
+        riskTier: "high",
+        allowedEmployeeIds: ["employee-1"]
+      }
+    });
+    await app.inject({
+      method: "POST",
+      url: "/api/credential-catalog",
+      headers,
+      payload: {
+        id: "catalog-2",
+        sourceProviderId: "mock-source",
+        sourceAccountId: "source",
+        sourceItemId: "cms-backup",
+        credentialName: "Finance Backup",
+        riskTier: "medium",
+        allowedEmployeeIds: ["employee-2"]
+      }
+    });
+
+    const noSession = await app.inject({
+      method: "GET",
+      url: "/api/employee-portal/catalog?page=1&pageSize=10",
+      headers: { host: "127.0.0.1:4777" }
+    });
+    expect(noSession.statusCode).toBe(401);
+
+    const issued = await app.inject({
+      method: "POST",
+      url: "/api/employees/employee-1/sign-in-code",
+      headers,
+      payload: { ttlMinutes: 10, senderEmail: "security@example.com" }
+    });
+    expect(issued.statusCode).toBe(200);
+    expect(issued.json()).toMatchObject({
+      employeeId: "employee-1",
+      assignedEmail: "ravi@example.com",
+      delivery: "email_draft",
+      emailDraft: {
+        senderEmail: "security@example.com",
+        to: "ravi@example.com",
+        subject: "WardSen employee portal sign-in code"
+      }
+    });
+    expect(issued.json().code).toMatch(/^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{10}$/);
+    expect(issued.json().emailDraft.body).toContain(issued.json().code);
+    expect(issued.json().emailDraft.body).toContain("WardSen does not use a permanent employee password");
+    expect(JSON.stringify(issued.json())).not.toContain("codeHash");
+
+    const auditAfterIssue = await app.inject({ method: "GET", url: "/api/audit-log?page=1&pageSize=20", headers });
+    expect(JSON.stringify(auditAfterIssue.json())).not.toContain(issued.json().code);
+
+    const rejected = await app.inject({
+      method: "POST",
+      url: "/api/employee-sessions",
+      headers,
+      payload: { assignedEmail: "ravi@example.com", code: "WRONGCODE" }
+    });
+    expect(rejected.statusCode).toBe(401);
+
+    const signedIn = await app.inject({
+      method: "POST",
+      url: "/api/employee-sessions",
+      headers,
+      payload: { assignedEmail: "ravi@example.com", code: issued.json().code }
+    });
+    expect(signedIn.statusCode).toBe(200);
+    expect(signedIn.json()).toMatchObject({ employee: { id: "employee-1", assignedEmail: "ravi@example.com" } });
+    expect(signedIn.json().sessionToken).toMatch(/^employee_/);
+
+    const reused = await app.inject({
+      method: "POST",
+      url: "/api/employee-sessions",
+      headers,
+      payload: { assignedEmail: "ravi@example.com", code: issued.json().code }
+    });
+    expect(reused.statusCode).toBe(401);
+
+    const employeeHeaders = {
+      ...headers,
+      "x-wardsen-employee-session": signedIn.json().sessionToken
+    };
+    const catalog = await app.inject({
+      method: "GET",
+      url: "/api/employee-portal/catalog?page=1&pageSize=10",
+      headers: employeeHeaders
+    });
+    expect(catalog.statusCode).toBe(200);
+    expect(catalog.json().items).toEqual([expect.objectContaining({ id: "catalog-1", credentialName: "CMS Login" })]);
+    expect(JSON.stringify(catalog.json())).not.toContain("Password123");
+    expect(JSON.stringify(catalog.json())).not.toContain("Finance Backup");
+
+    const deniedRequest = await app.inject({
+      method: "POST",
+      url: "/api/employee-portal/credential-requests",
+      headers: employeeHeaders,
+      payload: { catalogEntryId: "catalog-2", reason: "Need another team's secret" }
+    });
+    expect(deniedRequest.statusCode).toBe(400);
+
+    const accessRequest = await app.inject({
+      method: "POST",
+      url: "/api/employee-portal/credential-requests",
+      headers: employeeHeaders,
+      payload: {
+        catalogEntryId: "catalog-1",
+        reason: "Emergency deploy rollback",
+        ticketRef: "INC-123",
+        expectedDurationMinutes: 60
+      }
+    });
+    expect(accessRequest.statusCode).toBe(200);
+    expect(accessRequest.json()).toMatchObject({
+      employeeId: "employee-1",
+      assignedEmail: "ravi@example.com",
+      catalogEntryId: "catalog-1",
+      status: "pending"
+    });
+
+    const ownRequests = await app.inject({
+      method: "GET",
+      url: "/api/employee-portal/credential-requests?page=1&pageSize=10",
+      headers: employeeHeaders
+    });
+    expect(ownRequests.statusCode).toBe(200);
+    expect(ownRequests.json().items[0]).toMatchObject({ id: accessRequest.json().id, assignedEmail: "ravi@example.com" });
+
+    const logout = await app.inject({
+      method: "POST",
+      url: "/api/employee-sessions/current/logout",
+      headers: employeeHeaders
+    });
+    expect(logout.statusCode).toBe(200);
+
+    const afterLogout = await app.inject({
+      method: "GET",
+      url: "/api/employee-portal/me",
+      headers: employeeHeaders
+    });
+    expect(afterLogout.statusCode).toBe(401);
+    await app.close();
+  });
+
   it("requires server-side confirmation for destructive actions", async () => {
     const app = await buildApp({
       credentialProviders: [new MockCredentialProvider()],
@@ -467,6 +1004,130 @@ describe("WardSen API", () => {
     await app.close();
   });
 
+  it("reuses an idempotent delivery operation without creating another provider link", async () => {
+    const deliveryProvider = new MockDeliveryProvider();
+    const app = await buildApp({
+      credentialProviders: [new MockCredentialProvider()],
+      deliveryProviders: [deliveryProvider]
+    });
+    const headers = { host: "127.0.0.1:4777", origin: "http://127.0.0.1:4777" };
+    const expiresAt = new Date(Date.now() + 3600000).toISOString();
+    const payload = {
+      operationId: "delivery-op-1",
+      sourceProviderId: "mock-source",
+      sourceAccountId: "source",
+      sourceItemId: "cms",
+      deliveryProviderId: "mock-delivery",
+      deliveryAccountId: "delivery",
+      expiresAt,
+      viewLimit: 1
+    };
+    await app.inject({ method: "POST", url: "/api/accounts", headers, payload: { id: "source", providerId: "mock-source", label: "Mock source" } });
+    await app.inject({ method: "POST", url: "/api/accounts", headers, payload: { id: "delivery", providerId: "mock-source", label: "Mock delivery" } });
+
+    const first = await app.inject({ method: "POST", url: "/api/deliveries", headers, payload });
+    const second = await app.inject({ method: "POST", url: "/api/deliveries", headers, payload });
+
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+    expect(second.json()).toMatchObject({
+      id: first.json().id,
+      operationId: "delivery-op-1",
+      oneTimeDeliveryUrl: first.json().oneTimeDeliveryUrl
+    });
+    expect(deliveryProvider.inputs).toHaveLength(1);
+    expect(deliveryProvider.inputs[0].operationId).toBe("delivery-op-1");
+    await app.close();
+  });
+
+  it("rejects a reused delivery operation id with a different policy", async () => {
+    const deliveryProvider = new MockDeliveryProvider();
+    const app = await buildApp({
+      credentialProviders: [new MockCredentialProvider()],
+      deliveryProviders: [deliveryProvider]
+    });
+    const headers = { host: "127.0.0.1:4777", origin: "http://127.0.0.1:4777" };
+    const expiresAt = new Date(Date.now() + 3600000).toISOString();
+    await app.inject({ method: "POST", url: "/api/accounts", headers, payload: { id: "source", providerId: "mock-source", label: "Mock source" } });
+    await app.inject({ method: "POST", url: "/api/accounts", headers, payload: { id: "delivery", providerId: "mock-source", label: "Mock delivery" } });
+
+    await app.inject({
+      method: "POST",
+      url: "/api/deliveries",
+      headers,
+      payload: {
+        operationId: "delivery-op-2",
+        sourceProviderId: "mock-source",
+        sourceAccountId: "source",
+        sourceItemId: "cms",
+        deliveryProviderId: "mock-delivery",
+        deliveryAccountId: "delivery",
+        expiresAt,
+        viewLimit: 1
+      }
+    });
+    const mismatch = await app.inject({
+      method: "POST",
+      url: "/api/deliveries",
+      headers,
+      payload: {
+        operationId: "delivery-op-2",
+        sourceProviderId: "mock-source",
+        sourceAccountId: "source",
+        sourceItemId: "cms-backup",
+        deliveryProviderId: "mock-delivery",
+        deliveryAccountId: "delivery",
+        expiresAt,
+        viewLimit: 1
+      }
+    });
+
+    expect(mismatch.statusCode).toBe(409);
+    expect(mismatch.json().error).toBe("Delivery operation id was already used for a different request.");
+    expect(deliveryProvider.inputs).toHaveLength(1);
+    await app.close();
+  });
+
+  it("does not recreate a completed operation after restart when the one-time URL cache is gone", async () => {
+    const repository = new InMemoryWardSenRepository();
+    const firstProvider = new MockDeliveryProvider();
+    const headers = { host: "127.0.0.1:4777", origin: "http://127.0.0.1:4777" };
+    const expiresAt = new Date(Date.now() + 3600000).toISOString();
+    const payload = {
+      operationId: "delivery-op-3",
+      sourceProviderId: "mock-source",
+      sourceAccountId: "source",
+      sourceItemId: "cms",
+      deliveryProviderId: "mock-delivery",
+      deliveryAccountId: "delivery",
+      expiresAt,
+      viewLimit: 1
+    };
+    const firstApp = await buildApp({
+      repository,
+      credentialProviders: [new MockCredentialProvider()],
+      deliveryProviders: [firstProvider]
+    });
+    await firstApp.inject({ method: "POST", url: "/api/accounts", headers, payload: { id: "source", providerId: "mock-source", label: "Mock source" } });
+    await firstApp.inject({ method: "POST", url: "/api/accounts", headers, payload: { id: "delivery", providerId: "mock-source", label: "Mock delivery" } });
+    const created = await firstApp.inject({ method: "POST", url: "/api/deliveries", headers, payload });
+    expect(created.statusCode).toBe(200);
+    await firstApp.close();
+
+    const secondProvider = new MockDeliveryProvider();
+    const secondApp = await buildApp({
+      repository,
+      credentialProviders: [new MockCredentialProvider()],
+      deliveryProviders: [secondProvider]
+    });
+    const replay = await secondApp.inject({ method: "POST", url: "/api/deliveries", headers, payload });
+
+    expect(replay.statusCode).toBe(409);
+    expect(replay.json().error).toContain("one-time URL is no longer available");
+    expect(secondProvider.inputs).toHaveLength(0);
+    await secondApp.close();
+  });
+
   it("preflights Bitwarden Send account readiness before creating a secure link", async () => {
     const deliveryProvider = new NotReadyBitwardenSendProvider();
     const app = await buildApp({
@@ -603,6 +1264,47 @@ describe("WardSen API", () => {
         outcome: "failure",
         deliveryId: stale.id,
         safeDetails: "stuck_status=creating"
+      })
+    ]));
+    await app.close();
+  });
+
+  it("recovers stale creating deliveries when the provider can find the operation", async () => {
+    const repository = new InMemoryWardSenRepository();
+    const stale = await repository.createDelivery({
+      operationId: "delivery-op-recover",
+      operationFingerprint: "fingerprint",
+      sourceProviderId: "mock-source",
+      sourceAccountId: "source",
+      sourceItemId: "cms",
+      deliveryProviderId: "recovery-delivery",
+      deliveryAccountId: "delivery",
+      credentialName: "CMS Login",
+      expiresAt: new Date(Date.now() + 3600000).toISOString(),
+      viewLimit: 1,
+      status: "creating"
+    });
+    const provider = new OperationRecoveryDeliveryProvider();
+
+    const app = await buildApp({
+      repository,
+      credentialProviders: [new MockCredentialProvider()],
+      deliveryProviders: [provider]
+    });
+
+    expect(await repository.getDelivery(stale.id)).toMatchObject({
+      status: "viewed",
+      providerDeliveryId: "provider-recovered",
+      accessCount: 1
+    });
+    expect(provider.lookupCalls).toEqual([{ accountId: "delivery", operationId: "delivery-op-recover" }]);
+    const audit = await repository.listAuditLog({ page: 1, pageSize: 10 });
+    expect(audit.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        action: "delivery.reconcile",
+        outcome: "success",
+        deliveryId: stale.id,
+        safeDetails: "recovered_operation=delivery-op-recover"
       })
     ]));
     await app.close();
@@ -950,6 +1652,7 @@ class MockDeliveryProvider implements DeliveryProvider {
   readonly id: string = "mock-delivery";
   readonly displayName: string = "Mock Delivery";
   readonly inputs: CreateDeliveryInput[] = [];
+  readonly revoked: Array<{ accountId: string; deliveryId: string }> = [];
   private counter = 0;
   async getCapabilities(): Promise<DeliveryProviderCapabilities> {
     return {
@@ -972,7 +1675,9 @@ class MockDeliveryProvider implements DeliveryProvider {
     this.inputs.push(input);
     return { deliveryId: `mock-${this.counter}`, url: `https://mock.local/send/${this.counter}`, expiresAt: input.expiresAt, viewLimit: input.viewLimit };
   }
-  async revoke(_accountId: string, _deliveryId: string): Promise<void> {}
+  async revoke(accountId: string, deliveryId: string): Promise<void> {
+    this.revoked.push({ accountId, deliveryId });
+  }
   async getStatus(_accountId: string, deliveryId: string): Promise<DeliveryStatus> {
     return { deliveryId, status: "active", accessCount: 1 };
   }
@@ -1008,6 +1713,22 @@ class RevocationTrackingDeliveryProvider extends MockDeliveryProvider {
   }
   async revoke(accountId: string, deliveryId: string): Promise<void> {
     this.revoked.push({ accountId, deliveryId });
+  }
+}
+
+class OperationRecoveryDeliveryProvider extends MockDeliveryProvider {
+  readonly id = "recovery-delivery";
+  readonly displayName = "Recovery Delivery";
+  readonly lookupCalls: Array<{ accountId: string; operationId: string }> = [];
+  async findDeliveryByOperationId(accountId: string, operationId: string): Promise<DeliveryStatus | undefined> {
+    this.lookupCalls.push({ accountId, operationId });
+    if (operationId !== "delivery-op-recover") return undefined;
+    return {
+      deliveryId: "provider-recovered",
+      status: "viewed",
+      accessCount: 1,
+      expiresAt: new Date(Date.now() + 3600000)
+    };
   }
 }
 

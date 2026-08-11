@@ -51,6 +51,13 @@ describe("provider conformance", () => {
 
     expect(report).toEqual({ providerId: "bitwarden-send", kind: "delivery", passed: true, failures: [] });
   });
+
+  it("keeps secure-link candidates planned and disabled", () => {
+    for (const providerId of ["ente-paste", "password-pusher", "yopass", "onetime-secret", "onepassword-item-share"]) {
+      const manifest = builtInProviderManifests.find((item) => item.id === providerId);
+      expect(manifest).toMatchObject({ id: providerId, kind: "delivery", maturity: "planned", enabledByDefault: false });
+    }
+  });
 });
 
 class ConformantCredentialProvider implements CredentialProvider {

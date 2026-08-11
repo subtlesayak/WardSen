@@ -188,6 +188,48 @@ describe("Bitwarden Send delivery provider", () => {
     expect(calls[0].args).toEqual(["send", "delete", "send-1"]);
   });
 
+  it("finds an existing Send by WardSen operation marker", async () => {
+    const calls: CliCommandInput[] = [];
+    const provider = new BitwardenSendDeliveryProvider({
+      getSessionToken: () => "session-token",
+      runCommand: async (input) => {
+        calls.push(input);
+        if (input.args.join(" ") === "send list") {
+          return ok(JSON.stringify([
+            { id: "send-other", notes: "Created by WardSen\nWardSen operation: delivery-op-other" },
+            { id: "send-1", notes: "Created by WardSen\nWardSen operation: delivery-op-1" }
+          ]));
+        }
+        return ok(JSON.stringify({
+          id: "send-1",
+          accessCount: 1,
+          maxAccessCount: 2,
+          deletionDate: "2026-08-01T12:00:00.000Z"
+        }));
+      }
+    });
+    vi.spyOn(Date, "now").mockReturnValue(new Date("2026-08-01T10:00:00.000Z").getTime());
+
+    await expect(provider.findDeliveryByOperationId("acct-1", "delivery-op-1")).resolves.toMatchObject({
+      deliveryId: "send-1",
+      status: "viewed",
+      accessCount: 1
+    });
+    expect(calls.map((call) => call.args)).toEqual([
+      ["send", "list"],
+      ["send", "get", "send-1"]
+    ]);
+  });
+
+  it("returns undefined when no Send operation marker matches", async () => {
+    const provider = new BitwardenSendDeliveryProvider({
+      getSessionToken: () => "session-token",
+      runCommand: async () => ok(JSON.stringify([{ id: "send-1", notes: "Created by WardSen" }]))
+    });
+
+    await expect(provider.findDeliveryByOperationId("acct-1", "delivery-op-1")).resolves.toBeUndefined();
+  });
+
   it("maps disabled, deleted, limited, viewed and untouched sends", async () => {
     const provider = new BitwardenSendDeliveryProvider({
       getSessionToken: () => "session-token",
