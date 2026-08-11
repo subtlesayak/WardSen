@@ -105,16 +105,16 @@ describe("CLI runner", () => {
     expect(result.stdout.length).toBeLessThan(100);
   });
 
-  it("terminates child process trees on timeout", async () => {
+  it.runIf(process.platform !== "win32")("terminates POSIX child process groups on timeout", async () => {
     const tempDir = mkdtempSync(path.join(os.tmpdir(), "wardsen-cli-tree-"));
     const marker = path.join(tempDir, "grandchild-lived.txt");
-    const escapedMarker = JSON.stringify(marker);
+    const childCode = `setTimeout(() => require("node:fs").writeFileSync(${JSON.stringify(marker)}, "still alive"), 700)`;
     try {
       await expect(runCliCommand({
         executable: process.execPath,
         args: ["-e", `
           const { spawn } = require("node:child_process");
-          const childCode = "setTimeout(() => require('node:fs').writeFileSync(${escapedMarker}, 'still alive'), 700)";
+          const childCode = ${JSON.stringify(childCode)};
           spawn(process.execPath, ["-e", childCode], { stdio: "ignore" });
           setTimeout(() => {}, 2000);
         `],

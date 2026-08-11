@@ -30,4 +30,4 @@
 - Added `v0.1.0-rc.35` release notes and changed Windows release packaging to unsigned MSI-only, without the NSIS setup EXE.
 - Added `v0.1.0-rc.36` release notes and fixed Bitwarden Send so delivery commands use the same isolated WardSen Bitwarden profile as Vaults.
 - Added `v0.1.0-rc.37` release notes and fixed credential delivery payloads so real password fields are preserved internally while errors stay redacted.
-- Added `v0.1.0-rc.41` release notes with MSI prerelease publishing fixes, MSI-compatible RC package versions, stale-installer checksum guards, release provenance manifests, pinned release workflow actions, public signing-readiness gates, shared API contracts and cleaner desktop-session trust diagnostics.
+- Added `v0.1.0-rc.42` release notes with MSI prerelease publishing fixes, MSI-compatible RC package versions, stale-installer checksum guards, release provenance manifests, pinned release workflow actions, public signing-readiness gates, shared API contracts and cleaner desktop-session trust diagnostics.
