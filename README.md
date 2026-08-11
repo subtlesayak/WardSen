@@ -42,9 +42,9 @@ WardSen is an independent open-source project and is not affiliated with, endors
 
 ## Status
 
-`v0.1.0-rc.40` is the latest installer prerelease. It is suitable for developer review, security review and platform packaging validation.
+`v0.1.0-rc.41` is the latest installer prerelease. It is suitable for developer review, security review and platform packaging validation.
 
-Unsigned Windows MSI and macOS Apple Silicon installers are attached to the GitHub prerelease. The previous unsigned Windows setup EXE was pulled after Microsoft Defender flagged it as `Trojan:Win32/Wacatac.B!ml`; `v0.1.0-rc.40` does not publish that NSIS setup EXE. Windows SmartScreen, Microsoft Defender and macOS Gatekeeper may warn until signing certificates and notarization are configured. See [installer signing](docs/installer-signing.md) before publishing a fully trusted end-user release.
+Unsigned Windows MSI and macOS Apple Silicon installers are attached to the GitHub prerelease. The previous unsigned Windows setup EXE was pulled after Microsoft Defender flagged it as `Trojan:Win32/Wacatac.B!ml`; `v0.1.0-rc.41` does not publish that NSIS setup EXE. Windows SmartScreen, Microsoft Defender and macOS Gatekeeper may warn until signing certificates and notarization are configured. See [installer signing](docs/installer-signing.md) before publishing a fully trusted end-user release.
 
 This release contains:
 
@@ -64,6 +64,7 @@ This release contains:
 - Visible app version label for release/debug screenshots
 - Release builds include SHA/build timestamp metadata and a `RELEASE-MANIFEST-*.json` asset for artifact provenance
 - Release packaging verifies the checked-out tag, pins GitHub Actions dependencies, allows unsigned public RC MSI validation and blocks unsigned final public releases
+- RC release builds keep the MSI package version numeric while preserving the full RC tag in app/release metadata
 - Release checksum generation refuses stale mixed installer outputs unless maintainers point it at the exact fresh bundle folder
 - Repeatable web smoke screenshots cover desktop and mobile layouts before release
 - Windows desktop local-service startup fixes for bundled Node paths, writable data directories and trusted desktop preflight requests
@@ -96,7 +97,7 @@ Go to [GitHub Releases](https://github.com/subtlesayak/WardSen/releases) and dow
 
 - Windows: `WardSen_0.1.0_x64_en-US.msi`
 - macOS Apple Silicon: `WardSen_0.1.0_aarch64.dmg`
-- macOS Intel: not attached to `v0.1.0-rc.40`; maintainers can build it from the manual Intel workflow
+- macOS Intel: not attached to `v0.1.0-rc.41`; maintainers can build it from the manual Intel workflow
 
 Windows first install:
 
@@ -216,7 +217,7 @@ npm install -g @bitwarden/cli
 
 Maintainers build installers from the source checkout. End users only receive the final installer file.
 
-Current unsigned prerelease workflow uploads Windows MSI only. The NSIS setup EXE path below is a possible Tauri output for future signed releases, not a `v0.1.0-rc.40` asset.
+Current unsigned prerelease workflow uploads Windows MSI only. The NSIS setup EXE path below is a possible Tauri output for future signed releases, not a `v0.1.0-rc.41` asset.
 
 Build output stays on the release machine under:
 

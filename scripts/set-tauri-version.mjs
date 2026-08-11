@@ -14,8 +14,9 @@ if (!/^v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(tag)) {
   throw new Error(`Release tag must look like vX.Y.Z or vX.Y.Z-prerelease: ${tag}`);
 }
 
-const version = tag.slice(1);
+const releaseVersion = tag.slice(1);
+const version = releaseVersion.split(/[+-]/)[0];
 const config = JSON.parse(readFileSync(configPath, "utf8"));
 config.version = version;
 writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
-console.log(`Set Tauri version to ${version} in ${configPath}`);
+console.log(`Set Tauri package version to ${version} in ${configPath} for release ${tag}`);

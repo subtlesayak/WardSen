@@ -13,7 +13,7 @@ describe("release engineering guardrails", () => {
     }
   });
 
-  it("derives the Tauri installer version from the release tag", () => {
+  it("derives an MSI-compatible Tauri package version from the release tag", () => {
     const tempDir = mkdtempSync(path.join(os.tmpdir(), "wardsen-tauri-version-"));
     tempDirs.push(tempDir);
     const configPath = path.join(tempDir, "tauri.conf.json");
@@ -25,7 +25,7 @@ describe("release engineering guardrails", () => {
       stdio: "pipe"
     });
 
-    expect(JSON.parse(readFileSync(configPath, "utf8")).version).toBe("1.2.3-rc.1");
+    expect(JSON.parse(readFileSync(configPath, "utf8")).version).toBe("1.2.3");
   });
 
   it("keeps the installer workflow fail-closed", () => {
