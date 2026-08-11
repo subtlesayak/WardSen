@@ -163,7 +163,8 @@ export class BitwardenCredentialProvider implements CredentialProvider {
     const username = input.username ? ` ${posixSingleQuote(input.username)}` : "";
     const server = input.serverUrl ? `bw config server ${posixSingleQuote(input.serverUrl)}; ` : "";
     const handoffFile = bitwardenSessionHandoffFile(accountId, this.profileDirectory(accountId));
-    return `export BITWARDENCLI_APPDATA_DIR=${profilePath}; ${server}bwResult="$(bw login${username} --raw 2>&1)"; bwExitCode=$?; if [ "$bwExitCode" -ne 0 ] && printf '%s' "$bwResult" | grep -qi "already logged in"; then bwResult="$(bw unlock --raw)"; bwExitCode=$?; fi; if [ "$bwExitCode" -eq 0 ] && [ -n "$bwResult" ]; then umask 077; printf '%s' "$bwResult" > "$BITWARDENCLI_APPDATA_DIR/${posixDoubleQuoteLiteral(handoffFile)}"; fi; unset BITWARDENCLI_APPDATA_DIR`;
+    const handoffPath = `"$BITWARDENCLI_APPDATA_DIR/${posixDoubleQuoteLiteral(handoffFile)}"`;
+    return `export BITWARDENCLI_APPDATA_DIR=${profilePath}; mkdir -p "$BITWARDENCLI_APPDATA_DIR"; ${server}bw login${username}; printf '\\nWardSen will now unlock this Bitwarden profile. Type your Bitwarden master password here: '; stty -echo; IFS= read -r bwPassword; stty echo; printf '\\n'; umask 077; printf '%s\\n' "$bwPassword" | bw unlock --raw > ${handoffPath}; bwExitCode=$?; unset bwPassword; if [ "$bwExitCode" -eq 0 ] && [ -s ${handoffPath} ]; then chmod 600 ${handoffPath}; printf '\\nWardSen saved this Bitwarden session. Return to WardSen and select Unlock from terminal session.\\n'; else rm -f ${handoffPath}; printf '\\nWardSen could not save a Bitwarden session. Finish Bitwarden login, then run this command again.\\n' >&2; fi; unset BITWARDENCLI_APPDATA_DIR bwExitCode`;
   }
 
   private consumeTerminalSessionHandoff(accountId: string): string | undefined {
@@ -264,6 +265,9 @@ function bitwardenExecutableCandidates(): string[] {
     candidates.push(path.join(process.env.HOME, "Library", "Application Support", "WardSen", "tools", "bw"));
     candidates.push(path.join(process.env.HOME, ".wardsen", "tools", "bw"));
   }
+  candidates.push("/opt/homebrew/bin/bw");
+  candidates.push("/usr/local/bin/bw");
+  candidates.push("/opt/local/bin/bw");
 
   return candidates;
 }

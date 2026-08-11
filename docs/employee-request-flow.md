@@ -35,6 +35,8 @@ Admins can provision several linked Employee identities from selected People in 
 
 Catalog access rules can name exact employees, teams or roles. WardSen evaluates those rules on the server before showing requestable metadata or accepting a credential request. Empty catalog policy rules are rejected.
 
+Catalog entries can also define a conservative auto-approval policy using max risk, max requested duration and ticket-reference rules. A matching request becomes `approved`, but WardSen still requires an admin delivery confirmation before creating any credential link.
+
 Replacement links stay tied to the original credential request. WardSen requires the admin confirmation phrase `REPLACE REQUEST <id>`, revokes the previous non-terminal provider link before creating the new link, records `previousDeliveryId`, `replacementCount` and `lastReplacementAt`, and returns the new one-time URL only in the immediate response.
 
 Future work can replace draft-based code delivery with SMTP, magic-link email or company SSO/OIDC, but it must keep the same backend rules.
@@ -49,5 +51,6 @@ Future work can replace draft-based code delivery with SMTP, magic-link email or
 - Do not bulk-provision Employee identities from People without an exact admin confirmation.
 - Do not let employees request catalog entries outside their allowed employee id.
 - Do not rely on UI filtering alone for team/role catalog access; the server must enforce the policy rule match.
+- Do not let auto-approval policy create delivery links without a separate admin confirmation.
 - Do not claim a specific person or device viewed a link unless a provider supplies verified telemetry.
 - Do not silently fingerprint, collect IP addresses or collect user agents without explicit operator configuration, recipient notice where appropriate and retention controls.

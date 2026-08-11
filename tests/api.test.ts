@@ -493,6 +493,35 @@ describe("WardSen API", () => {
     expect(roleCatalog.statusCode).toBe(200);
     expect(roleCatalog.json()).toMatchObject({ id: "catalog-role", allowedEmployeeIds: [], allowedTeams: [], allowedRoles: ["Engineer"] });
 
+    const autoApprovalCatalog = await app.inject({
+      method: "POST",
+      url: "/api/credential-catalog",
+      headers,
+      payload: {
+        id: "catalog-auto-low",
+        sourceProviderId: "mock-source",
+        sourceAccountId: "source",
+        sourceItemId: "vpn-low",
+        credentialName: "VPN Low Risk",
+        riskTier: "low",
+        allowedEmployeeIds: ["employee-1"],
+        autoApprovalPolicy: {
+          maxRiskTier: "low",
+          maxExpectedDurationMinutes: 120,
+          requireTicketRef: true
+        }
+      }
+    });
+    expect(autoApprovalCatalog.statusCode).toBe(200);
+    expect(autoApprovalCatalog.json()).toMatchObject({
+      id: "catalog-auto-low",
+      autoApprovalPolicy: {
+        maxRiskTier: "low",
+        maxExpectedDurationMinutes: 120,
+        requireTicketRef: true
+      }
+    });
+
     const wrongCatalog = await app.inject({
       method: "GET",
       url: "/api/employee-catalog?employeeId=employee-1&assignedEmail=attacker@example.com",
@@ -574,6 +603,59 @@ describe("WardSen API", () => {
       }
     });
     expect(rolePolicyRequest.statusCode).toBe(200);
+
+    const missingTicketAutoRequest = await app.inject({
+      method: "POST",
+      url: "/api/credential-requests",
+      headers,
+      payload: {
+        employeeId: "employee-1",
+        assignedEmail: "ravi@example.com",
+        catalogEntryId: "catalog-auto-low",
+        reason: "Need VPN access",
+        expectedDurationMinutes: 60
+      }
+    });
+    expect(missingTicketAutoRequest.statusCode).toBe(200);
+    expect(missingTicketAutoRequest.json()).toMatchObject({ status: "pending", credentialName: "VPN Low Risk" });
+
+    const autoApprovedRequest = await app.inject({
+      method: "POST",
+      url: "/api/credential-requests",
+      headers,
+      payload: {
+        employeeId: "employee-1",
+        assignedEmail: "ravi@example.com",
+        catalogEntryId: "catalog-auto-low",
+        reason: "Need VPN access",
+        ticketRef: "INC-123",
+        expectedDurationMinutes: 60
+      }
+    });
+    expect(autoApprovedRequest.statusCode).toBe(200);
+    expect(autoApprovedRequest.json()).toMatchObject({
+      status: "approved",
+      approver: "WardSen auto-approval policy",
+      decisionReason: expect.stringContaining("Admin confirmation still required before delivery")
+    });
+
+    const fulfilledAutoApprovedRequest = await app.inject({
+      method: "POST",
+      url: `/api/credential-requests/${autoApprovedRequest.json().id}/approve`,
+      headers,
+      payload: {
+        approver: "admin@example.com",
+        deliveryProviderId: "mock-delivery",
+        deliveryAccountId: "delivery",
+        expiresAt: new Date(Date.now() + 3600000).toISOString(),
+        viewLimit: 1,
+        viewOnce: true,
+        confirmRiskSummary: true
+      }
+    });
+    expect(fulfilledAutoApprovedRequest.statusCode).toBe(200);
+    expect(fulfilledAutoApprovedRequest.json().request).toMatchObject({ status: "fulfilled", deliveryProviderId: "mock-delivery" });
+    expect(fulfilledAutoApprovedRequest.json().delivery.oneTimeDeliveryUrl).toMatch(/^https:\/\/mock.local\/send\//);
 
     const accessRequest = await app.inject({
       method: "POST",
@@ -674,7 +756,7 @@ describe("WardSen API", () => {
       deliveryId: replacement.json().delivery.id,
       replacementCount: 1
     });
-    expect(deliveryProvider.revoked).toContainEqual({ accountId: "delivery", deliveryId: "mock-1" });
+    expect(deliveryProvider.revoked).toContainEqual({ accountId: "delivery", deliveryId: approved.json().delivery.providerDeliveryId });
     const previousDelivery = await app.inject({
       method: "GET",
       url: `/api/deliveries/${approved.json().delivery.id}`,

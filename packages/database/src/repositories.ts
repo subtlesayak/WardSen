@@ -64,18 +64,22 @@ export type EmployeeSessionCreateInput = Omit<EmployeeSessionRecord, "id" | "cre
   revokedAt?: string;
 };
 
-export type CredentialCatalogUpsertInput = Omit<CredentialCatalogEntry, "id" | "createdAt" | "updatedAt" | "active" | "tags" | "allowedEmployeeIds" | "allowedTeams" | "allowedRoles"> & {
+export type CredentialCatalogUpsertInput = Omit<CredentialCatalogEntry, "id" | "createdAt" | "updatedAt" | "active" | "tags" | "allowedEmployeeIds" | "allowedTeams" | "allowedRoles" | "autoApprovalPolicy"> & {
   id?: string;
   tags?: string[];
   allowedEmployeeIds?: string[];
   allowedTeams?: string[];
   allowedRoles?: string[];
+  autoApprovalPolicy?: CredentialCatalogEntry["autoApprovalPolicy"];
   active?: boolean;
 };
 
-export type CredentialAccessRequestCreateInput = Omit<CredentialAccessRequestRecord, "id" | "requestedAt" | "status" | "decidedAt" | "approver" | "decisionReason" | "deliveryId" | "deliveryProviderId" | "deliveryAccountId"> & {
+export type CredentialAccessRequestCreateInput = Omit<CredentialAccessRequestRecord, "id" | "requestedAt" | "status" | "decidedAt" | "approver" | "decisionReason" | "deliveryId" | "deliveryProviderId" | "deliveryAccountId" | "breakGlass" | "breakGlassJustification" | "breakGlassConfirmedAt"> & {
   id?: string;
   status?: CredentialAccessRequestRecord["status"];
+  breakGlass?: boolean;
+  breakGlassJustification?: string;
+  breakGlassConfirmedAt?: string;
 };
 
 export interface WardSenRepository {
@@ -339,6 +343,7 @@ export class InMemoryWardSenRepository implements WardSenRepository {
       allowedEmployeeIds: uniqueStrings(input.allowedEmployeeIds ?? []),
       allowedTeams: uniqueStrings(input.allowedTeams ?? []),
       allowedRoles: uniqueStrings(input.allowedRoles ?? []),
+      autoApprovalPolicy: input.autoApprovalPolicy,
       active: input.active ?? true,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now
@@ -364,6 +369,7 @@ export class InMemoryWardSenRepository implements WardSenRepository {
       ...input,
       id: input.id ?? nanoid(),
       assignedEmail: normalizeEmail(input.assignedEmail),
+      breakGlass: input.breakGlass ?? false,
       status: input.status ?? "pending",
       requestedAt: new Date().toISOString(),
       replacementCount: input.replacementCount ?? 0

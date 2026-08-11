@@ -139,6 +139,9 @@ function bitwardenExecutableCandidates(): string[] {
     candidates.push(path.join(process.env.HOME, "Library", "Application Support", "WardSen", "tools", "bw"));
     candidates.push(path.join(process.env.HOME, ".wardsen", "tools", "bw"));
   }
+  candidates.push("/opt/homebrew/bin/bw");
+  candidates.push("/usr/local/bin/bw");
+  candidates.push("/opt/local/bin/bw");
 
   return candidates;
 }

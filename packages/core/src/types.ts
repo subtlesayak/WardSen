@@ -11,7 +11,7 @@ export type DeliveryStatusValue =
   | "failed"
   | "cancelled";
 export type CredentialRiskTier = "low" | "medium" | "high" | "critical";
-export type CredentialAccessRequestStatus = "pending" | "approved" | "denied" | "fulfilled" | "cancelled";
+export type CredentialAccessRequestStatus = "pending" | "approved" | "break_glass" | "denied" | "fulfilled" | "cancelled";
 
 export interface PaginationInput {
   page: number;
@@ -238,6 +238,13 @@ export interface CredentialCatalogEntry {
   active: boolean;
   createdAt: string;
   updatedAt: string;
+  autoApprovalPolicy?: CatalogAutoApprovalPolicy;
+}
+
+export interface CatalogAutoApprovalPolicy {
+  maxRiskTier: CredentialRiskTier;
+  maxExpectedDurationMinutes?: number;
+  requireTicketRef: boolean;
 }
 
 export interface CredentialAccessRequestRecord {
@@ -252,6 +259,9 @@ export interface CredentialAccessRequestRecord {
   reason: string;
   ticketRef?: string;
   expectedDurationMinutes?: number;
+  breakGlass: boolean;
+  breakGlassJustification?: string;
+  breakGlassConfirmedAt?: string;
   status: CredentialAccessRequestStatus;
   requestedAt: string;
   decidedAt?: string;

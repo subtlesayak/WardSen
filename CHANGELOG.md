@@ -33,3 +33,4 @@
 - Added `v0.1.0-rc.42` release notes with MSI prerelease publishing fixes, MSI-compatible RC package versions, stale-installer checksum guards, release provenance manifests, pinned release workflow actions, public signing-readiness gates, shared API contracts and cleaner desktop-session trust diagnostics.
 - Added `v0.1.0-rc.43` release notes with the employee request catalog MVP, passwordless employee portal sessions, request-bound replacement links, delivery idempotency/recovery and Bitwarden Send operation lookup.
 - Added `v0.1.0-rc.44` release notes and fixed the macOS release-test ordering assumption in the employee replacement-link coverage.
+- Added `v0.1.0-rc.45` release notes with catalog auto-approval policies, break-glass request metadata, macOS Bitwarden CLI path discovery, visible macOS terminal unlock prompts and macOS DMG smoke checks.

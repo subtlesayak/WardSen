@@ -125,7 +125,12 @@ describe("people repository", () => {
       credentialName: "Deploy Root",
       riskTier: "high",
       allowedTeams: ["Ops"],
-      allowedRoles: ["Engineer"]
+      allowedRoles: ["Engineer"],
+      autoApprovalPolicy: {
+        maxRiskTier: "high",
+        maxExpectedDurationMinutes: 120,
+        requireTicketRef: true
+      }
     });
     const request = await repo.createCredentialAccessRequest({
       employeeId: employee.id,
@@ -146,7 +151,12 @@ describe("people repository", () => {
       assignedEmail: "duplicate@example.com"
     })).rejects.toThrow("Duplicate employee person link: person-ravi");
     expect(entry.tags).toEqual(["prod"]);
-    expect(policyEntry).toMatchObject({ allowedEmployeeIds: [], allowedTeams: ["Ops"], allowedRoles: ["Engineer"] });
+    expect(policyEntry).toMatchObject({
+      allowedEmployeeIds: [],
+      allowedTeams: ["Ops"],
+      allowedRoles: ["Engineer"],
+      autoApprovalPolicy: { maxRiskTier: "high", maxExpectedDurationMinutes: 120, requireTicketRef: true }
+    });
     expect((await repo.listCredentialCatalog({ page: 1, pageSize: 10, employeeId: employee.id, employeeTeam: employee.team, employeeRole: employee.role })).items).toHaveLength(2);
     expect((await repo.listCredentialCatalog({ page: 1, pageSize: 10, employeeId: "employee-other", employeeTeam: "Finance", employeeRole: "Analyst" })).items).toHaveLength(0);
     expect(request).toMatchObject({ assignedEmail: "ravi@example.com", status: "pending", replacementCount: 0 });

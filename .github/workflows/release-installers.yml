@@ -199,6 +199,10 @@ jobs:
           fi
           ./installers/macos/verify-macos-artifacts.sh "${{ matrix.bundle_root }}"
 
+      - name: Smoke macOS DMG bundle
+        if: runner.os == 'macOS'
+        run: ./installers/macos/smoke-macos-dmg.sh "${{ matrix.bundle_root }}"
+
       - name: Generate checksums
         env:
           WARDSEN_BUNDLE_ROOT: ${{ matrix.bundle_root }}
@@ -254,8 +258,11 @@ jobs:
           if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$INPUT_PRERELEASE" = "false" ]; then
             prerelease=false
           fi
-          draft=true
-          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$INPUT_PUBLISH" = "true" ]; then
+          draft=false
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$INPUT_PUBLISH" != "true" ]; then
+            draft=true
+          fi
+          if [ "$EVENT_NAME" != "workflow_dispatch" ]; then
             draft=false
           fi
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then

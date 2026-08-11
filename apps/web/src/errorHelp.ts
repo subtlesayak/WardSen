@@ -168,13 +168,14 @@ function describeTerminalLoginCommand(command: string): Pick<TerminalCommandHelp
 function providerToolHelp(lowerDetail: string): Pick<ErrorHelp, "guidance" | "actionLabel" | "actionHref" | "setupNotes" | "terminalCommands"> {
   if (lowerDetail.includes('"bw"')) {
     return {
-      guidance: "Install the Bitwarden command-line tool, then close and reopen WardSen before retrying. If you used the native download, put the bw executable in WardSen's local tools folder or another permanent folder on PATH.",
+      guidance: "Install the Bitwarden command-line tool, then close and reopen WardSen before retrying. WardSen cannot search Bitwarden or create Bitwarden Send links until the official bw executable is present in WardSen's local tools folder or a trusted PATH location.",
       actionLabel: "Open Bitwarden CLI install guide",
       actionHref: "https://bitwarden.com/help/cli/",
       setupNotes: [
         "Windows no-terminal option: create %LOCALAPPDATA%\\WardSen\\tools, copy bw.exe into that folder, then close and reopen WardSen.",
         "Windows PATH option: download the Windows x64 native executable, extract it into a permanent folder, add that folder to PATH, then close and reopen WardSen.",
         "macOS no-terminal option: create ~/Library/Application Support/WardSen/tools, put the bw executable there, allow it to run if macOS asks, then close and reopen WardSen.",
+        "macOS package-manager option: if bw is installed in /opt/homebrew/bin/bw, /usr/local/bin/bw or /opt/local/bin/bw, close and reopen WardSen so it can re-check those trusted paths.",
         "macOS Intel PATH option: download the macOS x64 native executable, allow it to run, add its folder to PATH, then close and reopen WardSen.",
         "macOS Apple Silicon or other arm64 devices: use NPM, because Bitwarden recommends installing the CLI with npm on arm64.",
         "To verify setup, open Terminal, PowerShell or Command Prompt and run bw --version."

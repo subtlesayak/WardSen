@@ -307,5 +307,54 @@ WHERE person_id IS NOT NULL;
 ALTER TABLE credential_catalog ADD COLUMN allowed_teams TEXT NOT NULL DEFAULT '[]';
 ALTER TABLE credential_catalog ADD COLUMN allowed_roles TEXT NOT NULL DEFAULT '[]';
 `
+  },
+  {
+    id: "009_catalog_auto_approval_policy",
+    sql: `
+ALTER TABLE credential_catalog ADD COLUMN auto_approval_policy TEXT;
+`
+  },
+  {
+    id: "010_credential_request_break_glass",
+    sql: `
+ALTER TABLE credential_access_requests ADD COLUMN break_glass INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE credential_access_requests ADD COLUMN break_glass_justification TEXT;
+ALTER TABLE credential_access_requests ADD COLUMN break_glass_confirmed_at TEXT;
+
+DROP TRIGGER IF EXISTS credential_access_requests_validate_insert;
+DROP TRIGGER IF EXISTS credential_access_requests_validate_update;
+
+CREATE TRIGGER IF NOT EXISTS credential_access_requests_validate_insert
+BEFORE INSERT ON credential_access_requests
+WHEN NEW.status NOT IN ('pending', 'approved', 'break_glass', 'denied', 'fulfilled', 'cancelled')
+  OR length(trim(NEW.reason)) = 0
+  OR (NEW.expected_duration_minutes IS NOT NULL AND NEW.expected_duration_minutes <= 0)
+  OR NEW.break_glass NOT IN (0, 1)
+  OR (NEW.status = 'break_glass' AND NEW.break_glass != 1)
+  OR (NEW.break_glass = 1 AND (
+    NEW.break_glass_justification IS NULL
+    OR length(trim(NEW.break_glass_justification)) < 12
+    OR NEW.break_glass_confirmed_at IS NULL
+  ))
+BEGIN
+  SELECT RAISE(ABORT, 'invalid credential access request');
+END;
+
+CREATE TRIGGER IF NOT EXISTS credential_access_requests_validate_update
+BEFORE UPDATE ON credential_access_requests
+WHEN NEW.status NOT IN ('pending', 'approved', 'break_glass', 'denied', 'fulfilled', 'cancelled')
+  OR length(trim(NEW.reason)) = 0
+  OR (NEW.expected_duration_minutes IS NOT NULL AND NEW.expected_duration_minutes <= 0)
+  OR NEW.break_glass NOT IN (0, 1)
+  OR (NEW.status = 'break_glass' AND NEW.break_glass != 1)
+  OR (NEW.break_glass = 1 AND (
+    NEW.break_glass_justification IS NULL
+    OR length(trim(NEW.break_glass_justification)) < 12
+    OR NEW.break_glass_confirmed_at IS NULL
+  ))
+BEGIN
+  SELECT RAISE(ABORT, 'invalid credential access request');
+END;
+`
   }
 ];

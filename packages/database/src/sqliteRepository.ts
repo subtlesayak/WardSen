@@ -377,9 +377,9 @@ export class SqliteWardSenRepository implements WardSenRepository {
     const existing = this.db.prepare("SELECT * FROM credential_catalog WHERE id = ?").get(id) as CredentialCatalogRow | undefined;
     this.db.prepare(`
       INSERT INTO credential_catalog (
-        id, source_provider_id, source_account_id, source_item_id, credential_name, username, domain, tags, risk_tier, allowed_employee_ids, allowed_teams, allowed_roles, active, created_at, updated_at
+        id, source_provider_id, source_account_id, source_item_id, credential_name, username, domain, tags, risk_tier, allowed_employee_ids, allowed_teams, allowed_roles, auto_approval_policy, active, created_at, updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         source_provider_id = excluded.source_provider_id,
         source_account_id = excluded.source_account_id,
@@ -392,6 +392,7 @@ export class SqliteWardSenRepository implements WardSenRepository {
         allowed_employee_ids = excluded.allowed_employee_ids,
         allowed_teams = excluded.allowed_teams,
         allowed_roles = excluded.allowed_roles,
+        auto_approval_policy = excluded.auto_approval_policy,
         active = excluded.active,
         updated_at = excluded.updated_at
     `).run(
@@ -407,6 +408,7 @@ export class SqliteWardSenRepository implements WardSenRepository {
       JSON.stringify(allowedEmployeeIds),
       JSON.stringify(allowedTeams),
       JSON.stringify(allowedRoles),
+      input.autoApprovalPolicy ? JSON.stringify(input.autoApprovalPolicy) : null,
       active ? 1 : 0,
       existing?.created_at ?? now,
       now
@@ -449,6 +451,7 @@ export class SqliteWardSenRepository implements WardSenRepository {
       ...input,
       id,
       assignedEmail: normalizeEmail(input.assignedEmail),
+      breakGlass: input.breakGlass ?? false,
       status: input.status ?? "pending",
       requestedAt,
       replacementCount: input.replacementCount ?? 0
@@ -456,10 +459,11 @@ export class SqliteWardSenRepository implements WardSenRepository {
     this.db.prepare(`
       INSERT INTO credential_access_requests (
         id, employee_id, assigned_email, catalog_entry_id, source_provider_id, source_account_id, source_item_id, credential_name,
-        reason, ticket_ref, expected_duration_minutes, status, requested_at, decided_at, approver, decision_reason, delivery_id, delivery_provider_id,
-        delivery_account_id, previous_delivery_id, replacement_count, last_replacement_at
+        reason, ticket_ref, expected_duration_minutes, break_glass, break_glass_justification, break_glass_confirmed_at, status, requested_at,
+        decided_at, approver, decision_reason, delivery_id, delivery_provider_id, delivery_account_id, previous_delivery_id, replacement_count,
+        last_replacement_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       request.id,
       request.employeeId,
@@ -472,6 +476,9 @@ export class SqliteWardSenRepository implements WardSenRepository {
       request.reason,
       request.ticketRef ?? null,
       request.expectedDurationMinutes ?? null,
+      request.breakGlass ? 1 : 0,
+      request.breakGlassJustification ?? null,
+      request.breakGlassConfirmedAt ?? null,
       request.status,
       request.requestedAt,
       request.decidedAt ?? null,
@@ -494,8 +501,9 @@ export class SqliteWardSenRepository implements WardSenRepository {
     this.db.prepare(`
       UPDATE credential_access_requests SET
         employee_id = ?, assigned_email = ?, catalog_entry_id = ?, source_provider_id = ?, source_account_id = ?, source_item_id = ?, credential_name = ?,
-        reason = ?, ticket_ref = ?, expected_duration_minutes = ?, status = ?, requested_at = ?, decided_at = ?, approver = ?, decision_reason = ?,
-        delivery_id = ?, delivery_provider_id = ?, delivery_account_id = ?, previous_delivery_id = ?, replacement_count = ?, last_replacement_at = ?
+        reason = ?, ticket_ref = ?, expected_duration_minutes = ?, break_glass = ?, break_glass_justification = ?, break_glass_confirmed_at = ?,
+        status = ?, requested_at = ?, decided_at = ?, approver = ?, decision_reason = ?, delivery_id = ?, delivery_provider_id = ?,
+        delivery_account_id = ?, previous_delivery_id = ?, replacement_count = ?, last_replacement_at = ?
       WHERE id = ?
     `).run(
       updated.employeeId,
@@ -508,6 +516,9 @@ export class SqliteWardSenRepository implements WardSenRepository {
       updated.reason,
       updated.ticketRef ?? null,
       updated.expectedDurationMinutes ?? null,
+      updated.breakGlass ? 1 : 0,
+      updated.breakGlassJustification ?? null,
+      updated.breakGlassConfirmedAt ?? null,
       updated.status,
       updated.requestedAt,
       updated.decidedAt ?? null,
@@ -810,6 +821,7 @@ interface CredentialCatalogRow {
   allowed_employee_ids: string;
   allowed_teams: string;
   allowed_roles: string;
+  auto_approval_policy: string | null;
   active: number;
   created_at: string;
   updated_at: string;
@@ -827,6 +839,9 @@ interface AccessRequestRow {
   reason: string;
   ticket_ref: string | null;
   expected_duration_minutes: number | null;
+  break_glass: number;
+  break_glass_justification: string | null;
+  break_glass_confirmed_at: string | null;
   status: CredentialAccessRequestRecord["status"];
   requested_at: string;
   decided_at: string | null;
@@ -975,6 +990,7 @@ function catalogEntryFromRow(row: unknown): CredentialCatalogEntry {
     allowedEmployeeIds: jsonStringArray(item.allowed_employee_ids),
     allowedTeams: jsonStringArray(item.allowed_teams),
     allowedRoles: jsonStringArray(item.allowed_roles),
+    autoApprovalPolicy: autoApprovalPolicyFromRow(item.auto_approval_policy),
     active: item.active === 1,
     createdAt: item.created_at,
     updatedAt: item.updated_at
@@ -995,6 +1011,9 @@ function accessRequestFromRow(row: unknown): CredentialAccessRequestRecord {
     reason: item.reason,
     ticketRef: item.ticket_ref ?? undefined,
     expectedDurationMinutes: item.expected_duration_minutes ?? undefined,
+    breakGlass: item.break_glass === 1,
+    breakGlassJustification: item.break_glass_justification ?? undefined,
+    breakGlassConfirmedAt: item.break_glass_confirmed_at ?? undefined,
     status: item.status,
     requestedAt: item.requested_at,
     decidedAt: item.decided_at ?? undefined,
@@ -1051,6 +1070,17 @@ function jsonStringArray(value: string): string[] {
     return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
   } catch {
     return [];
+  }
+}
+
+function autoApprovalPolicyFromRow(value: string | null): CredentialCatalogEntry["autoApprovalPolicy"] | undefined {
+  if (!value) return undefined;
+  try {
+    const parsed = JSON.parse(value) as CredentialCatalogEntry["autoApprovalPolicy"];
+    if (!parsed || typeof parsed !== "object") return undefined;
+    return parsed;
+  } catch {
+    return undefined;
   }
 }
 

@@ -112,6 +112,13 @@ interface CredentialCatalogEntry {
   allowedTeams: string[];
   allowedRoles: string[];
   active: boolean;
+  autoApprovalPolicy?: CatalogAutoApprovalPolicy;
+}
+
+interface CatalogAutoApprovalPolicy {
+  maxRiskTier: CredentialCatalogEntry["riskTier"];
+  maxExpectedDurationMinutes?: number;
+  requireTicketRef: boolean;
 }
 
 interface CredentialAccessRequestRecord {
@@ -123,7 +130,10 @@ interface CredentialAccessRequestRecord {
   reason: string;
   ticketRef?: string;
   expectedDurationMinutes?: number;
-  status: "pending" | "approved" | "denied" | "fulfilled" | "cancelled";
+  breakGlass: boolean;
+  breakGlassJustification?: string;
+  breakGlassConfirmedAt?: string;
+  status: "pending" | "approved" | "break_glass" | "denied" | "fulfilled" | "cancelled";
   requestedAt: string;
   approver?: string;
   decisionReason?: string;
@@ -163,6 +173,11 @@ interface EmployeePortalSession {
 type CreatedDeliveryRecord = CreatedDeliveryRecordContract;
 type BulkDeliveryResult = BulkDeliveryResultContract;
 type BulkDeliveryItemResult = BulkDeliveryItemResultContract;
+type CredentialAccessRequestCreateResponse = CredentialAccessRequestRecord | {
+  request: CredentialAccessRequestRecord;
+  delivery?: CreatedDeliveryRecord;
+  autoApproved?: boolean;
+};
 
 interface CredentialSummary {
   id: string;
@@ -541,7 +556,7 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
           {api.accounts.map((account) => <option key={account.id} value={account.id}>{account.label}</option>)}
         </select></label>
         <label>Password<input value={accessForm.password} onChange={(event) => setAccessForm((current) => ({ ...current, password: event.target.value }))} placeholder={selectedAccountIsBitwarden ? "Leave blank for terminal flow" : "Master password or database password"} type="password" />
-          {selectedAccountIsBitwarden ? <small className="fieldInstruction">If Terminal says you are already logged in, the copied command switches to Bitwarden unlock. Type the Bitwarden password at that terminal prompt, not in WardSen.</small> : null}
+          {selectedAccountIsBitwarden ? <small className="fieldInstruction">The copied command runs Bitwarden login visibly, then asks for the Bitwarden password in Terminal to unlock WardSen's isolated profile. Type that password in Terminal, not in WardSen.</small> : null}
         </label>
         {selectedAccountIsBitwarden && verificationNeeded ? (
           <label className={verificationNeeded ? "attentionField" : undefined}>Verification code
@@ -678,25 +693,7 @@ function Credentials({ api }: { api: ReturnType<typeof useWardSenApi> }) {
           <button className="primary"><Search size={16} aria-hidden="true" /> Search</button>
         </form>
         {search.status === "error" && <ErrorNotice message={search.error} />}
-        {search.errors.length > 0 && (
-          <div className="notice error" role="alert">
-            <button
-              type="button"
-              className="noticeClose"
-              aria-label="Close search issue message"
-              title="Close"
-              onClick={() => setSearch((current) => ({ ...current, errors: [] }))}
-            ><X size={16} /></button>
-            <strong>{search.errors.length} account search issue{search.errors.length === 1 ? "" : "s"}</strong>
-            <ul className="noticeList">
-              {search.errors.map((error) => (
-                <li key={`${error.providerId}-${error.accountId}`}>
-                  {accountLabel(api.accounts, error.accountId)} ({providerLabel(api.credentialProviders, error.providerId)}): {error.safeMessage}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+        {search.errors.length > 0 && <ErrorNotice message={formatCredentialSearchIssues(api, search.errors)} />}
         {search.status === "ready" && (
           <div className="pager" role="status" aria-live="polite">
             <span>{search.total} result{search.total === 1 ? "" : "s"} on page {search.page}</span>
@@ -877,7 +874,9 @@ function RequestsView({ api }: { api: ReturnType<typeof useWardSenApi> }) {
     catalogEntryId: "",
     reason: "",
     ticketRef: "",
-    expectedDurationMinutes: "60"
+    expectedDurationMinutes: "60",
+    breakGlass: false,
+    breakGlassJustification: ""
   });
   const [catalogForm, setCatalogForm] = useState({
     sourceAccountId: "",
@@ -889,14 +888,20 @@ function RequestsView({ api }: { api: ReturnType<typeof useWardSenApi> }) {
     riskTier: "medium" as CredentialCatalogEntry["riskTier"],
     allowedEmployeeId: "",
     allowedTeams: "",
-    allowedRoles: ""
+    allowedRoles: "",
+    autoApprovalEnabled: false,
+    autoApprovalMaxRiskTier: "low" as CredentialCatalogEntry["riskTier"],
+    autoApprovalMaxExpectedDurationMinutes: "60",
+    autoApprovalRequireTicketRef: true
   });
   const [requestForm, setRequestForm] = useState({
     employeeId: "",
     catalogEntryId: "",
     reason: "",
     ticketRef: "",
-    expectedDurationMinutes: "60"
+    expectedDurationMinutes: "60",
+    breakGlass: false,
+    breakGlassJustification: ""
   });
   const [approvalForm, setApprovalForm] = useState({
     approver: "",
@@ -1078,7 +1083,7 @@ function RequestsView({ api }: { api: ReturnType<typeof useWardSenApi> }) {
     }
     setMessage({ status: "loading", text: "Submitting employee portal request..." });
     try {
-      const request = await apiSend<CredentialAccessRequestRecord>("/api/employee-portal/credential-requests", {
+      const response = await apiSend<CredentialAccessRequestCreateResponse>("/api/employee-portal/credential-requests", {
         headers: employeeSessionHeaders(portalSession.sessionToken),
         body: JSON.stringify({
           catalogEntryId: portalRequestForm.catalogEntryId,
@@ -1087,8 +1092,13 @@ function RequestsView({ api }: { api: ReturnType<typeof useWardSenApi> }) {
           expectedDurationMinutes: Number(portalRequestForm.expectedDurationMinutes) || undefined
         })
       });
+      const { request, delivery, autoApproved } = normalizeAccessRequestResponse(response);
       setPortalRequestForm((current) => ({ ...current, reason: "", ticketRef: "" }));
-      setMessage({ status: "ready", text: `Employee request queued for ${request.credentialName}.` });
+      setMessage({
+        status: "ready",
+        text: autoApproved ? `Policy approved ${request.credentialName}; admin delivery confirmation is still required.` : `Employee request queued for ${request.credentialName}.`,
+        url: delivery?.oneTimeDeliveryUrl
+      });
       await loadEmployeePortal(portalSession.sessionToken);
       await api.refresh();
     } catch (error) {
@@ -1125,6 +1135,11 @@ function RequestsView({ api }: { api: ReturnType<typeof useWardSenApi> }) {
       setMessage({ status: "error", text: "Add at least one allowed employee, team or role before publishing a catalog entry." });
       return;
     }
+    const autoApprovalPolicy: CatalogAutoApprovalPolicy | undefined = catalogForm.autoApprovalEnabled ? {
+      maxRiskTier: catalogForm.autoApprovalMaxRiskTier,
+      maxExpectedDurationMinutes: Number(catalogForm.autoApprovalMaxExpectedDurationMinutes) || undefined,
+      requireTicketRef: catalogForm.autoApprovalRequireTicketRef
+    } : undefined;
     setMessage({ status: "loading", text: "Publishing credential metadata to the request catalog..." });
     try {
       const entry = await apiSend<CredentialCatalogEntry>("/api/credential-catalog", {
@@ -1139,7 +1154,8 @@ function RequestsView({ api }: { api: ReturnType<typeof useWardSenApi> }) {
           riskTier: catalogForm.riskTier,
           allowedEmployeeIds,
           allowedTeams,
-          allowedRoles
+          allowedRoles,
+          autoApprovalPolicy
         })
       });
       setCatalogForm((current) => ({ ...current, sourceItemId: "", credentialName: "", username: "", domain: "", tags: "", allowedTeams: "", allowedRoles: "" }));
@@ -1160,7 +1176,7 @@ function RequestsView({ api }: { api: ReturnType<typeof useWardSenApi> }) {
     }
     setMessage({ status: "loading", text: "Submitting employee credential request..." });
     try {
-      const accessRequest = await apiSend<CredentialAccessRequestRecord>("/api/credential-requests", {
+      const response = await apiSend<CredentialAccessRequestCreateResponse>("/api/credential-requests", {
         body: JSON.stringify({
           employeeId: requestForm.employeeId,
           assignedEmail,
@@ -1170,8 +1186,13 @@ function RequestsView({ api }: { api: ReturnType<typeof useWardSenApi> }) {
           expectedDurationMinutes: Number(requestForm.expectedDurationMinutes) || undefined
         })
       });
+      const { request: accessRequest, delivery, autoApproved } = normalizeAccessRequestResponse(response);
       setRequestForm((current) => ({ ...current, reason: "", ticketRef: "" }));
-      setMessage({ status: "ready", text: `Request queued for ${accessRequest.credentialName}.` });
+      setMessage({
+        status: "ready",
+        text: autoApproved ? `Policy approved ${accessRequest.credentialName}; admin delivery confirmation is still required.` : `Request queued for ${accessRequest.credentialName}.`,
+        url: delivery?.oneTimeDeliveryUrl
+      });
       await api.refresh();
     } catch (error) {
       setMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
@@ -1183,7 +1204,8 @@ function RequestsView({ api }: { api: ReturnType<typeof useWardSenApi> }) {
       setMessage({ status: "error", text: "Choose a delivery provider and delivery account before approving." });
       return;
     }
-    const confirmed = window.confirm(`Approve ${accessRequest.credentialName} for ${accessRequest.assignedEmail}?\n\nWardSen will create a one-access email delivery link for this assigned employee email.`);
+    const action = accessRequest.status === "approved" ? "Fulfill" : "Approve";
+    const confirmed = window.confirm(`${action} ${accessRequest.credentialName} for ${accessRequest.assignedEmail}?\n\nWardSen will create a one-access email delivery link for this assigned employee email.`);
     if (!confirmed) return;
     setMessage({ status: "loading", text: `Approving ${accessRequest.credentialName}...` });
     try {
@@ -1346,6 +1368,19 @@ function RequestsView({ api }: { api: ReturnType<typeof useWardSenApi> }) {
           <option value="high">High</option>
           <option value="critical">Critical</option>
         </select></label>
+        <label className="inlineCheck"><input type="checkbox" checked={catalogForm.autoApprovalEnabled} onChange={(event) => setCatalogForm((current) => ({ ...current, autoApprovalEnabled: event.target.checked }))} /> Auto-approve policy matches</label>
+        {catalogForm.autoApprovalEnabled ? (
+          <>
+            <label>Max risk<select value={catalogForm.autoApprovalMaxRiskTier} onChange={(event) => setCatalogForm((current) => ({ ...current, autoApprovalMaxRiskTier: event.target.value as CredentialCatalogEntry["riskTier"] }))}>
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+              <option value="critical">Critical</option>
+            </select></label>
+            <label>Max minutes<input inputMode="numeric" value={catalogForm.autoApprovalMaxExpectedDurationMinutes} onChange={(event) => setCatalogForm((current) => ({ ...current, autoApprovalMaxExpectedDurationMinutes: event.target.value }))} /></label>
+            <label className="inlineCheck"><input type="checkbox" checked={catalogForm.autoApprovalRequireTicketRef} onChange={(event) => setCatalogForm((current) => ({ ...current, autoApprovalRequireTicketRef: event.target.checked }))} /> Require ticket</label>
+          </>
+        ) : null}
         <button className="primary full" disabled={!sourceAccountId}><KeyRound size={16} aria-hidden="true" /> Publish metadata</button>
       </form>
       <form className="panel formGrid" onSubmit={submitAccessRequest}>
@@ -1436,9 +1471,9 @@ function RequestsView({ api }: { api: ReturnType<typeof useWardSenApi> }) {
                 <span>{accessRequest.reason}</span>
                 <Status value={titleStatus(accessRequest.status)} />
                 <div className="actions">
-                  <button type="button" disabled={accessRequest.status !== "pending"} onClick={() => void approveRequest(accessRequest)}><Send size={15} aria-hidden="true" /> Approve</button>
+                  <button type="button" disabled={accessRequest.status !== "pending" && accessRequest.status !== "approved"} onClick={() => void approveRequest(accessRequest)}><Send size={15} aria-hidden="true" /> {accessRequest.status === "approved" ? "Fulfill" : "Approve"}</button>
                   <button type="button" disabled={accessRequest.status !== "fulfilled" || !accessRequest.deliveryId} onClick={() => void replaceRequestLink(accessRequest)}><RotateCcw size={15} aria-hidden="true" /> Replace</button>
-                  <button type="button" disabled={accessRequest.status !== "pending"} onClick={() => void denyRequest(accessRequest)}><X size={15} aria-hidden="true" /> Deny</button>
+                  <button type="button" disabled={accessRequest.status !== "pending" && accessRequest.status !== "approved"} onClick={() => void denyRequest(accessRequest)}><X size={15} aria-hidden="true" /> Deny</button>
                   {accessRequest.deliveryId ? <button type="button" aria-label={`Copy delivery ID for ${accessRequest.credentialName}`} title="Copy delivery ID" onClick={() => navigator.clipboard?.writeText(accessRequest.deliveryId ?? "")}><Copy size={15} aria-hidden="true" /></button> : null}
                 </div>
               </div>
@@ -2136,7 +2171,9 @@ function ErrorNotice({ message, compact = false, actionLabel, onAction }: { mess
           <button type="button" className="noticeActionLink secondary" onClick={() => {
             setCopyStatus(undefined);
             void copyTextToClipboard(terminalCommand.command)
-              .then(() => setCopyStatus("Terminal command copied. Paste it into Terminal, PowerShell or Command Prompt, run it, then close and reopen WardSen."))
+              .then(() => setCopyStatus(help.kind === "bitwardenTerminalLogin"
+                ? "Terminal command copied. Paste it into Terminal or PowerShell, run it, then return to WardSen and select Unlock from terminal session."
+                : "Terminal command copied. Paste it into Terminal, PowerShell or Command Prompt, run it, then close and reopen WardSen."))
               .catch((error: unknown) => {
                 const detail = error instanceof Error ? error.message : String(error);
                 setCopyStatus(`Copy was blocked. Manually copy this command: ${terminalCommand.command}. Detail: ${detail}`);
@@ -2211,6 +2248,15 @@ function accountLabel(accounts: AccountRecord[], accountId: string) {
   return accounts.find((account) => account.id === accountId)?.label ?? accountId;
 }
 
+function formatCredentialSearchIssues(
+  api: ReturnType<typeof useWardSenApi>,
+  errors: Array<{ accountId: string; providerId: string; safeMessage: string }>
+) {
+  return errors
+    .map((error) => `${accountLabel(api.accounts, error.accountId)} (${providerLabel(api.credentialProviders, error.providerId)}): ${error.safeMessage}`)
+    .join("\n");
+}
+
 function employeeLabel(employees: EmployeeRecord[], employeeId: string) {
   const employee = employees.find((candidate) => candidate.id === employeeId);
   return employee ? employee.name : employeeId;
@@ -2223,6 +2269,11 @@ function catalogEntryAllowsEmployee(entry: CredentialCatalogEntry, employee?: Em
   return entry.allowedEmployeeIds.includes(employee.id)
     || Boolean(team && entry.allowedTeams.some((candidate) => candidate.trim().toLowerCase() === team))
     || Boolean(role && entry.allowedRoles.some((candidate) => candidate.trim().toLowerCase() === role));
+}
+
+function normalizeAccessRequestResponse(response: CredentialAccessRequestCreateResponse): { request: CredentialAccessRequestRecord; delivery?: CreatedDeliveryRecord; autoApproved?: boolean } {
+  if ("request" in response) return response;
+  return { request: response, autoApproved: response.status === "approved" };
 }
 
 function employeeSessionHeaders(sessionToken: string): HeadersInit {

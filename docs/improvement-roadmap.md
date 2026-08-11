@@ -257,8 +257,9 @@ Current MVP status:
 - Implemented request-bound replacement links that require `REPLACE REQUEST <id>`, revoke the previous delivery, and preserve replacement metadata on the original request.
 - Implemented a local Requests view for admin setup, employee sign-in, employee-side request submission and admin review in one desktop screen.
 - Implemented server-enforced catalog policy rules for exact employees, teams and roles.
+- Implemented conservative catalog auto-approval policies that can mark matching requests as `approved` while still requiring admin confirmation before delivery.
 - Documented the future employee portal flow in [Employee Credential Request Flow](employee-request-flow.md).
-- Remaining: separate hosted employee portal, SMTP/magic-link delivery or SSO/OIDC, automatic approval policy and emergency break-glass workflow.
+- Remaining: separate hosted employee portal, SMTP/magic-link delivery or SSO/OIDC and emergency break-glass workflow.
 
 Exit criteria:
 

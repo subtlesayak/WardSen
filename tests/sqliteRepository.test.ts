@@ -156,7 +156,12 @@ describe("SqliteWardSenRepository", () => {
       credentialName: "Deploy Root",
       riskTier: "high",
       allowedTeams: ["Ops"],
-      allowedRoles: ["Engineer"]
+      allowedRoles: ["Engineer"],
+      autoApprovalPolicy: {
+        maxRiskTier: "high",
+        maxExpectedDurationMinutes: 120,
+        requireTicketRef: true
+      }
     });
     const request = await repo.createCredentialAccessRequest({
       employeeId: employee.id,
@@ -179,7 +184,12 @@ describe("SqliteWardSenRepository", () => {
     });
 
     expect((await repo.listEmployees({ page: 1, pageSize: 10 })).items[0]).toMatchObject({ personId: "person-ravi", assignedEmail: "ravi@example.com" });
-    expect(policyEntry).toMatchObject({ allowedEmployeeIds: [], allowedTeams: ["Ops"], allowedRoles: ["Engineer"] });
+    expect(policyEntry).toMatchObject({
+      allowedEmployeeIds: [],
+      allowedTeams: ["Ops"],
+      allowedRoles: ["Engineer"],
+      autoApprovalPolicy: { maxRiskTier: "high", maxExpectedDurationMinutes: 120, requireTicketRef: true }
+    });
     expect((await repo.listCredentialCatalog({ page: 1, pageSize: 10, employeeId: employee.id, employeeTeam: employee.team, employeeRole: employee.role })).items).toEqual(expect.arrayContaining([
       expect.objectContaining({ credentialName: "CMS Login", tags: ["prod"] }),
       expect.objectContaining({ credentialName: "Deploy Root", allowedTeams: ["Ops"], allowedRoles: ["Engineer"] })

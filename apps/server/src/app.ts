@@ -571,6 +571,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     const { employee } = await requireEmployeeSession(request);
     const body = employeePortalRequestSchema.parse(request.body);
     const entry = await assertEmployeeCanRequestCatalogEntry(employee, body.catalogEntryId);
+    const breakGlass = breakGlassRequestFields(body, entry.id);
     const accessRequest = await repository.createCredentialAccessRequest({
       employeeId: employee.id,
       assignedEmail: employee.assignedEmail,
@@ -581,10 +582,15 @@ export async function buildApp(options: BuildAppOptions = {}) {
       credentialName: entry.credentialName,
       reason: body.reason,
       ticketRef: body.ticketRef,
-      expectedDurationMinutes: body.expectedDurationMinutes
+      expectedDurationMinutes: body.expectedDurationMinutes,
+      ...breakGlass
     });
     await audit("credential_request.employee_portal_create", "success", { sourceAccountId: entry.sourceAccountId, safeDetails: `request=${accessRequest.id};employee=${employee.id}` });
-    return accessRequest;
+    if (accessRequest.breakGlass) {
+      await audit("credential_request.break_glass", "success", { sourceAccountId: entry.sourceAccountId, safeDetails: `request=${accessRequest.id};employee=${employee.id}` });
+      return accessRequest;
+    }
+    return applyCatalogAutoApproval(accessRequest, entry);
   });
 
   app.post("/api/employee-sessions/current/logout", async (request) => {
@@ -648,6 +654,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
       allowedEmployeeIds: body.allowedEmployeeIds ?? existing.allowedEmployeeIds,
       allowedTeams: body.allowedTeams ?? existing.allowedTeams,
       allowedRoles: body.allowedRoles ?? existing.allowedRoles,
+      autoApprovalPolicy: body.autoApprovalPolicy ?? existing.autoApprovalPolicy,
       active: body.active ?? existing.active
     };
     await assertCatalogPolicy(updated);
@@ -669,6 +676,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     const body = credentialAccessRequestSchema.parse(request.body);
     const employee = await assertEmployeeAssignedEmail(body.employeeId, body.assignedEmail);
     const entry = await assertEmployeeCanRequestCatalogEntry(employee, body.catalogEntryId);
+    const breakGlass = breakGlassRequestFields(body, entry.id);
     const accessRequest = await repository.createCredentialAccessRequest({
       employeeId: employee.id,
       assignedEmail: employee.assignedEmail,
@@ -679,18 +687,23 @@ export async function buildApp(options: BuildAppOptions = {}) {
       credentialName: entry.credentialName,
       reason: body.reason,
       ticketRef: body.ticketRef,
-      expectedDurationMinutes: body.expectedDurationMinutes
+      expectedDurationMinutes: body.expectedDurationMinutes,
+      ...breakGlass
     });
     await audit("credential_request.create", "success", { sourceAccountId: entry.sourceAccountId, safeDetails: `request=${accessRequest.id};employee=${employee.id}` });
-    return accessRequest;
+    if (accessRequest.breakGlass) {
+      await audit("credential_request.break_glass", "success", { sourceAccountId: entry.sourceAccountId, safeDetails: `request=${accessRequest.id};employee=${employee.id}` });
+      return accessRequest;
+    }
+    return applyCatalogAutoApproval(accessRequest, entry);
   });
 
   app.post("/api/credential-requests/:id/deny", async (request) => {
     const { id } = idParams.parse(request.params);
     const body = credentialAccessDecisionSchema.parse(request.body);
     const accessRequest = await findCredentialAccessRequest(repository, id);
-    if (accessRequest.status !== "pending") {
-      throw app.httpErrors.conflict("Only pending credential requests can be denied.");
+    if (accessRequest.status !== "pending" && accessRequest.status !== "approved" && accessRequest.status !== "break_glass") {
+      throw app.httpErrors.conflict("Only pending, policy-approved or break-glass credential requests can be denied.");
     }
     const updated = await repository.updateCredentialAccessRequest(id, {
       status: "denied",
@@ -709,8 +722,8 @@ export async function buildApp(options: BuildAppOptions = {}) {
       throw new Error("Approving a credential request requires confirmation of requester, assigned email, credential, expiry and view limit");
     }
     const accessRequest = await findCredentialAccessRequest(repository, id);
-    if (accessRequest.status !== "pending") {
-      throw app.httpErrors.conflict("Only pending credential requests can be approved.");
+    if (accessRequest.status !== "pending" && accessRequest.status !== "approved" && accessRequest.status !== "break_glass") {
+      throw app.httpErrors.conflict("Only pending, policy-approved or break-glass credential requests can be fulfilled.");
     }
     const employee = await repository.getEmployee(accessRequest.employeeId);
     if (!employee || !employee.active || employee.assignedEmail !== accessRequest.assignedEmail) {
@@ -1231,6 +1244,71 @@ export async function buildApp(options: BuildAppOptions = {}) {
     }
   }
 
+  async function applyCatalogAutoApproval(accessRequest: CredentialAccessRequestRecord, entry: CredentialCatalogEntry): Promise<CredentialAccessRequestRecord> {
+    const policy = entry.autoApprovalPolicy;
+    if (!policy) return accessRequest;
+
+    const skipReason = catalogAutoApprovalSkipReason(policy, entry, accessRequest);
+    if (skipReason) {
+      await audit("credential_request.auto_approval_skip", "cancelled", {
+        sourceAccountId: accessRequest.sourceAccountId,
+        safeDetails: `request=${accessRequest.id};reason=${skipReason}`
+      });
+      return accessRequest;
+    }
+
+    const updated = await repository.updateCredentialAccessRequest(accessRequest.id, {
+      status: "approved",
+      decidedAt: new Date().toISOString(),
+      approver: "WardSen auto-approval policy",
+      decisionReason: autoApprovalDecisionReason(policy)
+    });
+    await audit("credential_request.auto_approve", "success", {
+      sourceAccountId: accessRequest.sourceAccountId,
+      safeDetails: `request=${accessRequest.id};policy=maxRisk:${policy.maxRiskTier}`
+    });
+    return updated;
+  }
+
+  function breakGlassRequestFields(body: z.infer<typeof employeePortalRequestSchema> | z.infer<typeof credentialAccessRequestSchema>, catalogEntryId: string): Partial<CredentialAccessRequestRecord> {
+    if (!body.breakGlass) return {};
+    assertDestructiveConfirmation(body, confirmationPhrase("BREAK GLASS", catalogEntryId));
+    if (body.confirmRiskSummary !== true) {
+      throw new Error("Break-glass credential requests require confirmation of emergency need, requester, assigned email and audit impact.");
+    }
+    if (!body.breakGlassJustification) {
+      throw new Error("Break-glass credential requests require an emergency justification.");
+    }
+    return {
+      status: "break_glass",
+      breakGlass: true,
+      breakGlassJustification: body.breakGlassJustification,
+      breakGlassConfirmedAt: new Date().toISOString()
+    };
+  }
+
+  function catalogAutoApprovalSkipReason(policy: NonNullable<CredentialCatalogEntry["autoApprovalPolicy"]>, entry: CredentialCatalogEntry, accessRequest: CredentialAccessRequestRecord): string | undefined {
+    if (!riskTierWithinPolicy(entry.riskTier, policy.maxRiskTier)) {
+      return "risk_tier_exceeds_policy";
+    }
+    if (policy.requireTicketRef && !accessRequest.ticketRef) {
+      return "ticket_required";
+    }
+    if (policy.maxExpectedDurationMinutes !== undefined) {
+      const requestedDuration = accessRequest.expectedDurationMinutes;
+      if (!requestedDuration || requestedDuration > policy.maxExpectedDurationMinutes) {
+        return "duration_exceeds_policy";
+      }
+    }
+    return undefined;
+  }
+
+  function autoApprovalDecisionReason(policy: NonNullable<CredentialCatalogEntry["autoApprovalPolicy"]>): string {
+    const ticketRule = policy.requireTicketRef ? "ticket required" : "ticket optional";
+    const durationRule = policy.maxExpectedDurationMinutes ? `duration <= ${policy.maxExpectedDurationMinutes}m` : "duration unrestricted";
+    return `Auto-approved by catalog policy (${policy.maxRiskTier} risk max, ${durationRule}, ${ticketRule}). Admin confirmation still required before delivery.`;
+  }
+
   function catalogEntryAllowsEmployee(entry: CredentialCatalogEntry, employee: EmployeeRecord): boolean {
     const team = employee.team?.trim().toLowerCase();
     const role = employee.role?.trim().toLowerCase();
@@ -1441,6 +1519,11 @@ const employeeCatalogQuerySchema = paginationSchema.extend({
 const employeePortalCatalogQuerySchema = paginationSchema.extend({
   search: z.string().optional()
 });
+const catalogAutoApprovalPolicySchema = z.object({
+  maxRiskTier: z.enum(["low", "medium", "high", "critical"]).default("low"),
+  maxExpectedDurationMinutes: z.coerce.number().int().positive().max(60 * 24 * 30).optional(),
+  requireTicketRef: z.boolean().default(true)
+});
 const credentialCatalogEntryBaseSchema = z.object({
   id: z.string().optional(),
   sourceProviderId: z.string().min(1),
@@ -1454,6 +1537,7 @@ const credentialCatalogEntryBaseSchema = z.object({
   allowedEmployeeIds: z.array(z.string().min(1)).default([]),
   allowedTeams: z.array(z.string().min(1)).default([]),
   allowedRoles: z.array(z.string().min(1)).default([]),
+  autoApprovalPolicy: catalogAutoApprovalPolicySchema.optional(),
   active: z.boolean().optional()
 });
 const credentialCatalogEntrySchema = credentialCatalogEntryBaseSchema.refine((value) => value.allowedEmployeeIds.length > 0 || value.allowedTeams.length > 0 || value.allowedRoles.length > 0, {
@@ -1462,21 +1546,29 @@ const credentialCatalogEntrySchema = credentialCatalogEntryBaseSchema.refine((va
 const credentialCatalogEntryPatchSchema = credentialCatalogEntryBaseSchema.partial();
 const credentialAccessRequestQuerySchema = paginationSchema.extend({
   employeeId: z.string().optional(),
-  status: z.enum(["pending", "approved", "denied", "fulfilled", "cancelled"]).optional()
+  status: z.enum(["pending", "approved", "break_glass", "denied", "fulfilled", "cancelled"]).optional()
 });
+const breakGlassRequestSchema = {
+  breakGlass: z.boolean().optional(),
+  breakGlassJustification: z.string().trim().min(12).max(1000).optional(),
+  confirm: z.string().optional(),
+  confirmRiskSummary: z.boolean().optional()
+};
 const credentialAccessRequestSchema = z.object({
   employeeId: z.string().min(1),
   assignedEmail: normalizedEmailSchema,
   catalogEntryId: z.string().min(1),
   reason: z.string().trim().min(8).max(1000),
   ticketRef: z.string().trim().min(1).max(200).optional(),
-  expectedDurationMinutes: z.number().int().positive().max(60 * 24 * 30).optional()
+  expectedDurationMinutes: z.number().int().positive().max(60 * 24 * 30).optional(),
+  ...breakGlassRequestSchema
 });
 const employeePortalRequestSchema = z.object({
   catalogEntryId: z.string().min(1),
   reason: z.string().trim().min(8).max(1000),
   ticketRef: z.string().trim().min(1).max(200).optional(),
-  expectedDurationMinutes: z.number().int().positive().max(60 * 24 * 30).optional()
+  expectedDurationMinutes: z.number().int().positive().max(60 * 24 * 30).optional(),
+  ...breakGlassRequestSchema
 });
 const credentialAccessDecisionSchema = z.object({
   approver: z.string().trim().min(1).max(200),
@@ -1607,6 +1699,11 @@ function assertDeliveryAccountMatchesProvider(deliveryProviderId: string, delive
   }
 }
 
+function riskTierWithinPolicy(riskTier: CredentialCatalogEntry["riskTier"], maxRiskTier: CredentialCatalogEntry["riskTier"]): boolean {
+  const order: Record<CredentialCatalogEntry["riskTier"], number> = { low: 1, medium: 2, high: 3, critical: 4 };
+  return order[riskTier] <= order[maxRiskTier];
+}
+
 async function assertDeliveryProviderReady(deliveryProvider: DeliveryProvider, accountId: string, account: AccountRecord): Promise<void> {
   try {
     const result = await deliveryProvider.testConnection(accountId);
@@ -1639,7 +1736,7 @@ function managedProfileDirectory(profileRoot: string, accountId: string): string
   return resolved;
 }
 
-function confirmationPhrase(action: "DELETE ACCOUNT" | "DELETE PERSON" | "REVOKE DELIVERY" | "CANCEL BATCH" | "REPLACE REQUEST", id: string): string {
+function confirmationPhrase(action: "DELETE ACCOUNT" | "DELETE PERSON" | "REVOKE DELIVERY" | "CANCEL BATCH" | "REPLACE REQUEST" | "BREAK GLASS", id: string): string {
   return `${action} ${id}`;
 }
 

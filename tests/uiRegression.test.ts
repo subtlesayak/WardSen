@@ -78,8 +78,8 @@ describe("web UI regression guards", () => {
     expect(webSource).toContain("unlockDisabledForVerification");
     expect(webSource).toContain("Submit code and login");
     expect(webSource).toContain("Terminal login / unlock");
-    expect(webSource).toContain("If Terminal says you are already logged in");
-    expect(webSource).toContain("Type the Bitwarden password at that terminal prompt, not in WardSen.");
+    expect(webSource).toContain("runs Bitwarden login visibly");
+    expect(webSource).toContain("Type that password in Terminal, not in WardSen.");
     expect(webSource).toContain("Code type");
     expect(webSource).toContain("Email / new-device code");
     expect(webSource).toContain("Unlock is available after Bitwarden login finishes");
@@ -128,6 +128,13 @@ describe("web UI regression guards", () => {
     expect(webSource).toContain("allowedRoles");
     expect(webSource).toContain("function catalogEntryAllowsEmployee");
     expect(webSource).toContain("Add at least one allowed employee, team or role");
+    expect(webSource).toContain("autoApprovalPolicy");
+    expect(webSource).toContain("Auto-approve policy matches");
+    expect(webSource).toContain("autoApprovalMaxRiskTier");
+    expect(webSource).toContain("autoApprovalMaxExpectedDurationMinutes");
+    expect(webSource).toContain("Policy approved");
+    expect(webSource).toContain("function normalizeAccessRequestResponse");
+    expect(webSource).toContain("accessRequest.status === \"approved\" ? \"Fulfill\" : \"Approve\"");
     expect(webSource).toContain("title=\"Employee-Side Request\"");
     expect(webSource).toContain("title=\"Employee Sign-In Code\"");
     expect(webSource).toContain("title=\"Employee Portal Sign-In\"");

@@ -103,6 +103,9 @@ jobs:
           fi
           ./installers/macos/verify-macos-artifacts.sh "$WARDSEN_BUNDLE_ROOT"
 
+      - name: Smoke macOS Intel DMG bundle
+        run: ./installers/macos/smoke-macos-dmg.sh "$WARDSEN_BUNDLE_ROOT"
+
       - name: Generate checksums
         run: npm run release:checksums
 

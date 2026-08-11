@@ -44,9 +44,9 @@ WardSen is an independent open-source project and is not affiliated with, endors
 
 ## Status
 
-`v0.1.0-rc.44` is the latest installer prerelease. It is suitable for developer review, security review and platform packaging validation.
+`v0.1.0-rc.45` is the latest installer prerelease. It is suitable for developer review, security review and platform packaging validation.
 
-Unsigned Windows MSI and macOS Apple Silicon installers are attached to the GitHub prerelease. The previous unsigned Windows setup EXE was pulled after Microsoft Defender flagged it as `Trojan:Win32/Wacatac.B!ml`; `v0.1.0-rc.44` does not publish that NSIS setup EXE. Windows SmartScreen, Microsoft Defender and macOS Gatekeeper may warn until signing certificates and notarization are configured. See [installer signing](docs/installer-signing.md) before publishing a fully trusted end-user release.
+Unsigned Windows MSI and macOS Apple Silicon installers are attached to the GitHub prerelease. The previous unsigned Windows setup EXE was pulled after Microsoft Defender flagged it as `Trojan:Win32/Wacatac.B!ml`; `v0.1.0-rc.45` does not publish that NSIS setup EXE. Windows SmartScreen, Microsoft Defender and macOS Gatekeeper may warn until signing certificates and notarization are configured. See [installer signing](docs/installer-signing.md) before publishing a fully trusted end-user release.
 
 This release contains:
 
@@ -63,6 +63,7 @@ This release contains:
 - Optional Person-to-Employee linking so contacts can provide the assigned request email without automatically granting request access
 - Guarded bulk provisioning from selected People into linked Employee request identities
 - Catalog access policy rules for exact employees, teams and roles
+- Catalog auto-approval policy that pre-approves matching requests without creating delivery links
 - Safe CLI process runner
 - API coverage for accounts, people CSV, delivery retry, bulk batches and safe delivery history
 - Tests for sessions, view limits, people pagination, SQLite persistence and CLI behavior
@@ -84,13 +85,14 @@ This release contains:
 - Provider setup buttons open official install pages through the packaged desktop app's system-browser opener
 - Provider setup errors include copyable install links and terminal recovery commands
 - Bitwarden CLI setup help now explains Windows and macOS native downloads, WardSen local tools folders, PATH, arm64/NPM installs and `bw --version` verification
+- Packaged macOS builds look for `bw` in WardSen's local tools folder plus common package-manager paths such as `/opt/homebrew/bin/bw`, `/usr/local/bin/bw` and `/opt/local/bin/bw`
 - Bitwarden provider errors now include safe CLI details and timeout guidance instead of leaving login stuck on a generic loading state
 - Bitwarden first login is terminal-first: WardSen shows a same-profile Terminal or PowerShell command instead of asking for the Bitwarden password or OTP inside the app
-- Bitwarden terminal login captures the short-lived `bw login --raw` session into WardSen's local profile, then **Unlock from terminal session** consumes it and deletes the handoff file
+- Bitwarden terminal login runs visible provider prompts, captures the short-lived `bw unlock --raw` session into WardSen's local profile, then **Unlock from terminal session** consumes it and deletes the handoff file
 - Bitwarden terminal commands keep `bw login` intact in copyable error help while still redacting real secrets
 - Bitwarden terminal login commands are platform-aware: Windows gets PowerShell syntax, while macOS and Linux get zsh/bash syntax
 - Bitwarden terminal login avoids repeatedly burning email/new-device codes in hidden CLI prompts
-- macOS terminal login uses a zsh-safe exit-code variable and falls back to `bw unlock --raw` when the CLI reports an existing login
+- macOS terminal login avoids zsh read-only variables and does not hide Bitwarden prompts inside shell command substitution
 - Bitwarden Send delivery uses the same isolated WardSen account profile as Vaults, checks the selected delivery account before creating links and tells users to unlock the account first when `bw` is not logged in
 - Requests view lets admins provision employee emails, publish requestable credential metadata, review requests and approve one-access delivery links only to the assigned employee email
 - Employee portal sign-in uses admin-issued one-time codes and hash-only session storage instead of employee passwords
@@ -109,7 +111,7 @@ Go to [GitHub Releases](https://github.com/subtlesayak/WardSen/releases) and dow
 
 - Windows: `WardSen_0.1.0_x64_en-US.msi`
 - macOS Apple Silicon: `WardSen_0.1.0_aarch64.dmg`
-- macOS Intel: not attached to `v0.1.0-rc.44`; maintainers can build it from the manual Intel workflow
+- macOS Intel: not attached to `v0.1.0-rc.45`; maintainers can build it from the manual Intel workflow
 
 Windows first install:
 
@@ -151,12 +153,12 @@ Release users do not need the `WardSen` source folder, `npm ci`, Git, Rust or a 
 ### Bitwarden CLI Setup For Release Users
 
 WardSen uses Bitwarden through the official `bw` command-line tool. Installing WardSen alone does not install `bw`.
-For first Bitwarden login, WardSen does not ask for your Bitwarden password, email code, authenticator code or YubiKey code inside the app. Select **Terminal login**, copy the same-profile terminal command, run it in your system terminal, and type those secrets only into the official Bitwarden CLI prompts.
+For first Bitwarden login, WardSen does not ask for your Bitwarden password, email code, authenticator code or YubiKey code inside the app. Select **Terminal login**, copy the same-profile terminal command, run it in your system terminal, and type those secrets only into Terminal or the official Bitwarden CLI prompts shown there.
 
 When the command finishes, return to WardSen and select **Unlock from terminal session**. WardSen reads the short-lived Bitwarden session from the same local profile and deletes the local handoff file. The command does not contain your password, verification code or session token.
 
 On Windows, the command should start with `$env:BITWARDENCLI_APPDATA_DIR=` and include `$bwResult=bw login ... --raw`.
-On macOS and Linux, the command should start with `export BITWARDENCLI_APPDATA_DIR=` and include `bwResult="$(bw login ... --raw)"`.
+On macOS and Linux, the command should start with `export BITWARDENCLI_APPDATA_DIR=`, run visible `bw login ...` prompts, and write the `bw unlock --raw` output into WardSen's `.wardsen-session-*` handoff file.
 If the macOS app shows a command with `$env:` or `Remove-Item Env:`, install `v0.1.0-rc.29` or newer before trying terminal login. That is Windows PowerShell syntax and will not run correctly in macOS Terminal.
 If you see an older command containing `[REDACTED] login` or a quoted literal `'%LOCALAPPDATA%\WardSen\...'`, install `v0.1.0-rc.29` or newer before trying terminal login. Those older RC commands cannot import the login correctly.
 
@@ -211,7 +213,7 @@ Beginner-friendly macOS path:
 
 macOS PATH option:
 
-1. Put the downloaded executable in a permanent folder that is on your `PATH`.
+1. Put the downloaded executable in a permanent folder that is on your `PATH`. Packaged WardSen also checks `/opt/homebrew/bin/bw`, `/usr/local/bin/bw` and `/opt/local/bin/bw` directly because Finder-launched macOS apps may not inherit your Terminal `PATH`.
 2. Close and reopen WardSen.
 3. To verify, open **Terminal** and run:
 
@@ -229,7 +231,7 @@ npm install -g @bitwarden/cli
 
 Maintainers build installers from the source checkout. End users only receive the final installer file.
 
-Current unsigned prerelease workflow uploads Windows MSI only. The NSIS setup EXE path below is a possible Tauri output for future signed releases, not a `v0.1.0-rc.44` asset.
+Current unsigned prerelease workflow uploads Windows MSI only. The NSIS setup EXE path below is a possible Tauri output for future signed releases, not a `v0.1.0-rc.45` asset.
 
 Build output stays on the release machine under:
 

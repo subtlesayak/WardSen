@@ -121,10 +121,14 @@ describe("Bitwarden credential provider", () => {
         verificationCode: "123456"
       });
 
-      await expect(login).rejects.toThrow("export BITWARDENCLI_APPDATA_DIR=\"$HOME/Library/Application Support/dev.wardsen.desktop/wardsen-data/profiles/acct-1\"; bwResult=\"$(bw login 'user@example.com' --raw 2>&1)\"");
+      await expect(login).rejects.toThrow("export BITWARDENCLI_APPDATA_DIR=\"$HOME/Library/Application Support/dev.wardsen.desktop/wardsen-data/profiles/acct-1\"; mkdir -p \"$BITWARDENCLI_APPDATA_DIR\"; bw login 'user@example.com';");
       await expect(provider.login("acct-1", { username: "user@example.com" })).rejects.toThrow("bw unlock --raw");
+      await expect(provider.login("acct-1", { username: "user@example.com" })).rejects.toThrow("IFS= read -r bwPassword");
+      await expect(provider.login("acct-1", { username: "user@example.com" })).rejects.toThrow("printf '%s\\n' \"$bwPassword\" | bw unlock --raw");
+      await expect(provider.login("acct-1", { username: "user@example.com" })).rejects.toThrow("WardSen saved this Bitwarden session");
       await expect(provider.login("acct-1", { username: "user@example.com" })).rejects.not.toThrow("$env:BITWARDENCLI_APPDATA_DIR");
       await expect(provider.login("acct-1", { username: "user@example.com" })).rejects.not.toThrow("Remove-Item Env:");
+      await expect(provider.login("acct-1", { username: "user@example.com" })).rejects.not.toThrow("bwResult=\"$(bw login");
       await expect(provider.login("acct-1", { username: "user@example.com" })).rejects.toThrow("bwExitCode=$?");
       await expect(provider.login("acct-1", { username: "user@example.com" })).rejects.not.toThrow("status=$?");
     } finally {
