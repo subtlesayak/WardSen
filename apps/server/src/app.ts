@@ -10,6 +10,7 @@ import {
   ProviderRegistry,
   assertDeliveryOptionsSupported,
   assertFutureExpiry,
+  builtInProviderManifests,
   parseViewLimit
 } from "@wardsen/core";
 import type { AccountRecord, CredentialProvider, CredentialSummary, DeliveryProvider, DeliveryRecord } from "@wardsen/core";
@@ -18,7 +19,6 @@ import type { WardSenRepository } from "@wardsen/database";
 import { BitwardenCredentialProvider } from "@wardsen/provider-bitwarden";
 import { BitwardenSendDeliveryProvider } from "@wardsen/delivery-bitwarden-send";
 import { KeePassXCCredentialProvider } from "@wardsen/provider-keepassxc";
-import { keeperProvider, onePasswordProvider, protonPassProvider } from "@wardsen/provider-scaffolds";
 import { assertSameOrigin, isLocalRequest, safeErrorMessage } from "@wardsen/security";
 import { parsePeopleCsv, peopleToCsv } from "./csv";
 
@@ -26,6 +26,7 @@ export interface BuildAppOptions {
   repository?: WardSenRepository;
   profileRoot?: string;
   sessions?: AccountSessionManager;
+  autoLockIntervalMs?: number;
   apiToken?: string;
   allowUnauthenticatedLocalApi?: boolean;
   registerBuiltInProviders?: boolean;
@@ -44,8 +45,13 @@ export async function buildApp(options: BuildAppOptions = {}) {
   const sessions = options.sessions ?? new AccountSessionManager();
   const apiToken = options.apiToken ?? process.env.WARDSEN_API_TOKEN;
   const registry = new ProviderRegistry();
-  const profileRoot = options.profileRoot ?? path.join(process.cwd(), ".wardsen-profiles");
+  const profileRoot = path.resolve(options.profileRoot ?? path.join(process.cwd(), ".wardsen-profiles"));
   const accountProfileDirectories = new Map<string, string>();
+  const autoLockIntervalMs = Math.max(1_000, options.autoLockIntervalMs ?? 30_000);
+  const autoLockTimer = setInterval(() => {
+    void enforceAutoLock();
+  }, autoLockIntervalMs);
+  autoLockTimer.unref?.();
   if (options.registerBuiltInProviders !== false) {
     const bitwarden = new BitwardenCredentialProvider({
       profileRoot,
@@ -54,9 +60,6 @@ export async function buildApp(options: BuildAppOptions = {}) {
     });
     registry.registerCredentialProvider(bitwarden);
     registry.registerCredentialProvider(new KeePassXCCredentialProvider({ sessions }));
-    registry.registerCredentialProvider(onePasswordProvider);
-    registry.registerCredentialProvider(protonPassProvider);
-    registry.registerCredentialProvider(keeperProvider);
     registry.registerDeliveryProvider(
       new BitwardenSendDeliveryProvider({
         getSessionToken: (accountId) => sessions.getSessionToken(accountId, "bitwarden"),
@@ -134,6 +137,8 @@ export async function buildApp(options: BuildAppOptions = {}) {
       registry.listCredentialProviders().map(async (provider) => ({
         id: provider.id,
         displayName: provider.displayName,
+        maturity: "active",
+        enabledByDefault: true,
         capabilities: await provider.getCapabilities()
       }))
     ),
@@ -141,9 +146,22 @@ export async function buildApp(options: BuildAppOptions = {}) {
       registry.listDeliveryProviders().map(async (provider) => ({
         id: provider.id,
         displayName: provider.displayName,
+        maturity: "active",
+        enabledByDefault: true,
         capabilities: await provider.getCapabilities()
       }))
-    )
+    ),
+    plannedProviders: builtInProviderManifests
+      .filter((manifest) => manifest.maturity !== "active")
+      .map(({ id, displayName, kind, maturity, enabledByDefault, documentationUrl, notes }) => ({
+        id,
+        displayName,
+        kind,
+        maturity,
+        enabledByDefault,
+        documentationUrl,
+        notes
+      }))
   }));
 
   app.get("/api/accounts", async () => accountsWithLiveStatus());
@@ -152,13 +170,14 @@ export async function buildApp(options: BuildAppOptions = {}) {
     const body = accountSchema.parse(request.body);
     const now = new Date().toISOString();
     const id = body.id ?? nanoid();
+    registry.getCredentialProvider(body.providerId);
     const record: Omit<AccountRecord, "createdAt" | "updatedAt"> = {
       id,
       providerId: body.providerId,
       label: body.label,
       username: body.username,
       serverUrl: body.serverUrl,
-      profileDirectory: body.profileDirectory ?? path.join(profileRoot, id),
+      profileDirectory: managedProfileDirectory(profileRoot, id),
       accountType: body.accountType,
       autoLockMinutes: body.autoLockMinutes ?? 15,
       status: "locked",
@@ -175,13 +194,16 @@ export async function buildApp(options: BuildAppOptions = {}) {
     const { id } = idParams.parse(request.params);
     const body = accountSchema.omit({ id: true }).partial().parse(request.body);
     const existing = await findAccount(repository, id);
+    if (body.providerId && body.providerId !== existing.providerId) {
+      throw new Error("Account provider cannot be changed after creation. Create a new account to use a different provider profile.");
+    }
     const account = await repository.upsertAccount({
       id,
-      providerId: body.providerId ?? existing.providerId,
+      providerId: existing.providerId,
       label: body.label ?? existing.label,
       username: body.username ?? existing.username,
       serverUrl: body.serverUrl ?? existing.serverUrl,
-      profileDirectory: body.profileDirectory ?? existing.profileDirectory,
+      profileDirectory: existing.profileDirectory,
       accountType: body.accountType ?? existing.accountType,
       autoLockMinutes: body.autoLockMinutes ?? existing.autoLockMinutes,
       status: existing.status
@@ -482,18 +504,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
       hideText: body.hideText
     });
     const sensitiveCredential = await sourceProvider.getCredential(body.sourceAccountId, body.sourceItemId);
-    const result = await deliveryProvider.createDelivery({
-      sourceCredential: sensitiveCredential,
-      recipient: body.recipient,
-      expiresAt,
-      viewLimit,
-      viewOnce: body.viewOnce,
-      accessPassword: body.accessPassword,
-      hideText: body.hideText,
-      deliveryAccountId: body.deliveryAccountId
-    });
-    const record = await repository.createDelivery({
-      providerDeliveryId: result.deliveryId,
+    const pending = await repository.createDelivery({
       sourceProviderId: body.sourceProviderId,
       sourceAccountId: body.sourceAccountId,
       sourceItemId: body.sourceItemId,
@@ -503,18 +514,50 @@ export async function buildApp(options: BuildAppOptions = {}) {
       personId: body.recipient?.id,
       batchId: body.batchId,
       deliveryMethod: body.deliveryMethod,
-      expiresAt: result.expiresAt.toISOString(),
-      viewLimit: result.viewLimit,
-      status: "active"
+      expiresAt: expiresAt.toISOString(),
+      viewLimit,
+      status: "creating"
     });
-    await audit("delivery.create", "success", {
-      sourceAccountId: body.sourceAccountId,
-      deliveryAccountId: body.deliveryAccountId,
-      personId: body.recipient?.id,
-      deliveryId: record.id,
-      safeDetails: `provider=${body.deliveryProviderId}`
-    });
-    return sanitizeDelivery(record, result.url);
+    let result: Awaited<ReturnType<DeliveryProvider["createDelivery"]>> | undefined;
+    try {
+      result = await deliveryProvider.createDelivery({
+        sourceCredential: sensitiveCredential,
+        recipient: body.recipient,
+        expiresAt,
+        viewLimit,
+        viewOnce: body.viewOnce,
+        accessPassword: body.accessPassword,
+        hideText: body.hideText,
+        deliveryAccountId: body.deliveryAccountId
+      });
+      const record = await repository.updateDelivery(pending.id, {
+        providerDeliveryId: result.deliveryId,
+        expiresAt: result.expiresAt.toISOString(),
+        viewLimit: result.viewLimit,
+        status: "active"
+      });
+      await audit("delivery.create", "success", {
+        sourceAccountId: body.sourceAccountId,
+        deliveryAccountId: body.deliveryAccountId,
+        personId: body.recipient?.id,
+        deliveryId: record.id,
+        safeDetails: `provider=${body.deliveryProviderId}`
+      });
+      return sanitizeDelivery(record, result.url);
+    } catch (error) {
+      if (result?.deliveryId) {
+        await deliveryProvider.revoke(body.deliveryAccountId, result.deliveryId).catch(() => undefined);
+      }
+      await repository.updateDelivery(pending.id, { status: "failed", providerDeliveryId: result?.deliveryId }).catch(() => undefined);
+      await audit("delivery.create", "failure", {
+        sourceAccountId: body.sourceAccountId,
+        deliveryAccountId: body.deliveryAccountId,
+        personId: body.recipient?.id,
+        deliveryId: pending.id,
+        safeDetails: safeErrorMessage(error)
+      });
+      throw error;
+    }
   }
 
   app.get("/api/deliveries", async (request) => {
@@ -580,12 +623,15 @@ export async function buildApp(options: BuildAppOptions = {}) {
   });
 
   app.addHook("onClose", async () => {
+    clearInterval(autoLockTimer);
     for (const account of await repository.listAccounts()) {
       rememberAccountProfile(account);
       await registry.getCredentialProvider(account.providerId).lock(account.id).catch(() => undefined);
     }
     sessions.lockAll();
   });
+
+  await reconcileStuckDeliveries();
 
   return app;
 
@@ -600,13 +646,19 @@ export async function buildApp(options: BuildAppOptions = {}) {
   async function enforceAutoLock() {
     const accounts = await repository.listAccounts();
     const accountsById = new Map(accounts.map((account) => [account.id, account]));
-    const lockedIds = sessions.lockInactive(new Date(), (accountId) => accountsById.get(accountId)?.autoLockMinutes ?? 15);
-    for (const id of lockedIds) {
+    const inactiveIds = sessions.inactiveAccountIds(new Date(), (accountId) => accountsById.get(accountId)?.autoLockMinutes ?? 15);
+    for (const id of inactiveIds) {
       const account = accountsById.get(id);
       if (!account) continue;
       rememberAccountProfile(account);
-      await registry.getCredentialProvider(account.providerId).lock(id).catch(() => undefined);
-      await audit("account.auto_lock", "success", { sourceAccountId: id });
+      try {
+        await registry.getCredentialProvider(account.providerId).lock(id);
+        sessions.markLocked(id);
+        await audit("account.auto_lock", "success", { sourceAccountId: id });
+      } catch (error) {
+        sessions.markLocked(id);
+        await audit("account.auto_lock", "failure", { sourceAccountId: id, safeDetails: safeErrorMessage(error) });
+      }
     }
   }
 
@@ -624,6 +676,25 @@ export async function buildApp(options: BuildAppOptions = {}) {
 
   function rememberAccountProfile(account: Pick<AccountRecord, "id" | "profileDirectory">): void {
     accountProfileDirectories.set(account.id, account.profileDirectory);
+  }
+
+  async function reconcileStuckDeliveries(): Promise<void> {
+    let page = 1;
+    while (true) {
+      const deliveries = await repository.listDeliveries({ page, pageSize: 100 });
+      for (const delivery of deliveries.items) {
+        const status = String(delivery.status);
+        if (status !== "creating" && status !== "handoff_pending") continue;
+        await repository.updateDelivery(delivery.id, { status: "failed" });
+        await audit("delivery.reconcile", "failure", {
+          deliveryAccountId: delivery.deliveryAccountId,
+          deliveryId: delivery.id,
+          safeDetails: `stuck_status=${status}`
+        });
+      }
+      if (page * deliveries.pageSize >= deliveries.total) break;
+      page += 1;
+    }
   }
 }
 
@@ -671,7 +742,6 @@ const accountSchema = z.object({
   label: z.string().min(1),
   username: z.string().optional(),
   serverUrl: z.string().url().optional(),
-  profileDirectory: z.string().optional(),
   accountType: z.string().optional(),
   autoLockMinutes: z.number().int().positive().optional()
 });
@@ -789,6 +859,18 @@ async function assertDeliveryProviderReady(deliveryProvider: DeliveryProvider, a
 
 function largeBatchConfirmation(recipientCount: number): string {
   return `SEND ${recipientCount}`;
+}
+
+function managedProfileDirectory(profileRoot: string, accountId: string): string {
+  if (accountId.includes("/") || accountId.includes("\\") || accountId === "." || accountId === "..") {
+    throw new Error("Account id cannot contain path separators because WardSen manages provider profile directories.");
+  }
+  const resolved = path.resolve(profileRoot, accountId);
+  const relative = path.relative(profileRoot, resolved);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error("Managed provider profile directory must stay inside the WardSen profile root.");
+  }
+  return resolved;
 }
 
 function confirmationPhrase(action: "DELETE ACCOUNT" | "DELETE PERSON" | "REVOKE DELIVERY" | "CANCEL BATCH", id: string): string {

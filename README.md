@@ -42,9 +42,9 @@ WardSen is an independent open-source project and is not affiliated with, endors
 
 ## Status
 
-`v0.1.0-rc.37` is the latest installer prerelease. It is suitable for developer review, security review and platform packaging validation.
+`v0.1.0-rc.38` is the latest installer prerelease. It is suitable for developer review, security review and platform packaging validation.
 
-Unsigned Windows MSI and macOS Apple Silicon installers are attached to the GitHub prerelease. The previous unsigned Windows setup EXE was pulled after Microsoft Defender flagged it as `Trojan:Win32/Wacatac.B!ml`; `v0.1.0-rc.37` does not publish that NSIS setup EXE. Windows SmartScreen, Microsoft Defender and macOS Gatekeeper may warn until signing certificates and notarization are configured. See [installer signing](docs/installer-signing.md) before publishing a fully trusted end-user release.
+Unsigned Windows MSI and macOS Apple Silicon installers are attached to the GitHub prerelease. The previous unsigned Windows setup EXE was pulled after Microsoft Defender flagged it as `Trojan:Win32/Wacatac.B!ml`; `v0.1.0-rc.38` does not publish that NSIS setup EXE. Windows SmartScreen, Microsoft Defender and macOS Gatekeeper may warn until signing certificates and notarization are configured. See [installer signing](docs/installer-signing.md) before publishing a fully trusted end-user release.
 
 This release contains:
 
@@ -62,11 +62,14 @@ This release contains:
 - Tests for sessions, view limits, people pagination, SQLite persistence and CLI behavior
 - Tauri desktop shell that starts the local API server in packaged builds
 - Visible app version label for release/debug screenshots
+- Release builds include SHA/build timestamp metadata and a `RELEASE-MANIFEST-*.json` asset for artifact provenance
+- Release packaging verifies the checked-out tag, pins GitHub Actions dependencies and blocks unsigned final public releases
 - Windows desktop local-service startup fixes for bundled Node paths, writable data directories and trusted desktop preflight requests
 - Responsive desktop layout with an anchored left sidebar and independently scrolling workspace
 - Easier destructive-action confirmations in the UI while preserving server-side confirmation tokens
 - Sticky floating error help that stays visible while workspace content scrolls
 - Close buttons on sticky error help so users can dismiss overlay messages after reading them
+- Desktop-session trust errors keep service checks readable and summarize raw local-service output instead of filling the UI with JSON request logs
 - Actionable missing provider-tool help when `bw`, `keepassxc-cli` or another CLI is not installed or not visible on `PATH`
 - Provider setup errors include install/download buttons for users who do not know terminal commands
 - Provider setup buttons open official install pages through the packaged desktop app's system-browser opener
@@ -91,7 +94,7 @@ Go to [GitHub Releases](https://github.com/subtlesayak/WardSen/releases) and dow
 
 - Windows: `WardSen_0.1.0_x64_en-US.msi`
 - macOS Apple Silicon: `WardSen_0.1.0_aarch64.dmg`
-- macOS Intel: not attached to `v0.1.0-rc.37`; maintainers can build it from the manual Intel workflow
+- macOS Intel: not attached to `v0.1.0-rc.38`; maintainers can build it from the manual Intel workflow
 
 Windows first install:
 
@@ -211,7 +214,7 @@ npm install -g @bitwarden/cli
 
 Maintainers build installers from the source checkout. End users only receive the final installer file.
 
-Current unsigned prerelease workflow uploads Windows MSI only. The NSIS setup EXE path below is a possible Tauri output for future signed releases, not a `v0.1.0-rc.37` asset.
+Current unsigned prerelease workflow uploads Windows MSI only. The NSIS setup EXE path below is a possible Tauri output for future signed releases, not a `v0.1.0-rc.38` asset.
 
 Build output stays on the release machine under:
 
@@ -386,6 +389,7 @@ npm run dev
 npm run check
 npm test
 npm run build
+npm run security:scan-secrets
 npm run desktop:build
 ```
 
@@ -406,6 +410,7 @@ See `docs/release-security-checklist.md` and `docs/rustsec-audit.md` before publ
 - SQLite stores metadata, never passwords, TOTP secrets, secure notes, master passwords, access passwords or raw CLI output
 - SQLite metadata files use owner-only POSIX modes where supported; full local database encryption is planned after the pre-1.0 release
 - CLI commands use `spawn` with `shell: false`
+- CLI output capture is bounded, and timed-out provider commands terminate the process tree
 - The desktop launcher starts bundled Node.js first, then absolute trusted runtime paths, never a bare `PATH` lookup
 
 ## Third-Party Provider Policy

@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import os from "node:os";
+import path from "node:path";
 import { AccountSessionManager } from "@wardsen/core";
 import type {
   ConnectionResult,
@@ -15,6 +17,7 @@ import type {
   SensitiveCredential,
   CreateDeliveryInput
 } from "@wardsen/core";
+import { InMemoryWardSenRepository } from "@wardsen/database";
 import { buildApp } from "../apps/server/src/app";
 
 describe("WardSen API", () => {
@@ -134,8 +137,33 @@ describe("WardSen API", () => {
     const response = await app.inject({ method: "GET", url: "/api/providers", headers: { host: "127.0.0.1:4777" } });
     expect(response.statusCode).toBe(200);
     const body = response.json();
-    expect(body.credentialProviders.some((provider: { id: string }) => provider.id === "bitwarden")).toBe(true);
+    expect(body.credentialProviders).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "bitwarden", maturity: "active", enabledByDefault: true }),
+      expect.objectContaining({ id: "keepassxc", maturity: "active", enabledByDefault: true })
+    ]));
+    expect(body.credentialProviders.some((provider: { id: string }) => provider.id === "onepassword")).toBe(false);
+    expect(body.plannedProviders).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "onepassword", maturity: "planned", enabledByDefault: false }),
+      expect.objectContaining({ id: "proton-pass", maturity: "planned", enabledByDefault: false }),
+      expect.objectContaining({ id: "keeper", maturity: "planned", enabledByDefault: false })
+    ]));
     expect(body.deliveryProviders.some((provider: { id: string }) => provider.id === "bitwarden-send")).toBe(true);
+    await app.close();
+  });
+
+  it("rejects account creation for planned providers that are not registered as functional", async () => {
+    const app = await buildApp();
+    const headers = { host: "127.0.0.1:4777", origin: "http://127.0.0.1:4777" };
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/accounts",
+      headers,
+      payload: { id: "future", providerId: "onepassword", label: "Future provider" }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error).toBe("Unknown credential provider: onepassword");
     await app.close();
   });
 
@@ -163,6 +191,63 @@ describe("WardSen API", () => {
 
     const audit = await app.inject({ method: "GET", url: "/api/audit-log", headers: { host: "127.0.0.1:4777" } });
     expect(audit.json().items.some((item: { action: string }) => item.action === "account.delete")).toBe(true);
+    await app.close();
+  });
+
+  it("manages provider profile directories instead of accepting caller-supplied paths", async () => {
+    const profileRoot = path.join(os.tmpdir(), "wardsen-test-profiles-api");
+    const app = await buildApp({ profileRoot });
+    const headers = { host: "127.0.0.1:4777", origin: "http://127.0.0.1:4777" };
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/accounts",
+      headers,
+      payload: { id: "ops", providerId: "bitwarden", label: "Operations", profileDirectory: "D:\\Outside\\Bitwarden" }
+    });
+    expect(created.statusCode).toBe(200);
+    expect(created.json().profileDirectory).toBe(path.resolve(profileRoot, "ops"));
+
+    const updated = await app.inject({
+      method: "PUT",
+      url: "/api/accounts/ops",
+      headers,
+      payload: { label: "Operations 2", profileDirectory: "D:\\StillOutside" }
+    });
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json().profileDirectory).toBe(path.resolve(profileRoot, "ops"));
+
+    const escaped = await app.inject({
+      method: "POST",
+      url: "/api/accounts",
+      headers,
+      payload: { id: "..\\escape", providerId: "bitwarden", label: "Escape" }
+    });
+    expect(escaped.statusCode).toBe(400);
+    expect(escaped.json().error).toContain("Account id cannot contain path separators");
+
+    await app.close();
+  });
+
+  it("rejects provider changes after account creation to preserve profile isolation", async () => {
+    const app = await buildApp();
+    const headers = { host: "127.0.0.1:4777", origin: "http://127.0.0.1:4777" };
+    await app.inject({
+      method: "POST",
+      url: "/api/accounts",
+      headers,
+      payload: { id: "ops", providerId: "bitwarden", label: "Operations" }
+    });
+
+    const changed = await app.inject({
+      method: "PUT",
+      url: "/api/accounts/ops",
+      headers,
+      payload: { providerId: "mock-source", label: "Moved" }
+    });
+
+    expect(changed.statusCode).toBe(400);
+    expect(changed.json().error).toContain("Account provider cannot be changed");
     await app.close();
   });
 
@@ -415,6 +500,114 @@ describe("WardSen API", () => {
     await app.close();
   });
 
+  it("keeps a failed local delivery record when provider creation fails", async () => {
+    const repository = new InMemoryWardSenRepository();
+    const app = await buildApp({
+      repository,
+      credentialProviders: [new MockCredentialProvider()],
+      deliveryProviders: [new FailingCreateDeliveryProvider()]
+    });
+    const headers = { host: "127.0.0.1:4777", origin: "http://127.0.0.1:4777" };
+    await app.inject({ method: "POST", url: "/api/accounts", headers, payload: { id: "source", providerId: "mock-source", label: "Mock source" } });
+    await app.inject({ method: "POST", url: "/api/accounts", headers, payload: { id: "delivery", providerId: "mock-source", label: "Mock delivery" } });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/deliveries",
+      headers,
+      payload: {
+        sourceProviderId: "mock-source",
+        sourceAccountId: "source",
+        sourceItemId: "cms",
+        deliveryProviderId: "failing-delivery",
+        deliveryAccountId: "delivery",
+        expiresAt: new Date(Date.now() + 3600000).toISOString(),
+        viewLimit: 1
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error).toContain("provider create failed");
+    const deliveries = await repository.listDeliveries({ page: 1, pageSize: 10 });
+    expect(deliveries.items[0]).toMatchObject({
+      sourceItemId: "cms",
+      credentialName: "CMS Login",
+      status: "failed",
+      viewLimit: 1
+    });
+    expect(deliveries.items[0].providerDeliveryId).toBeUndefined();
+    await app.close();
+  });
+
+  it("revokes a provider link when local delivery finalization fails", async () => {
+    const repository = new FinalizeFailingRepository();
+    const deliveryProvider = new RevocationTrackingDeliveryProvider();
+    const app = await buildApp({
+      repository,
+      credentialProviders: [new MockCredentialProvider()],
+      deliveryProviders: [deliveryProvider]
+    });
+    const headers = { host: "127.0.0.1:4777", origin: "http://127.0.0.1:4777" };
+    await app.inject({ method: "POST", url: "/api/accounts", headers, payload: { id: "source", providerId: "mock-source", label: "Mock source" } });
+    await app.inject({ method: "POST", url: "/api/accounts", headers, payload: { id: "delivery", providerId: "mock-source", label: "Mock delivery" } });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/deliveries",
+      headers,
+      payload: {
+        sourceProviderId: "mock-source",
+        sourceAccountId: "source",
+        sourceItemId: "cms",
+        deliveryProviderId: "revocation-tracking",
+        deliveryAccountId: "delivery",
+        expiresAt: new Date(Date.now() + 3600000).toISOString()
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error).toContain("local finalize failed");
+    expect(deliveryProvider.revoked).toEqual([{ accountId: "delivery", deliveryId: "provider-created" }]);
+    const audit = await repository.listAuditLog({ page: 1, pageSize: 10 });
+    expect(audit.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ action: "delivery.create", outcome: "failure", deliveryAccountId: "delivery" })
+    ]));
+    await app.close();
+  });
+
+  it("reconciles stale creating deliveries on startup", async () => {
+    const repository = new InMemoryWardSenRepository();
+    const stale = await repository.createDelivery({
+      sourceProviderId: "mock-source",
+      sourceAccountId: "source",
+      sourceItemId: "cms",
+      deliveryProviderId: "mock-delivery",
+      deliveryAccountId: "delivery",
+      credentialName: "CMS Login",
+      expiresAt: new Date(Date.now() + 3600000).toISOString(),
+      viewLimit: 1,
+      status: "creating"
+    });
+
+    const app = await buildApp({
+      repository,
+      credentialProviders: [new MockCredentialProvider()],
+      deliveryProviders: [new MockDeliveryProvider()]
+    });
+
+    expect(await repository.getDelivery(stale.id)).toMatchObject({ status: "failed" });
+    const audit = await repository.listAuditLog({ page: 1, pageSize: 10 });
+    expect(audit.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        action: "delivery.reconcile",
+        outcome: "failure",
+        deliveryId: stale.id,
+        safeDetails: "stuck_status=creating"
+      })
+    ]));
+    await app.close();
+  });
+
   it("retries expired deliveries with a fresh future expiry using the original duration", async () => {
     const deliveryProvider = new MockDeliveryProvider();
     const app = await buildApp({
@@ -456,7 +649,7 @@ describe("WardSen API", () => {
       deliveryProviders: [new MockDeliveryProvider()]
     });
     const headers = { host: "127.0.0.1:4777", origin: "http://127.0.0.1:4777" };
-    await app.inject({ method: "POST", url: "/api/accounts", headers, payload: { id: "source", providerId: "onepassword", label: "Wrong source" } });
+    await app.inject({ method: "POST", url: "/api/accounts", headers, payload: { id: "source", providerId: "bitwarden", label: "Wrong source" } });
     await app.inject({ method: "POST", url: "/api/accounts", headers, payload: { id: "delivery", providerId: "mock-source", label: "Mock delivery" } });
 
     const response = await app.inject({
@@ -480,17 +673,17 @@ describe("WardSen API", () => {
 
   it("returns partial credential search errors without failing the whole search", async () => {
     const sessions = new AccountSessionManager();
-    const app = await buildApp({ sessions, credentialProviders: [new MockCredentialProvider()] });
+    const app = await buildApp({ sessions, credentialProviders: [new MockCredentialProvider(), new FailingSearchCredentialProvider()] });
     const headers = { host: "127.0.0.1:4777", origin: "http://127.0.0.1:4777" };
     await app.inject({ method: "POST", url: "/api/accounts", headers, payload: { id: "ok", providerId: "mock-source", label: "OK" } });
-    await app.inject({ method: "POST", url: "/api/accounts", headers, payload: { id: "bad", providerId: "onepassword", label: "Future provider" } });
+    await app.inject({ method: "POST", url: "/api/accounts", headers, payload: { id: "bad", providerId: "failing-search", label: "Failing provider" } });
     sessions.markUnlocked("ok", "mock-source", "ok-token");
-    sessions.markUnlocked("bad", "onepassword", "bad-token");
+    sessions.markUnlocked("bad", "failing-search", "bad-token");
 
     const response = await app.inject({ method: "GET", url: "/api/credentials/search?q=cms", headers: { host: "127.0.0.1:4777" } });
     expect(response.statusCode).toBe(200);
     expect(response.json().items).toHaveLength(2);
-    expect(response.json().errors[0]).toMatchObject({ accountId: "bad", providerId: "onepassword" });
+    expect(response.json().errors[0]).toMatchObject({ accountId: "bad", providerId: "failing-search" });
     await app.close();
   });
 
@@ -572,6 +765,10 @@ describe("WardSen API", () => {
 
     expect(bulk.statusCode).toBe(200);
     expect(bulk.json()).toMatchObject({ requestedCount: 2, completedCount: 2, failedCount: 0 });
+    expect(bulk.json().results).toEqual(expect.arrayContaining([
+      expect.objectContaining({ recipientId: "person-1", ok: true, delivery: expect.objectContaining({ oneTimeDeliveryUrl: expect.stringMatching(/^https:\/\/mock.local\/send\//) }) }),
+      expect.objectContaining({ recipientId: "person-2", ok: true, delivery: expect.objectContaining({ oneTimeDeliveryUrl: expect.stringMatching(/^https:\/\/mock.local\/send\//) }) })
+    ]));
     const batch = await app.inject({ method: "GET", url: `/api/batches/${bulk.json().batchId}`, headers: { host: "127.0.0.1:4777" } });
     expect(batch.json()).toMatchObject({ requestedCount: 2, completedCount: 2, failedCount: 0, cancelled: false });
     const batches = await app.inject({ method: "GET", url: "/api/batches?page=1&pageSize=10", headers: { host: "127.0.0.1:4777" } });
@@ -663,6 +860,50 @@ describe("WardSen API", () => {
     expect(() => sessions.getSessionToken("source", "lock-tracking")).toThrow();
     await app.close();
   });
+
+  it("auto-locks inactive accounts from the background timer without another request", async () => {
+    const sessions = new AccountSessionManager();
+    const provider = new LockTrackingCredentialProvider();
+    const app = await buildApp({ sessions, credentialProviders: [provider], autoLockIntervalMs: 1000 });
+    const headers = { host: "127.0.0.1:4777", origin: "http://127.0.0.1:4777" };
+    await app.inject({
+      method: "POST",
+      url: "/api/accounts",
+      headers,
+      payload: { id: "source", providerId: "lock-tracking", label: "Lock tracking", autoLockMinutes: 1 }
+    });
+    sessions.markUnlocked("source", "lock-tracking", "token");
+    ageSession(sessions, "source", new Date(Date.now() - 2 * 60 * 1000));
+
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+
+    expect(provider.locked).toEqual(["source"]);
+    expect(() => sessions.getSessionToken("source", "lock-tracking")).toThrow();
+    await app.close();
+  }, 10_000);
+
+  it("audits auto-lock provider failures and still clears the local session", async () => {
+    const sessions = new AccountSessionManager();
+    const app = await buildApp({ sessions, credentialProviders: [new FailingLockCredentialProvider()], autoLockIntervalMs: 1000 });
+    const headers = { host: "127.0.0.1:4777", origin: "http://127.0.0.1:4777" };
+    await app.inject({
+      method: "POST",
+      url: "/api/accounts",
+      headers,
+      payload: { id: "source", providerId: "failing-lock", label: "Failing lock", autoLockMinutes: 1 }
+    });
+    sessions.markUnlocked("source", "failing-lock", "token");
+    ageSession(sessions, "source", new Date(Date.now() - 2 * 60 * 1000));
+
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+
+    expect(() => sessions.getSessionToken("source", "failing-lock")).toThrow();
+    const audit = await app.inject({ method: "GET", url: "/api/audit-log", headers: { host: "127.0.0.1:4777" } });
+    expect(audit.json().items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ action: "account.auto_lock", outcome: "failure", sourceAccountId: "source" })
+    ]));
+    await app.close();
+  }, 10_000);
 });
 
 class MockCredentialProvider implements CredentialProvider {
@@ -695,6 +936,14 @@ class MockCredentialProvider implements CredentialProvider {
 class MockBitwardenCredentialProvider extends MockCredentialProvider {
   readonly id: string = "bitwarden";
   readonly displayName: string = "Bitwarden";
+}
+
+class FailingSearchCredentialProvider extends MockCredentialProvider {
+  readonly id = "failing-search";
+  readonly displayName = "Failing Search";
+  async search(_accountId: string, _query: string, _pagination: PaginationInput): Promise<CredentialSummary[]> {
+    throw new Error("provider search failed");
+  }
 }
 
 class MockDeliveryProvider implements DeliveryProvider {
@@ -742,12 +991,49 @@ class NotReadyBitwardenSendProvider extends MockDeliveryProvider {
   }
 }
 
+class FailingCreateDeliveryProvider extends MockDeliveryProvider {
+  readonly id = "failing-delivery";
+  readonly displayName = "Failing Delivery";
+  async createDelivery(_input: CreateDeliveryInput): Promise<DeliveryResult> {
+    throw new Error("provider create failed");
+  }
+}
+
+class RevocationTrackingDeliveryProvider extends MockDeliveryProvider {
+  readonly id = "revocation-tracking";
+  readonly displayName = "Revocation Tracking";
+  readonly revoked: Array<{ accountId: string; deliveryId: string }> = [];
+  async createDelivery(input: CreateDeliveryInput): Promise<DeliveryResult> {
+    return { deliveryId: "provider-created", url: "https://mock.local/send/provider-created", expiresAt: input.expiresAt, viewLimit: input.viewLimit };
+  }
+  async revoke(accountId: string, deliveryId: string): Promise<void> {
+    this.revoked.push({ accountId, deliveryId });
+  }
+}
+
+class FinalizeFailingRepository extends InMemoryWardSenRepository {
+  async updateDelivery(id: string, patch: Parameters<InMemoryWardSenRepository["updateDelivery"]>[1]) {
+    if (patch.status === "active") {
+      throw new Error("local finalize failed");
+    }
+    return super.updateDelivery(id, patch);
+  }
+}
+
 class LockTrackingCredentialProvider extends MockCredentialProvider {
   readonly id = "lock-tracking";
   readonly displayName = "Lock Tracking";
   readonly locked: string[] = [];
   async lock(accountId: string): Promise<void> {
     this.locked.push(accountId);
+  }
+}
+
+class FailingLockCredentialProvider extends MockCredentialProvider {
+  readonly id = "failing-lock";
+  readonly displayName = "Failing Lock";
+  async lock(_accountId: string): Promise<void> {
+    throw new Error("provider lock failed");
   }
 }
 

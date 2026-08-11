@@ -1,3 +1,4 @@
+import path from "node:path";
 import type {
   ConnectionResult,
   CredentialProvider,
@@ -9,7 +10,7 @@ import type {
   SensitiveCredential
 } from "@wardsen/core";
 import { AccountSessionManager } from "@wardsen/core";
-import { runCliCommand, type CliCommandInput, type CliCommandResult } from "@wardsen/security";
+import { resolveProviderExecutable, runCliCommand, type CliCommandInput, type CliCommandResult } from "@wardsen/security";
 
 export type KeePassXCCommandRunner = (input: CliCommandInput) => Promise<CliCommandResult>;
 
@@ -33,7 +34,7 @@ export class KeePassXCCredentialProvider implements CredentialProvider {
       this.runCommand = runCliCommand;
       this.sessions = new AccountSessionManager();
     } else {
-      this.executable = options.executable ?? "keepassxc-cli";
+      this.executable = options.executable ?? resolveKeePassXCExecutable();
       this.runCommand = options.runCommand ?? runCliCommand;
       this.sessions = options.sessions ?? new AccountSessionManager();
     }
@@ -118,6 +119,36 @@ export class KeePassXCCredentialProvider implements CredentialProvider {
   private async run(args: string[], stdin?: string, redact: string[] = [], rawOutput = false) {
     return await this.runCommand({ executable: this.executable, args, stdin, redact, rawOutput, timeoutMs: 60_000 });
   }
+}
+
+function resolveKeePassXCExecutable(): string {
+  return resolveProviderExecutable({
+    toolName: "keepassxc-cli",
+    envPathKey: "WARDSEN_KEEPASSXC_CLI_PATH",
+    trustedCandidates: keepassxcExecutableCandidates()
+  });
+}
+
+function keepassxcExecutableCandidates(): string[] {
+  const candidates: string[] = [];
+  if (process.env.LOCALAPPDATA) {
+    candidates.push(path.join(process.env.LOCALAPPDATA, "WardSen", "tools", "keepassxc-cli.exe"));
+  }
+  if (process.env.ProgramFiles) {
+    candidates.push(path.join(process.env.ProgramFiles, "KeePassXC", "keepassxc-cli.exe"));
+  }
+  if (process.env["ProgramFiles(x86)"]) {
+    candidates.push(path.join(process.env["ProgramFiles(x86)"], "KeePassXC", "keepassxc-cli.exe"));
+  }
+  if (process.env.HOME) {
+    candidates.push(path.join(process.env.HOME, "Applications", "KeePassXC.app", "Contents", "MacOS", "keepassxc-cli"));
+    candidates.push(path.join(process.env.HOME, ".wardsen", "tools", "keepassxc-cli"));
+  }
+  candidates.push("/Applications/KeePassXC.app/Contents/MacOS/keepassxc-cli");
+  candidates.push("/usr/local/bin/keepassxc-cli");
+  candidates.push("/opt/homebrew/bin/keepassxc-cli");
+  candidates.push("/usr/bin/keepassxc-cli");
+  return candidates;
 }
 
 function buildDatabaseArgs(command: string, databasePath: string, keyFilePath?: string): string[] {

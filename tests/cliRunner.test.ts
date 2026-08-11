@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { runCliCommand, safeErrorMessage } from "@wardsen/security";
 
 describe("CLI runner", () => {
@@ -72,6 +75,40 @@ describe("CLI runner", () => {
       args: ["-e", "setTimeout(() => {}, 1000)"],
       timeoutMs: 10
     })).rejects.toThrow("timed out after");
+  });
+
+  it("bounds provider output capture", async () => {
+    const result = await runCliCommand({
+      executable: process.execPath,
+      args: ["-e", "process.stdout.write('x'.repeat(2048))"],
+      maxOutputBytes: 32
+    });
+
+    expect(result.stdout).toContain("[WardSen truncated stdout after 32 bytes]");
+    expect(result.stdout.length).toBeLessThan(100);
+  });
+
+  it("terminates child process trees on timeout", async () => {
+    const tempDir = mkdtempSync(path.join(os.tmpdir(), "wardsen-cli-tree-"));
+    const marker = path.join(tempDir, "grandchild-lived.txt");
+    const escapedMarker = JSON.stringify(marker);
+    try {
+      await expect(runCliCommand({
+        executable: process.execPath,
+        args: ["-e", `
+          const { spawn } = require("node:child_process");
+          const childCode = "setTimeout(() => require('node:fs').writeFileSync(${escapedMarker}, 'still alive'), 700)";
+          spawn(process.execPath, ["-e", childCode], { stdio: "ignore" });
+          setTimeout(() => {}, 2000);
+        `],
+        timeoutMs: 50
+      })).rejects.toThrow("timed out after");
+
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      expect(existsSync(marker)).toBe(false);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   it("redacts safe error messages with explicit secrets", () => {

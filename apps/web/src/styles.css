@@ -17,6 +17,15 @@ body {
   overflow: hidden;
 }
 button, input, select, textarea { font: inherit; }
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible,
+a:focus-visible {
+  outline: 3px solid #0f6bff;
+  outline-offset: 2px;
+}
 button {
   min-height: 40px;
   border: 0;
@@ -53,6 +62,23 @@ textarea {
   grid-template-columns: 264px minmax(0, 1fr);
   height: 100vh;
   overflow: hidden;
+}
+.skipLink {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 10;
+  transform: translateY(-160%);
+  padding: 10px 12px;
+  border-radius: 8px;
+  color: #ffffff;
+  background: #10231d;
+  font-weight: 700;
+  text-decoration: none;
+  box-shadow: 0 12px 28px rgba(16, 35, 29, 0.28);
+}
+.skipLink:focus-visible {
+  transform: translateY(0);
 }
 .sidebar {
   position: sticky;
@@ -445,7 +471,7 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
 .row.person { display: flex; flex-wrap: wrap; }
 .row > div:first-child { flex: 1 1 220px; min-width: 0; }
 .row > span { flex: 1 1 120px; min-width: 0; }
-.row strong, .result strong { display: block; font-size: 14px; }
+.row strong, .result strong, .tableRow strong { display: block; font-size: 14px; }
 .row span, .result span, .tableRow span {
   color: #5e716a;
   font-size: 13px;
@@ -471,11 +497,62 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
 .tableHead, .tableRow { grid-template-columns: 1.2fr 0.9fr 0.9fr 0.8fr 0.6fr 0.7fr 214px; min-width: 960px; }
 .tableHead.batch, .tableRow.batch { grid-template-columns: minmax(220px, 1.3fr) 0.7fr 0.7fr 0.7fr 0.8fr 1fr 136px; }
 .tableHead.batchDeliveries, .tableRow.batchDeliveries { grid-template-columns: 1.2fr 1fr 0.8fr 0.7fr 1fr 1.1fr; }
+.tableHead.handoff, .tableRow.handoff { grid-template-columns: 1fr 0.7fr 1fr 220px; min-width: 720px; }
 .tableHead { min-height: 34px; color: #70827c; font-size: 12px; text-transform: uppercase; }
 .tableRow { background: #f4f8f6; }
 .tableRow.selected {
   background: #dff3ec;
   box-shadow: inset 0 0 0 1px #75b7a1;
+}
+.auditGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+}
+.auditItem {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  border-radius: 8px;
+  background: #f4f8f6;
+  box-shadow: inset 0 0 0 1px rgba(70, 99, 90, 0.08);
+}
+.auditItem.high {
+  background: #fff4df;
+  box-shadow: inset 0 0 0 1px rgba(171, 102, 37, 0.28);
+}
+.auditItem.low {
+  background: #edf8f1;
+  box-shadow: inset 0 0 0 1px rgba(66, 130, 87, 0.18);
+}
+.auditItem strong,
+.auditItem span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.auditItem span,
+.auditItem p,
+.auditItem dd {
+  color: #5e716a;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.auditItem dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+  margin: 0;
+}
+.auditItem dt {
+  color: #70827c;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.auditItem dd,
+.auditItem p {
+  margin: 0;
 }
 .status {
   display: inline-flex;
@@ -492,11 +569,13 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
 }
 .status.unlocked, .status.active { color: #0d5f44; background: #ccefe2; }
 .status.locked, .status.expired, .status.inactive { color: #735038; background: #f0ded1; }
+.status.failed { color: #7b2f2f; background: #f6dedc; }
 .status.viewed { color: #335998; background: #dce7fb; }
 .status.not-yet-implemented { color: #6d6474; background: #e8e3ec; }
 
 .composer { display: grid; gap: 12px; }
 .composer label { display: grid; gap: 7px; color: #52665e; font-size: 13px; }
+.bulkHandoff { display: grid; gap: 10px; }
 .riskSummary {
   display: grid;
   gap: 8px;
@@ -589,5 +668,30 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
     flex-basis: 100%;
     margin-left: 0;
     justify-content: flex-start;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.001ms !important;
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+  }
+  button:active {
+    transform: none;
+  }
+}
+
+@media (forced-colors: active) {
+  button:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  summary:focus-visible,
+  a:focus-visible {
+    outline: 3px solid Highlight;
   }
 }

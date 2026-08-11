@@ -28,6 +28,10 @@
     "desktop:info": "tauri info",
     "desktop:build": "tauri build",
     "release:checksums": "node scripts/release-checksums.mjs",
+    "release:set-tauri-version": "node scripts/set-tauri-version.mjs",
+    "release:verify-public-readiness": "node scripts/verify-public-release-readiness.mjs",
+    "release:verify-ref": "node scripts/verify-release-ref.mjs",
+    "security:scan-secrets": "node scripts/secret-non-persistence-scan.mjs",
     "tauri:build": "tauri build"
   },
   "dependencies": {

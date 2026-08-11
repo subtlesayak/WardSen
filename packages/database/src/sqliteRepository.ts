@@ -318,6 +318,11 @@ export class SqliteWardSenRepository implements WardSenRepository {
     return { items: rows, page, pageSize, total };
   }
 
+  async pruneAuditLogBefore(cutoffIso: string): Promise<number> {
+    const result = this.db.prepare("DELETE FROM audit_log WHERE created_at < ?").run(cutoffIso);
+    return Number(result.changes);
+  }
+
   private applyMigrations(): void {
     this.db.exec("CREATE TABLE IF NOT EXISTS schema_migrations (id TEXT PRIMARY KEY, applied_at TEXT NOT NULL);");
     const applied = new Set(

@@ -1,5 +1,7 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { redactSecrets } from "./redaction";
+
+const DEFAULT_MAX_OUTPUT_BYTES = 1_048_576;
 
 export interface CliCommandInput {
   executable: string;
@@ -11,6 +13,7 @@ export interface CliCommandInput {
   interactive?: boolean;
   redact?: string[];
   rawOutput?: boolean;
+  maxOutputBytes?: number;
 }
 
 export interface CliCommandResult {
@@ -36,6 +39,7 @@ export async function runCliCommand(input: CliCommandInput): Promise<CliCommandR
   validateCommand(input);
   const start = Date.now();
   const timeoutMs = input.timeoutMs ?? 30_000;
+  const maxOutputBytes = input.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
 
   return await new Promise<CliCommandResult>((resolve, reject) => {
     const child = spawn(input.executable, input.args, {
@@ -43,26 +47,27 @@ export async function runCliCommand(input: CliCommandInput): Promise<CliCommandR
       env: buildChildEnvironment(input.env),
       shell: false,
       windowsHide: true,
+      detached: process.platform !== "win32",
       stdio: input.interactive ? "pipe" : ["pipe", "pipe", "pipe"]
     });
 
-    let stdout = "";
-    let stderr = "";
+    const stdout = boundedOutput("stdout", maxOutputBytes);
+    const stderr = boundedOutput("stderr", maxOutputBytes);
     let settled = false;
     const timer = setTimeout(() => {
       if (settled) return;
-      child.kill("SIGTERM");
-      setTimeout(() => child.kill("SIGKILL"), 1500).unref();
+      terminateProcessTree(child, "SIGTERM");
+      setTimeout(() => terminateProcessTree(child, "SIGKILL"), 1500).unref();
       const result = finalize(124);
       reject(new CliCommandError(timeoutMessage(input, result, timeoutMs), result, input.executable, input.args));
       settled = true;
     }, timeoutMs);
 
     child.stdout?.on("data", (chunk) => {
-      stdout += chunk.toString();
+      stdout.append(chunk);
     });
     child.stderr?.on("data", (chunk) => {
-      stderr += chunk.toString();
+      stderr.append(chunk);
     });
     child.on("error", (error) => {
       clearTimeout(timer);
@@ -87,14 +92,59 @@ export async function runCliCommand(input: CliCommandInput): Promise<CliCommandR
     else child.stdin?.end();
 
     function finalize(exitCode: number): CliCommandResult {
+      const stdoutValue = stdout.value();
+      const stderrValue = stderr.value();
       return {
         exitCode,
-        stdout: input.rawOutput ? stdout : redactSecrets(stdout, input.redact),
-        stderr: input.rawOutput ? stderr : redactSecrets(stderr, input.redact),
+        stdout: input.rawOutput ? stdoutValue : redactSecrets(stdoutValue, input.redact),
+        stderr: input.rawOutput ? stderrValue : redactSecrets(stderrValue, input.redact),
         durationMs: Date.now() - start
       };
     }
   });
+}
+
+function boundedOutput(label: "stdout" | "stderr", limitBytes: number) {
+  const chunks: Buffer[] = [];
+  let capturedBytes = 0;
+  let truncated = false;
+  return {
+    append(chunk: Buffer | string) {
+      if (capturedBytes >= limitBytes) {
+        truncated = true;
+        return;
+      }
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      const remaining = limitBytes - capturedBytes;
+      if (buffer.byteLength > remaining) {
+        chunks.push(buffer.subarray(0, remaining));
+        capturedBytes = limitBytes;
+        truncated = true;
+        return;
+      }
+      chunks.push(buffer);
+      capturedBytes += buffer.byteLength;
+    },
+    value() {
+      const output = Buffer.concat(chunks).toString("utf8");
+      if (!truncated) return output;
+      return `${output}\n[WardSen truncated ${label} after ${limitBytes} bytes]`;
+    }
+  };
+}
+
+function terminateProcessTree(child: ChildProcess, signal: NodeJS.Signals): void {
+  const pid = child.pid;
+  if (!pid) return;
+  if (process.platform === "win32") {
+    spawnSync("taskkill.exe", ["/pid", String(pid), "/t", "/f"], { windowsHide: true, stdio: "ignore" });
+    return;
+  }
+  try {
+    process.kill(-pid, signal);
+  } catch {
+    child.kill(signal);
+  }
 }
 
 function timeoutMessage(input: CliCommandInput, result: CliCommandResult, timeoutMs: number): string {
@@ -150,6 +200,9 @@ function validateCommand(input: CliCommandInput): void {
   }
   if (input.timeoutMs !== undefined && (!Number.isInteger(input.timeoutMs) || input.timeoutMs <= 0)) {
     throw new Error("Invalid CLI timeout");
+  }
+  if (input.maxOutputBytes !== undefined && (!Number.isInteger(input.maxOutputBytes) || input.maxOutputBytes <= 0)) {
+    throw new Error("Invalid CLI output limit");
   }
 }
 

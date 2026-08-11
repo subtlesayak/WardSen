@@ -1,4 +1,5 @@
 import { mkdtempSync, rmSync, statSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -76,5 +77,43 @@ describe("SqliteWardSenRepository", () => {
 
     expect(statSync(tempDir).mode & 0o777).toBe(0o700);
     expect(statSync(databasePath).mode & 0o777).toBe(0o600);
+  });
+
+  it("enforces delivery metadata constraints", async () => {
+    tempDir = mkdtempSync(path.join(os.tmpdir(), "wardsen-sqlite-"));
+    const repo = new SqliteWardSenRepository(path.join(tempDir, "wardsen.sqlite"));
+
+    await expect(repo.createDelivery({
+      providerDeliveryId: "provider-id",
+      sourceProviderId: "bitwarden",
+      sourceAccountId: "source-account",
+      sourceItemId: "item-id",
+      deliveryProviderId: "bitwarden-send",
+      deliveryAccountId: "delivery-account",
+      credentialName: "CMS",
+      expiresAt: new Date(Date.now() + 3600000).toISOString(),
+      viewLimit: 0,
+      status: "active"
+    })).rejects.toThrow("invalid delivery metadata");
+    repo.close();
+  });
+
+  it("prunes audit rows older than the retention cutoff", async () => {
+    tempDir = mkdtempSync(path.join(os.tmpdir(), "wardsen-sqlite-"));
+    const databasePath = path.join(tempDir, "wardsen.sqlite");
+    const repo = new SqliteWardSenRepository(databasePath);
+    await repo.appendAuditLog({ action: "new", outcome: "success" });
+
+    const db = new DatabaseSync(databasePath);
+    db.prepare(`
+      INSERT INTO audit_log (id, action, outcome, created_at)
+      VALUES ('old-audit', 'old', 'success', '2020-01-01T00:00:00.000Z')
+    `).run();
+    db.close();
+
+    expect(await repo.pruneAuditLogBefore("2021-01-01T00:00:00.000Z")).toBe(1);
+    const audit = await repo.listAuditLog({ page: 1, pageSize: 10 });
+    expect(audit.items.map((item) => item.action)).toEqual(["new"]);
+    repo.close();
   });
 });

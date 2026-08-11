@@ -218,6 +218,20 @@ describe("Bitwarden credential provider", () => {
     }
   });
 
+  it("rejects relative Bitwarden CLI environment overrides", () => {
+    const previous = process.env.WARDSEN_BITWARDEN_CLI_PATH;
+    process.env.WARDSEN_BITWARDEN_CLI_PATH = "tools/bw";
+    try {
+      expect(() => new BitwardenCredentialProvider({
+        profileRoot: "profiles",
+        runCommand: async () => ok()
+      })).toThrow("WARDSEN_BITWARDEN_CLI_PATH must be an absolute executable path");
+    } finally {
+      if (previous === undefined) delete process.env.WARDSEN_BITWARDEN_CLI_PATH;
+      else process.env.WARDSEN_BITWARDEN_CLI_PATH = previous;
+    }
+  });
+
   it("unlocks once, searches with the session token, paginates, and filters malformed items", async () => {
     const sessions = new AccountSessionManager();
     const calls: CliCommandInput[] = [];

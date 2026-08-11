@@ -1,39 +1,28 @@
 # Security Policy
 
-Report vulnerabilities through GitHub private vulnerability reporting when available.
+## Supported Releases
 
-WardSen handles credential metadata and creates secure delivery links, but it must never persist or expose credential secrets. Please include reproduction steps, affected platform, provider adapter and whether the issue exposes sensitive credential content.
+WardSen is pre-1.0. Security fixes are applied to the current release candidate line and the next public release. Unsigned prerelease installers are validation builds for testers and security reviewers, not fully trusted end-user releases.
 
-## Supported Versions
+## Reporting A Vulnerability
 
-Pre-1.0 releases are security-supported on the latest published version only.
+Report suspected vulnerabilities privately through GitHub Security Advisories when available. If advisories are unavailable, open a minimal issue that says you have a security report to share, but do not include secrets, exploit payloads, private logs or credential material in public text.
 
-## Local Boundary
+Include:
 
-WardSen is designed for localhost use only. Do not expose it through public domains, tunnels, port forwarding or public reverse proxies.
+- WardSen version or release tag.
+- Operating system.
+- Provider involved, if any.
+- Whether the issue affects local metadata, provider CLI execution, delivery links or installer trust.
+- Reproduction steps using fake credentials only.
 
-WardSen rejects non-local Host headers and cross-origin state-changing requests. Browser clients should use the bundled desktop/web entry points instead of embedding WardSen API calls into unrelated sites.
+## Public Installer Trust
 
-The packaged desktop app also adds a per-launch local API token between the Tauri shell and the local service. If token errors appear, close all WardSen windows and reopen the desktop app so the frontend and service share the same session token.
+Public end-user installers must be signed, verifiable and tied to release provenance. A release is not public-ready until:
 
-## Secret Handling
+- Windows artifacts pass Authenticode verification.
+- macOS artifacts pass Developer ID signing and notarization validation.
+- Checksums and `RELEASE-MANIFEST-*.json` are attached.
+- The release was built from the exact published tag.
 
-- Credential secrets are fetched on demand and are not stored in SQLite.
-- Provider session tokens live in memory and are cleared on lock, logout and server shutdown.
-- CLI stdout, stderr and safe API errors are redacted for known password, token, secret, session and key patterns.
-- Bitwarden account data uses isolated CLI profile directories; KeePassXC database passwords are supplied through stdin.
-- SQLite stores metadata only and applies owner-only POSIX file modes where supported. Full local database encryption is not part of the pre-1.0 release.
-- The desktop launcher starts bundled Node.js first, then absolute trusted runtime paths. Nonstandard Node installs should use `WARDSEN_NODE_PATH`.
-
-## Delivery Limits
-
-Expiry, view limits and revocation control future access to a delivery link. They cannot prevent a recipient from saving, copying, photographing or screenshotting a credential after viewing it.
-
-Bulk delivery is intentionally guarded by a confirmation summary and an extra typed confirmation for large batches.
-
-## Provider Scope
-
-Bitwarden and KeePassXC adapters depend on the security posture of their official CLIs and local OS account. WardSen treats provider CLI compromise or malware running as the same OS user as out of scope for pre-1.0 releases.
-
-See `docs/release-security-checklist.md` before publishing release artifacts.
-See `docs/rustsec-audit.md` for current RustSec warning-class audit notes.
+Do not treat a Gatekeeper quarantine bypass as a normal installation path.

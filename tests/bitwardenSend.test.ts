@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CliCommandInput, CliCommandResult } from "@wardsen/security";
 import { BitwardenSendDeliveryProvider } from "@wardsen/delivery-bitwarden-send";
 
@@ -11,6 +11,10 @@ function encodedSendPayload(): string {
 }
 
 describe("Bitwarden Send delivery provider", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("creates text sends with secret redaction, session env, expiry, and access limits", async () => {
     const calls: CliCommandInput[] = [];
     const provider = new BitwardenSendDeliveryProvider({
@@ -53,7 +57,10 @@ describe("Bitwarden Send delivery provider", () => {
     expect(calls[0].stdin).toContain('"maxAccessCount":2');
     expect(calls[0].stdin).toContain('"hidden":true');
     expect(calls[0].stdin).toContain("Password: credential-password");
-    expect(calls[0].stdin).toContain("TOTP: 123456");
+    expect(calls[0].stdin).not.toContain("URLs: https://app.example.test");
+    expect(calls[0].stdin).not.toContain("Rotate after incident");
+    expect(calls[0].stdin).not.toContain("TOTP");
+    expect(calls[0].stdin).not.toContain("123456");
     expect(calls[1].args).toEqual(["send", "--fullObject", "create"]);
     expect(calls[1].args).not.toContain("--expirationDate");
     expect(calls[1].args).not.toContain("--deleteInDays");
@@ -62,7 +69,7 @@ describe("Bitwarden Send delivery provider", () => {
     expect(calls[1].env?.BW_SESSION).toBe("session-token");
     expect(calls[0].env?.BITWARDENCLI_APPDATA_DIR).toBe("profiles/acct-1");
     expect(calls[1].env?.BITWARDENCLI_APPDATA_DIR).toBe("profiles/acct-1");
-    expect(calls[0].redact).toEqual(expect.arrayContaining(["session-token", calls[0].stdin, "Title: Production Admin\nUsername: admin\nPassword: credential-password\nURLs: https://app.example.test\nNotes: Rotate after incident\nTOTP: 123456"]));
+    expect(calls[0].redact).toEqual(expect.arrayContaining(["session-token", calls[0].stdin, "Title: Production Admin\nUsername: admin\nPassword: credential-password", "credential-password"]));
     expect(calls[1].redact).toEqual(expect.arrayContaining(["session-token", calls[0].stdin, encodedSendPayload()]));
   });
 
@@ -111,21 +118,30 @@ describe("Bitwarden Send delivery provider", () => {
     expect(calls[1].stdin).toBe(encodedSendPayload());
   });
 
-  it("does not support access passwords because bw exposes them through process args", async () => {
+  it("supports access passwords through encoded JSON without exposing them as process arguments", async () => {
+    const calls: CliCommandInput[] = [];
     const provider = new BitwardenSendDeliveryProvider({
       getSessionToken: () => "session-token",
-      runCommand: async () => ok()
+      runCommand: async (input) => {
+        calls.push(input);
+        if (input.args[0] === "encode") return ok(encodedSendPayload());
+        return ok(JSON.stringify({ id: "send-1", accessUrl: "https://send.example.test/#abc" }));
+      }
     });
 
-    await expect(provider.getCapabilities()).resolves.toMatchObject({ accessPassword: false });
-    await expect(
-      provider.createDelivery({
-        deliveryAccountId: "acct-1",
-        expiresAt: new Date("2026-08-01T12:00:00.000Z"),
-        accessPassword: "send-password",
-        sourceCredential: { title: "Admin", urls: [] }
-      })
-    ).rejects.toThrow("access passwords are disabled");
+    await expect(provider.getCapabilities()).resolves.toMatchObject({ accessPassword: true });
+    await provider.createDelivery({
+      deliveryAccountId: "acct-1",
+      expiresAt: new Date("2026-08-01T12:00:00.000Z"),
+      accessPassword: "send-password",
+      sourceCredential: { title: "Admin", urls: [] }
+    });
+
+    expect(calls[0].stdin).toContain('"password":"send-password"');
+    expect(calls[0].args.join(" ")).not.toContain("send-password");
+    expect(calls[1].args.join(" ")).not.toContain("send-password");
+    expect(calls[0].redact).toEqual(expect.arrayContaining(["send-password", calls[0].stdin]));
+    expect(calls[1].redact).toEqual(expect.arrayContaining(["send-password", encodedSendPayload()]));
   });
 
   it("uses a configured local Bitwarden CLI path when available", async () => {
@@ -155,17 +171,43 @@ describe("Bitwarden Send delivery provider", () => {
     }
   });
 
-  it("maps disabled sends as revoked and past expiries as expired", async () => {
+  it("uses the current Bitwarden Send delete command when revoking", async () => {
+    const calls: CliCommandInput[] = [];
+    const provider = new BitwardenSendDeliveryProvider({
+      getSessionToken: () => "session-token",
+      runCommand: async (input) => {
+        calls.push(input);
+        return ok();
+      }
+    });
+
+    await provider.revoke("acct-1", "send-1");
+
+    expect(calls[0].args).toEqual(["send", "delete", "send-1"]);
+  });
+
+  it("maps disabled, deleted, limited, viewed and untouched sends", async () => {
     const provider = new BitwardenSendDeliveryProvider({
       getSessionToken: () => "session-token",
       runCommand: async (input) => {
         if (input.args.at(-1) === "revoked-send") {
           return ok(JSON.stringify({ id: "revoked-send", disabled: true, accessCount: 3 }));
         }
-        return ok(JSON.stringify({ id: "expired-send", expirationDate: "2000-01-01T00:00:00.000Z" }));
+        if (input.args.at(-1) === "expired-send") {
+          return ok(JSON.stringify({ id: "expired-send", deletionDate: "2000-01-01T00:00:00.000Z" }));
+        }
+        if (input.args.at(-1) === "limit-send") {
+          return ok(JSON.stringify({ id: "limit-send", accessCount: 2, maxAccessCount: 2, deletionDate: "2026-08-01T12:00:00.000Z" }));
+        }
+        if (input.args.at(-1) === "viewed-send") {
+          return ok(JSON.stringify({ id: "viewed-send", accessCount: 1, maxAccessCount: 2, deletionDate: "2026-08-01T12:00:00.000Z" }));
+        }
+        return ok(JSON.stringify({ id: "active-send", accessCount: 0, maxAccessCount: 2, deletionDate: "2026-08-01T12:00:00.000Z" }));
       }
     });
 
+    const now = new Date("2026-08-01T10:00:00.000Z").getTime();
+    vi.spyOn(Date, "now").mockReturnValue(now);
     await expect(provider.getStatus("acct-1", "revoked-send")).resolves.toMatchObject({
       deliveryId: "revoked-send",
       status: "revoked",
@@ -175,6 +217,21 @@ describe("Bitwarden Send delivery provider", () => {
       deliveryId: "expired-send",
       status: "expired",
       expiresAt: new Date("2000-01-01T00:00:00.000Z")
+    });
+    await expect(provider.getStatus("acct-1", "limit-send")).resolves.toMatchObject({
+      deliveryId: "limit-send",
+      status: "limit_reached",
+      accessCount: 2
+    });
+    await expect(provider.getStatus("acct-1", "viewed-send")).resolves.toMatchObject({
+      deliveryId: "viewed-send",
+      status: "viewed",
+      accessCount: 1
+    });
+    await expect(provider.getStatus("acct-1", "active-send")).resolves.toMatchObject({
+      deliveryId: "active-send",
+      status: "active",
+      accessCount: 0
     });
   });
 

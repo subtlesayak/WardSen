@@ -13,6 +13,7 @@
     "paths": {
       "@wardsen/core": ["./packages/core/src/index.ts"],
       "@wardsen/security": ["./packages/security/src/index.ts"],
+      "@wardsen/contracts": ["./packages/contracts/src/index.ts"],
       "@wardsen/database": ["./packages/database/src/index.ts"],
       "@wardsen/provider-bitwarden": ["./packages/provider-bitwarden/src/index.ts"],
       "@wardsen/provider-keepassxc": ["./packages/provider-keepassxc/src/index.ts"],

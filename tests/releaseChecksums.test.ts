@@ -26,12 +26,23 @@ describe("release checksum generation", () => {
 
     execFileSync(process.execPath, ["scripts/release-checksums.mjs"], {
       cwd: process.cwd(),
-      env: { ...process.env, WARDSEN_BUNDLE_ROOT: bundleRoot },
+      env: { ...process.env, RELEASE_TAG: "v0.1.0-test", WARDSEN_BUNDLE_ROOT: bundleRoot },
       stdio: "pipe"
     });
 
     const expectedHash = createHash("sha256").update("fake dmg content").digest("hex").toUpperCase();
     const checksum = readFileSync(path.join(bundleRoot, "SHA256SUMS.txt"), "utf8");
+    const manifest = JSON.parse(readFileSync(path.join(bundleRoot, "RELEASE-MANIFEST.json"), "utf8"));
     expect(checksum).toBe(`${expectedHash}  dmg/WardSen_0.1.0_aarch64.dmg\n`);
+    expect(manifest).toMatchObject({
+      schemaVersion: 1,
+      product: "WardSen",
+      releaseTag: "v0.1.0-test",
+      artifacts: [{
+        path: "dmg/WardSen_0.1.0_aarch64.dmg",
+        sha256: expectedHash,
+        sizeBytes: "fake dmg content".length
+      }]
+    });
   });
 });

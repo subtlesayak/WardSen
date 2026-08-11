@@ -8,21 +8,7 @@ WardSen release installers should be signed before a public release is published
 
 Do not promote a final `v0.1.0` or "latest" release until Windows Authenticode signing and macOS Developer ID notarization are configured and verified, or until the release clearly states that the installers are unsigned.
 
-Unsigned macOS DMGs can show `"WardSen" is damaged and can't be opened` after Safari downloads them. That is macOS quarantine/Gatekeeper blocking an unnotarized app. Testers who intentionally downloaded the WardSen prerelease can remove quarantine after dragging the app to Applications:
-
-```bash
-xattr -dr com.apple.quarantine /Applications/WardSen.app
-```
-
-If Terminal prints `Operation not permitted` for files inside the app bundle, use administrator permission:
-
-```bash
-sudo xattr -dr com.apple.quarantine /Applications/WardSen.app
-```
-
-Terminal asks for the Mac login password and does not show password characters while typing.
-
-This is a tester workaround, not a substitute for signing and notarization.
+Unsigned macOS DMGs can show `"WardSen" is damaged and can't be opened` after Safari downloads them. That is macOS quarantine/Gatekeeper blocking an unnotarized app. Do not present quarantine removal as a normal installation path. Unsigned DMGs are developer/security-review validation artifacts only; public end-user releases should be signed, notarized, stapled and verified.
 
 ## Maintainer Signing Quick Start
 

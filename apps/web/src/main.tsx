@@ -19,9 +19,10 @@ import {
   Vault,
   X
 } from "lucide-react";
+import { parseBulkDeliveryResult, parseCreatedDeliveryRecord, type BulkDeliveryItemResultContract, type BulkDeliveryResultContract, type CreatedDeliveryRecordContract } from "@wardsen/contracts";
 import { apiDownload, apiGet, apiSend, canRestartLocalService, copyExternalUrl, copyTextToClipboard, getLocalServiceStatus, openExternalUrl, restartLocalService, type LocalServiceStatus } from "./api";
 import { describeError } from "./errorHelp";
-import { appVersion } from "./version";
+import { appReleaseMetadata, appVersion } from "./version";
 import "./styles.css";
 
 type NavItem = "Overview" | "Vaults" | "Credentials" | "People" | "Deliveries" | "Settings";
@@ -84,16 +85,9 @@ interface DeliveryBatchRecord {
   completedAt?: string;
 }
 
-interface CreatedDeliveryRecord extends DeliveryRecord {
-  oneTimeDeliveryUrl: string;
-}
-
-interface BulkDeliveryResult {
-  batchId: string;
-  requestedCount: number;
-  completedCount: number;
-  failedCount: number;
-}
+type CreatedDeliveryRecord = CreatedDeliveryRecordContract;
+type BulkDeliveryResult = BulkDeliveryResultContract;
+type BulkDeliveryItemResult = BulkDeliveryItemResultContract;
 
 interface CredentialSummary {
   id: string;
@@ -148,20 +142,21 @@ function App() {
   const deliveryCapabilities = api.deliveryProviders.find((provider) => provider.id === deliveryProviderId)?.capabilities ?? {};
 
   return (
-    <main className="shell">
+    <div className="shell">
+      <a className="skipLink" href="#main-content">Skip to content</a>
       <aside className="sidebar">
         <div className="brand">
-          <div className="brandMark"><ShieldCheck size={22} /></div>
+          <div className="brandMark"><ShieldCheck size={22} aria-hidden="true" /></div>
           <div>
             <strong>WardSen</strong>
             <span>Local dispatch hub</span>
-            <span className="brandVersion">{appVersion}</span>
+            <span className="brandVersion" title={releaseMetadataTitle()}>{appVersion}</span>
           </div>
         </div>
-        <nav>
+        <nav aria-label="Primary">
           {navItems.map(({ id, icon: Icon }) => (
-            <button key={id} className={active === id ? "nav active" : "nav"} onClick={() => setActive(id)}>
-              <Icon size={18} />
+            <button key={id} type="button" aria-current={active === id ? "page" : undefined} className={active === id ? "nav active" : "nav"} onClick={() => setActive(id)}>
+              <Icon size={18} aria-hidden="true" />
               {id}
             </button>
           ))}
@@ -172,15 +167,15 @@ function App() {
         </p>
       </aside>
 
-      <section className="workspace">
+      <main id="main-content" className="workspace" tabIndex={-1}>
         <header className="topbar">
           <div>
             <h1>{active}</h1>
             <p>WardSen is a local-first credential dispatch hub for password managers and secure-sharing providers.</p>
           </div>
           <div className="topbarActions">
-            <span className="versionBadge" title="WardSen app version">{appVersion}</span>
-            <button className="primary" onClick={() => api.refresh()}><RefreshCcw size={16} /> Refresh</button>
+            <span className="versionBadge" title={releaseMetadataTitle()}>{appVersion}</span>
+            <button type="button" className="primary" onClick={() => api.refresh()}><RefreshCcw size={16} aria-hidden="true" /> Refresh</button>
           </div>
         </header>
 
@@ -191,8 +186,8 @@ function App() {
         {active === "People" && <People api={api} />}
         {active === "Deliveries" && <Deliveries api={api} />}
         {active === "Settings" && <SettingsView providers={api.deliveryProviders} capabilities={deliveryCapabilities} />}
-      </section>
-    </main>
+      </main>
+    </div>
   );
 }
 
@@ -298,11 +293,19 @@ function useWardSenApi() {
   return { ...state, refresh, recover, action, canRestartLocalService: canRestartLocalService() };
 }
 
+function releaseMetadataTitle(): string {
+  const parts = [`WardSen app version ${appVersion}`];
+  if (appReleaseMetadata.sha) parts.push(`SHA ${appReleaseMetadata.sha}`);
+  if (appReleaseMetadata.buildTimestamp) parts.push(`Built ${appReleaseMetadata.buildTimestamp}`);
+  parts.push(`Release schema ${appReleaseMetadata.schemaVersion}`);
+  return parts.join(" / ");
+}
+
 function ApiBanner({ api }: { api: ReturnType<typeof useWardSenApi> }) {
   if (api.status === "ready") return null;
   return (
     api.status === "loading"
-      ? <div className="notice">{api.loadingMessage ?? "Loading local WardSen data..."}</div>
+      ? <div className="notice" role="status" aria-live="polite">{api.loadingMessage ?? "Loading local WardSen data..."}</div>
       : <ErrorNotice message={api.error} actionLabel={api.canRestartLocalService ? "Restart service and retry" : "Retry"} onAction={api.recover} />
   );
 }
@@ -330,7 +333,6 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
     label: "",
     username: "",
     serverUrl: "",
-    profileDirectory: "",
     autoLockMinutes: "15"
   });
   const [accessForm, setAccessForm] = useState({
@@ -365,12 +367,11 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
           label: accountForm.label,
           username: accountForm.username || undefined,
           serverUrl: accountForm.serverUrl || undefined,
-          profileDirectory: accountForm.profileDirectory || undefined,
           autoLockMinutes: Number(accountForm.autoLockMinutes) || 15
         })
       });
       setAccessForm((current) => ({ ...current, accountId: account.id }));
-      setAccountForm((current) => ({ ...current, label: "", username: "", serverUrl: "", profileDirectory: "" }));
+      setAccountForm((current) => ({ ...current, label: "", username: "", serverUrl: "" }));
       setMessage({ status: "ready", text: `Added ${account.label}.` });
       await api.refresh();
     } catch (error) {
@@ -423,18 +424,18 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
   return (
     <div className="grid">
       {message.status === "error" && <ErrorNotice message={message.text} />}
-      {message.status !== "idle" && message.status !== "error" && <div className="notice">{message.text}</div>}
+      {message.status !== "idle" && message.status !== "error" && <div className="notice" role="status" aria-live="polite">{message.text}</div>}
       <form className="panel formGrid" onSubmit={createAccount}>
         <PanelTitle icon={Vault} title="Add Vault Account" action="Refresh" onAction={api.refresh} />
-        <label>Provider<select value={providerId} onChange={(event) => setAccountForm((current) => ({ ...current, providerId: event.target.value }))}>
+        <label>Provider<select name="providerId" value={providerId} onChange={(event) => setAccountForm((current) => ({ ...current, providerId: event.target.value }))}>
           {api.credentialProviders.map((provider) => <option key={provider.id} value={provider.id}>{provider.displayName}</option>)}
         </select></label>
-        <label>Label<input required value={accountForm.label} onChange={(event) => setAccountForm((current) => ({ ...current, label: event.target.value }))} placeholder="Work Bitwarden" /></label>
-        <label>Username<input value={accountForm.username} onChange={(event) => setAccountForm((current) => ({ ...current, username: event.target.value }))} placeholder="name@example.com" /></label>
-        <label>Server URL<input value={accountForm.serverUrl} onChange={(event) => setAccountForm((current) => ({ ...current, serverUrl: event.target.value }))} placeholder="Optional custom server" /></label>
-        <label>Profile directory<input value={accountForm.profileDirectory} onChange={(event) => setAccountForm((current) => ({ ...current, profileDirectory: event.target.value }))} placeholder="Optional isolated profile path" /></label>
-        <label>Auto-lock minutes<input value={accountForm.autoLockMinutes} onChange={(event) => setAccountForm((current) => ({ ...current, autoLockMinutes: event.target.value }))} inputMode="numeric" /></label>
-        <button className="primary full"><Vault size={16} /> Add account</button>
+        <label>Label<input name="label" required value={accountForm.label} onChange={(event) => setAccountForm((current) => ({ ...current, label: event.target.value }))} placeholder="Work Bitwarden" /></label>
+        <label>Username<input name="username" autoComplete="username" value={accountForm.username} onChange={(event) => setAccountForm((current) => ({ ...current, username: event.target.value }))} placeholder="name@example.com" /></label>
+        <label>Server URL<input name="serverUrl" type="url" value={accountForm.serverUrl} onChange={(event) => setAccountForm((current) => ({ ...current, serverUrl: event.target.value }))} placeholder="Optional custom server" /></label>
+        <small>WardSen creates an isolated provider profile automatically for each account.</small>
+        <label>Auto-lock minutes<input name="autoLockMinutes" value={accountForm.autoLockMinutes} onChange={(event) => setAccountForm((current) => ({ ...current, autoLockMinutes: event.target.value }))} inputMode="numeric" /></label>
+        <button className="primary full"><Vault size={16} aria-hidden="true" /> Add account</button>
       </form>
       <section className="panel formGrid">
         <PanelTitle icon={KeyRound} title="Account Access" action="Status" onAction={() => void accountAccess("status")} />
@@ -456,6 +457,7 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
         {selectedAccountIsBitwarden && verificationNeeded ? (
           <label className={verificationNeeded ? "attentionField" : undefined}>Verification code
             <input
+              name="verificationCode"
               ref={verificationCodeRef}
               value={accessForm.verificationCode}
               onChange={(event) => setAccessForm((current) => ({ ...current, verificationCode: event.target.value }))}
@@ -480,9 +482,9 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
             </select>
           </label>
         ) : null}
-        <label>Database path<input value={accessForm.databasePath} onChange={(event) => setAccessForm((current) => ({ ...current, databasePath: event.target.value }))} placeholder="KeePassXC .kdbx path" /></label>
-        <label>Key file path<input value={accessForm.keyFilePath} onChange={(event) => setAccessForm((current) => ({ ...current, keyFilePath: event.target.value }))} placeholder="Optional KeePassXC key file" /></label>
-        <label className="check"><input checked={accessForm.sso} type="checkbox" onChange={(event) => setAccessForm((current) => ({ ...current, sso: event.target.checked }))} /> Login with SSO</label>
+        <label>Database path<input name="databasePath" value={accessForm.databasePath} onChange={(event) => setAccessForm((current) => ({ ...current, databasePath: event.target.value }))} placeholder="KeePassXC .kdbx path" /></label>
+        <label>Key file path<input name="keyFilePath" value={accessForm.keyFilePath} onChange={(event) => setAccessForm((current) => ({ ...current, keyFilePath: event.target.value }))} placeholder="Optional KeePassXC key file" /></label>
+        <label className="check"><input name="sso" checked={accessForm.sso} type="checkbox" onChange={(event) => setAccessForm((current) => ({ ...current, sso: event.target.checked }))} /> Login with SSO</label>
         <div className="buttonRow">
           <button type="button" className={selectedAccountIsBitwarden || verificationNeeded ? "primary" : undefined} onClick={() => void accountAccess("login")}><ShieldCheck size={16} /> {selectedAccountIsBitwarden ? "Terminal login" : verificationNeeded ? "Submit code and login" : "Login"}</button>
           <button
@@ -509,12 +511,12 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
                 <Status value={titleStatus(vault.status)} />
                 <span>{vault.autoLockMinutes} min lock</span>
                 <div className="actions">
-                  <button title="Select" onClick={() => setAccessForm((current) => ({ ...current, accountId: vault.id }))}><KeyRound size={16} /></button>
-                  <button title="Sync" onClick={() => api.action(`/api/accounts/${vault.id}/sync`)}><RefreshCcw size={16} /></button>
-                  <button title="Lock" onClick={() => api.action(`/api/accounts/${vault.id}/lock`)}><Lock size={16} /></button>
-                  <button title="Delete" onClick={() => void confirmDestructiveAction(`DELETE ACCOUNT ${vault.id}`, `Delete vault account "${vault.label}"? This removes local account metadata.`).then((confirmed) => {
+                  <button type="button" aria-label={`Select ${vault.label}`} title="Select" onClick={() => setAccessForm((current) => ({ ...current, accountId: vault.id }))}><KeyRound size={16} aria-hidden="true" /></button>
+                  <button type="button" aria-label={`Sync ${vault.label}`} title="Sync" onClick={() => api.action(`/api/accounts/${vault.id}/sync`)}><RefreshCcw size={16} aria-hidden="true" /></button>
+                  <button type="button" aria-label={`Lock ${vault.label}`} title="Lock" onClick={() => api.action(`/api/accounts/${vault.id}/lock`)}><Lock size={16} aria-hidden="true" /></button>
+                  <button type="button" aria-label={`Delete ${vault.label}`} title="Delete" onClick={() => void confirmDestructiveAction(`DELETE ACCOUNT ${vault.id}`, `Delete vault account "${vault.label}"? This removes local account metadata.`).then((confirmed) => {
                     if (confirmed) void api.action(`/api/accounts/${vault.id}`, { method: "DELETE", body: JSON.stringify({ confirm: `DELETE ACCOUNT ${vault.id}` }) });
-                  })}><Trash2 size={16} /></button>
+                  })}><Trash2 size={16} aria-hidden="true" /></button>
                 </div>
               </div>
             ))}
@@ -575,16 +577,16 @@ function Credentials({ api }: { api: ReturnType<typeof useWardSenApi> }) {
       <section className="panel">
         <PanelTitle icon={Search} title="Credential Search" action="Search" onAction={() => void runSearch()} />
         <form className="filters" onSubmit={(event) => runSearch(event, 1)}>
-          <select value={search.accountId} onChange={(event) => setSearch((current) => ({ ...current, accountId: event.target.value, page: 1 }))}>
+          <select aria-label="Credential account filter" value={search.accountId} onChange={(event) => setSearch((current) => ({ ...current, accountId: event.target.value, page: 1 }))}>
             <option value="">All unlocked vaults</option>
             {api.accounts.map((account) => <option key={account.id} value={account.id}>{account.label}</option>)}
           </select>
-          <select value={search.providerId} onChange={(event) => setSearch((current) => ({ ...current, providerId: event.target.value, page: 1 }))}>
+          <select aria-label="Credential provider filter" value={search.providerId} onChange={(event) => setSearch((current) => ({ ...current, providerId: event.target.value, page: 1 }))}>
             <option value="">All providers</option>
             {api.credentialProviders.map((provider) => <option key={provider.id} value={provider.id}>{provider.displayName}</option>)}
           </select>
-          <input value={search.query} onChange={(event) => setSearch((current) => ({ ...current, query: event.target.value, page: 1 }))} placeholder="Search credential names, usernames or domains" />
-          <button className="primary"><Search size={16} /> Search</button>
+          <input aria-label="Credential search query" value={search.query} onChange={(event) => setSearch((current) => ({ ...current, query: event.target.value, page: 1 }))} placeholder="Search credential names, usernames or domains" />
+          <button className="primary"><Search size={16} aria-hidden="true" /> Search</button>
         </form>
         {search.status === "error" && <ErrorNotice message={search.error} />}
         {search.errors.length > 0 && (
@@ -607,7 +609,7 @@ function Credentials({ api }: { api: ReturnType<typeof useWardSenApi> }) {
           </div>
         )}
         {search.status === "ready" && (
-          <div className="pager">
+          <div className="pager" role="status" aria-live="polite">
             <span>{search.total} result{search.total === 1 ? "" : "s"} on page {search.page}</span>
             <div className="buttonRow">
               <button type="button" disabled={search.page <= 1} onClick={() => void runSearch(undefined, search.page - 1)}>Previous</button>
@@ -624,6 +626,8 @@ function Credentials({ api }: { api: ReturnType<typeof useWardSenApi> }) {
           {search.items.map((item) => (
             <button
               className={search.selected?.id === item.id && search.selected.accountId === item.accountId ? "result selected" : "result"}
+              type="button"
+              aria-pressed={search.selected?.id === item.id && search.selected.accountId === item.accountId}
               key={`${item.providerId}-${item.accountId}-${item.id}`}
               onClick={() => setSearch((current) => ({ ...current, selected: item }))}
             >
@@ -710,35 +714,35 @@ function People({ api }: { api: ReturnType<typeof useWardSenApi> }) {
   return (
     <div className="grid">
       {message.status === "error" && <ErrorNotice message={message.text} />}
-      {message.status !== "idle" && message.status !== "error" && <div className="notice">{message.text}</div>}
+      {message.status !== "idle" && message.status !== "error" && <div className="notice" role="status" aria-live="polite">{message.text}</div>}
       <form className="panel formGrid" onSubmit={savePerson}>
         <PanelTitle icon={UsersRound} title="Add Person" action="Refresh" onAction={api.refresh} />
-        <label>Name<input required value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} placeholder="Mira Patel" /></label>
-        <label>Phone<input value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} placeholder="+1..." /></label>
-        <label>Email<input value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} placeholder="mira@example.com" /></label>
-        <label>Group<input value={form.groupName} onChange={(event) => setForm((current) => ({ ...current, groupName: event.target.value }))} placeholder="Ops" /></label>
-        <label>Role<input value={form.role} onChange={(event) => setForm((current) => ({ ...current, role: event.target.value }))} placeholder="Admin" /></label>
-        <button className="primary full"><UsersRound size={16} /> Save person</button>
+        <label>Name<input name="name" required value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} placeholder="Mira Patel" /></label>
+        <label>Phone<input name="phone" type="tel" autoComplete="tel" value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} placeholder="+1..." /></label>
+        <label>Email<input name="email" type="email" autoComplete="email" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} placeholder="mira@example.com" /></label>
+        <label>Group<input name="groupName" value={form.groupName} onChange={(event) => setForm((current) => ({ ...current, groupName: event.target.value }))} placeholder="Ops" /></label>
+        <label>Role<input name="role" value={form.role} onChange={(event) => setForm((current) => ({ ...current, role: event.target.value }))} placeholder="Admin" /></label>
+        <button className="primary full"><UsersRound size={16} aria-hidden="true" /> Save person</button>
       </form>
       <form className="panel formGrid" onSubmit={importPeople}>
         <PanelTitle icon={Archive} title="CSV Import" action="Export" onAction={exportPeople} />
-        <label className="spanAll">CSV<textarea value={csv} onChange={(event) => setCsv(event.target.value)} placeholder="name,email,phone,groupName,role&#10;Mira,mira@example.com,+1,Ops,Admin" /></label>
-        <button className="primary full"><Archive size={16} /> Import CSV</button>
+        <label className="spanAll">CSV<textarea name="peopleCsv" value={csv} onChange={(event) => setCsv(event.target.value)} placeholder="name,email,phone,groupName,role&#10;Mira,mira@example.com,+1,Ops,Admin" /></label>
+        <button className="primary full"><Archive size={16} aria-hidden="true" /> Import CSV</button>
       </form>
       <section className="panel">
         <PanelTitle icon={UsersRound} title="People Directory" action="Export CSV" onAction={exportPeople} />
         <div className="filters">
-          <input value={filters.search} onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))} placeholder="Search people, groups, phone or email" />
-          <select value={filters.groupName} onChange={(event) => setFilters((current) => ({ ...current, groupName: event.target.value }))}>
+          <input aria-label="People search filter" value={filters.search} onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))} placeholder="Search people, groups, phone or email" />
+          <select aria-label="People group filter" value={filters.groupName} onChange={(event) => setFilters((current) => ({ ...current, groupName: event.target.value }))}>
             <option value="">All groups</option>
             {groups.map((group) => <option key={group} value={group}>{group}</option>)}
           </select>
-          <select value={filters.active} onChange={(event) => setFilters((current) => ({ ...current, active: event.target.value }))}>
+          <select aria-label="People active status filter" value={filters.active} onChange={(event) => setFilters((current) => ({ ...current, active: event.target.value }))}>
             <option value="active">Active</option>
             <option value="inactive">Inactive</option>
             <option value="all">All</option>
           </select>
-          <button type="button" onClick={exportPeople}><Archive size={16} /> Export CSV</button>
+          <button type="button" onClick={exportPeople}><Archive size={16} aria-hidden="true" /> Export CSV</button>
         </div>
         {filteredPeople.length === 0 ? <EmptyState text="No people match the current filters." /> : (
           <div className="rows">
@@ -752,15 +756,15 @@ function People({ api }: { api: ReturnType<typeof useWardSenApi> }) {
                 <span>{person.role ?? "No role"}</span>
                 <Status value={person.active ? "Active" : "Inactive"} />
                 <div className="actions">
-                  <button title="Copy contact" onClick={() => navigator.clipboard?.writeText(person.email ?? person.phone ?? person.name)}><Copy size={15} /></button>
+                  <button type="button" aria-label={`Copy contact for ${person.name}`} title="Copy contact" onClick={() => navigator.clipboard?.writeText(person.email ?? person.phone ?? person.name)}><Copy size={15} aria-hidden="true" /></button>
                   {person.active ? (
-                    <button title="Archive" onClick={() => api.action(`/api/people/${person.id}`, { method: "DELETE" })}><Archive size={15} /></button>
+                    <button type="button" aria-label={`Archive ${person.name}`} title="Archive" onClick={() => api.action(`/api/people/${person.id}`, { method: "DELETE" })}><Archive size={15} aria-hidden="true" /></button>
                   ) : (
-                    <button title="Restore" onClick={() => api.action(`/api/people/${person.id}/restore`)}><RotateCcw size={15} /></button>
+                    <button type="button" aria-label={`Restore ${person.name}`} title="Restore" onClick={() => api.action(`/api/people/${person.id}/restore`)}><RotateCcw size={15} aria-hidden="true" /></button>
                   )}
-                  <button title="Delete permanently" onClick={() => void confirmDestructiveAction(`DELETE PERSON ${person.id}`, `Permanently delete "${person.name}"? This cannot be restored from WardSen.`).then((confirmed) => {
+                  <button type="button" aria-label={`Delete ${person.name} permanently`} title="Delete permanently" onClick={() => void confirmDestructiveAction(`DELETE PERSON ${person.id}`, `Permanently delete "${person.name}"? This cannot be restored from WardSen.`).then((confirmed) => {
                     if (confirmed) void api.action(`/api/people/${person.id}?hard=true`, { method: "DELETE", body: JSON.stringify({ confirm: `DELETE PERSON ${person.id}` }) });
-                  })}><Trash2 size={15} /></button>
+                  })}><Trash2 size={15} aria-hidden="true" /></button>
                 </div>
               </div>
             ))}
@@ -790,6 +794,10 @@ function Deliveries({ api }: { api: ReturnType<typeof useWardSenApi> }) {
   return (
     <div className="grid">
       <section className="panel">
+        <PanelTitle icon={ShieldCheck} title="Delivery Audit" action="Refresh" onAction={api.refresh} />
+        <DeliveryAuditPanel deliveries={api.deliveries} people={api.people} />
+      </section>
+      <section className="panel">
         <PanelTitle icon={Send} title="Delivery History" action="Refresh" onAction={api.refresh} />
         <DeliveryTable api={api} />
       </section>
@@ -805,6 +813,42 @@ function Deliveries({ api }: { api: ReturnType<typeof useWardSenApi> }) {
           {batchDetails.status === "ready" && <BatchDeliveryTable deliveries={batchDetails.deliveries} people={api.people} />}
         </section>
       )}
+    </div>
+  );
+}
+
+function DeliveryAuditPanel({ deliveries, people }: { deliveries: DeliveryRecord[]; people: PersonRecord[] }) {
+  const personName = (id?: string) => people.find((person) => person.id === id)?.name ?? "Shared link";
+  const watched = [...deliveries]
+    .filter((delivery) => ["active", "viewed", "limit_reached", "expired", "revoked"].includes(delivery.status))
+    .sort((a, b) => leakSignalRank(b) - leakSignalRank(a) || (b.lastCheckedAt ?? b.createdAt).localeCompare(a.lastCheckedAt ?? a.createdAt))
+    .slice(0, 6);
+
+  if (watched.length === 0) {
+    return <EmptyState text="No provider access signals yet. Refresh deliveries after creating links to check provider status." />;
+  }
+
+  return (
+    <div className="auditGrid">
+      {watched.map((delivery) => {
+        const signal = leakSignal(delivery);
+        return (
+          <article className={`auditItem ${signal.level}`} key={delivery.id}>
+            <div>
+              <strong>{attributionLabel(delivery, personName)}</strong>
+              <span>{delivery.credentialName}</span>
+            </div>
+            <Status value={signal.label} />
+            <dl>
+              <div><dt>Access</dt><dd>{accessLabel(delivery)}</dd></div>
+              <div><dt>First observed</dt><dd>{firstObservedLabel(delivery)}</dd></div>
+              <div><dt>Last checked</dt><dd>{delivery.lastCheckedAt ? formatDate(delivery.lastCheckedAt) : "Not checked"}</dd></div>
+              <div><dt>State</dt><dd>{titleStatus(delivery.status)}</dd></div>
+            </dl>
+            <p>{signal.detail}</p>
+          </article>
+        );
+      })}
     </div>
   );
 }
@@ -843,11 +887,13 @@ function DeliveryComposer({ api, selectedCredential }: { api: ReturnType<typeof 
     deliveryMethod: "copy" as "copy" | "whatsapp" | "email"
   });
   const [submit, setSubmit] = useState<{ status: "idle" | "loading" | "ready" | "error"; message?: string; url?: string }>({ status: "idle" });
+  const [bulkResults, setBulkResults] = useState<BulkDeliveryItemResult[]>([]);
   const deliveryProviderId = form.deliveryProviderId || api.deliveryProviders[0]?.id || "";
   const deliveryAccountId = form.deliveryAccountId || selectedCredential?.accountId || api.accounts[0]?.id || "";
   const capabilities = api.deliveryProviders.find((provider) => provider.id === deliveryProviderId)?.capabilities ?? {};
   const activePeople = api.people.filter((person) => person.active);
   const recipient = activePeople.find((person) => person.id === form.personId);
+  const personName = (id?: string) => api.people.find((person) => person.id === id)?.name ?? id ?? "Shared link";
   const recipientPlaceholder = form.mode === "individual" ? "Choose a person" : form.mode === "bulk" ? "All active people" : "Shared link";
   const bulkSummary = selectedCredential
     ? buildBulkRiskSummary({
@@ -873,6 +919,7 @@ function DeliveryComposer({ api, selectedCredential }: { api: ReturnType<typeof 
     }
     const expiresAt = new Date(Date.now() + Number(form.expiryHours) * 60 * 60 * 1000).toISOString();
     setSubmit({ status: "loading", message: "Creating secure delivery..." });
+    setBulkResults([]);
     try {
       const payload = {
         sourceProviderId: selectedCredential.providerId,
@@ -901,7 +948,7 @@ function DeliveryComposer({ api, selectedCredential }: { api: ReturnType<typeof 
           setSubmit({ status: "error", message: `Large batch cancelled. Confirmation phrase must be SEND ${activePeople.length}.` });
           return;
         }
-        const batch = await apiSend<BulkDeliveryResult>("/api/deliveries/bulk", {
+        const batch: BulkDeliveryResult = parseBulkDeliveryResult(await apiSend<unknown>("/api/deliveries/bulk", {
           body: JSON.stringify({
             ...payload,
             recipients: activePeople.map((person) => ({ id: person.id, name: person.name, email: person.email, phone: person.phone })),
@@ -909,19 +956,21 @@ function DeliveryComposer({ api, selectedCredential }: { api: ReturnType<typeof 
             confirmRiskSummary: true,
             largeBatchConfirmation
           })
-        });
+        }));
         setSubmit({
           status: batch.failedCount > 0 ? "error" : "ready",
           message: `Batch ${batch.batchId}: ${batch.completedCount}/${batch.requestedCount} links created, ${batch.failedCount} failed.`
         });
+        setBulkResults(batch.results);
       } else {
-        const created = await apiSend<CreatedDeliveryRecord>("/api/deliveries", {
+        const created = parseCreatedDeliveryRecord(await apiSend<unknown>("/api/deliveries", {
           body: JSON.stringify({
             ...payload,
             recipient: form.mode === "individual" && recipient ? { id: recipient.id, name: recipient.name, email: recipient.email, phone: recipient.phone } : undefined
           })
-        });
+        }));
         setSubmit({ status: "ready", message: "Delivery created.", url: created.oneTimeDeliveryUrl });
+        setBulkResults([]);
       }
       await api.refresh();
     } catch (error) {
@@ -932,37 +981,37 @@ function DeliveryComposer({ api, selectedCredential }: { api: ReturnType<typeof 
   return (
     <form className="panel composer" onSubmit={createDelivery}>
       <PanelTitle icon={Send} title="Delivery Form" action="Create" />
-      <label>Source vault<input value={selectedCredential ? accountLabel(api.accounts, selectedCredential.accountId) : "Select from credential search"} readOnly /></label>
-      <label>Selected credential<input value={selectedCredential ? `${selectedCredential.title} (${accountLabel(api.accounts, selectedCredential.accountId)})` : "Select from credential search"} readOnly /></label>
-      <label>Recipient<select value={form.personId} disabled={form.mode !== "individual"} onChange={(event) => setForm((current) => ({ ...current, personId: event.target.value }))}>
+      <label>Source vault<input name="sourceVault" value={selectedCredential ? accountLabel(api.accounts, selectedCredential.accountId) : "Select from credential search"} readOnly /></label>
+      <label>Selected credential<input name="selectedCredential" value={selectedCredential ? `${selectedCredential.title} (${accountLabel(api.accounts, selectedCredential.accountId)})` : "Select from credential search"} readOnly /></label>
+      <label>Recipient<select name="recipientId" value={form.personId} disabled={form.mode !== "individual"} onChange={(event) => setForm((current) => ({ ...current, personId: event.target.value }))}>
         <option value="">{recipientPlaceholder}</option>
         {activePeople.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
       </select></label>
-      <label>Delivery provider<select value={deliveryProviderId} onChange={(event) => setForm((current) => ({ ...current, deliveryProviderId: event.target.value }))}>
+      <label>Delivery provider<select name="deliveryProviderId" value={deliveryProviderId} onChange={(event) => setForm((current) => ({ ...current, deliveryProviderId: event.target.value }))}>
         {api.deliveryProviders.map((provider) => <option key={provider.id} value={provider.id}>{provider.displayName}</option>)}
       </select></label>
-      <label>Delivery account<select value={deliveryAccountId} onChange={(event) => setForm((current) => ({ ...current, deliveryAccountId: event.target.value }))}>
+      <label>Delivery account<select name="deliveryAccountId" value={deliveryAccountId} onChange={(event) => setForm((current) => ({ ...current, deliveryAccountId: event.target.value }))}>
         {api.accounts.map((account) => <option key={account.id} value={account.id}>{account.label}</option>)}
       </select></label>
-      <div className="segmented">
-        <button type="button" className={form.mode === "shared" ? "selected" : ""} onClick={() => setForm((current) => ({ ...current, mode: "shared", personId: "" }))}>Shared</button>
-        <button type="button" className={form.mode === "individual" ? "selected" : ""} onClick={() => setForm((current) => ({ ...current, mode: "individual", personId: current.personId || activePeople[0]?.id || "" }))}>Individual</button>
-        <button type="button" className={form.mode === "bulk" ? "selected" : ""} onClick={() => setForm((current) => ({ ...current, mode: "bulk", personId: "" }))}>All active</button>
+      <div className="segmented" role="group" aria-label="Delivery recipient mode">
+        <button type="button" aria-pressed={form.mode === "shared"} className={form.mode === "shared" ? "selected" : ""} onClick={() => setForm((current) => ({ ...current, mode: "shared", personId: "" }))}>Shared</button>
+        <button type="button" aria-pressed={form.mode === "individual"} className={form.mode === "individual" ? "selected" : ""} onClick={() => setForm((current) => ({ ...current, mode: "individual", personId: current.personId || activePeople[0]?.id || "" }))}>Individual</button>
+        <button type="button" aria-pressed={form.mode === "bulk"} className={form.mode === "bulk" ? "selected" : ""} onClick={() => setForm((current) => ({ ...current, mode: "bulk", personId: "" }))}>All active</button>
       </div>
-      <label>Expiry<select value={form.expiryHours} onChange={(event) => setForm((current) => ({ ...current, expiryHours: event.target.value }))}>
+      <label>Expiry<select name="expiryHours" value={form.expiryHours} onChange={(event) => setForm((current) => ({ ...current, expiryHours: event.target.value }))}>
         <option value="24">24 hours</option>
         <option value="72">3 days</option>
         <option value="168">7 days</option>
       </select></label>
-      <label>View limit<input value={form.viewLimit} disabled={!capabilities.arbitraryViewLimit} onChange={(event) => setForm((current) => ({ ...current, viewLimit: event.target.value }))} placeholder="Blank for unlimited" /></label>
-      <label>Method<select value={form.deliveryMethod} onChange={(event) => setForm((current) => ({ ...current, deliveryMethod: event.target.value as "copy" | "whatsapp" | "email" }))}>
+      <label>View limit<input name="viewLimit" value={form.viewLimit} disabled={!capabilities.arbitraryViewLimit} onChange={(event) => setForm((current) => ({ ...current, viewLimit: event.target.value }))} placeholder="Blank for unlimited" /></label>
+      <label>Method<select name="deliveryMethod" value={form.deliveryMethod} onChange={(event) => setForm((current) => ({ ...current, deliveryMethod: event.target.value as "copy" | "whatsapp" | "email" }))}>
         <option value="copy">Copy link</option>
         <option value="email">Email</option>
         <option value="whatsapp">WhatsApp</option>
       </select></label>
-      <label className="check"><input checked={capabilities.viewOnce ? form.viewOnce : false} disabled={!capabilities.viewOnce} type="checkbox" onChange={(event) => setForm((current) => ({ ...current, viewOnce: event.target.checked }))} /> View once</label>
-      <label className="check"><input checked={capabilities.hideText ? form.hideText : false} disabled={!capabilities.hideText} type="checkbox" onChange={(event) => setForm((current) => ({ ...current, hideText: event.target.checked }))} /> Hide text in provider link</label>
-      <label>Access password<input value={capabilities.accessPassword ? form.accessPassword : ""} disabled={!capabilities.accessPassword} onChange={(event) => setForm((current) => ({ ...current, accessPassword: event.target.value }))} placeholder="Optional provider password" type="password" /></label>
+      <label className="check"><input name="viewOnce" checked={capabilities.viewOnce ? form.viewOnce : false} disabled={!capabilities.viewOnce} type="checkbox" onChange={(event) => setForm((current) => ({ ...current, viewOnce: event.target.checked }))} /> View once</label>
+      <label className="check"><input name="hideText" checked={capabilities.hideText ? form.hideText : false} disabled={!capabilities.hideText} type="checkbox" onChange={(event) => setForm((current) => ({ ...current, hideText: event.target.checked }))} /> Hide text in provider link</label>
+      <label>Access password<input name="accessPassword" value={capabilities.accessPassword ? form.accessPassword : ""} disabled={!capabilities.accessPassword} onChange={(event) => setForm((current) => ({ ...current, accessPassword: event.target.value }))} placeholder="Optional provider password" type="password" /></label>
       {form.mode === "bulk" && selectedCredential && (
         <div className="riskSummary">
           <strong>Bulk confirmation summary</strong>
@@ -972,13 +1021,21 @@ function DeliveryComposer({ api, selectedCredential }: { api: ReturnType<typeof 
       )}
       {submit.status === "error" && <ErrorNotice message={submit.message} compact />}
       {submit.status !== "idle" && submit.status !== "error" && (
-        <div className="notice compact">
+        <div className="notice compact" role="status" aria-live="polite">
           {submit.message}
-          {submit.url && <button type="button" onClick={() => navigator.clipboard?.writeText(submit.url ?? "")}><Copy size={15} /> Copy link</button>}
+          {submit.url && <button type="button" onClick={() => copyTextToClipboard(submit.url ?? "")}><Copy size={15} aria-hidden="true" /> Copy link</button>}
         </div>
       )}
+      {bulkResults.length > 0 && (
+        <BulkHandoffResults
+          results={bulkResults}
+          personName={personName}
+          method={form.deliveryMethod}
+          onCopy={(url) => copyTextToClipboard(url)}
+        />
+      )}
       <button className="primary full" disabled={submit.status === "loading" || !selectedCredential || (form.mode === "individual" && !recipient)}>
-        <Send size={16} /> {form.mode === "bulk" ? "Create secure links" : "Create secure link"}
+        <Send size={16} aria-hidden="true" /> {form.mode === "bulk" ? "Create secure links" : "Create secure link"}
       </button>
     </form>
   );
@@ -999,7 +1056,7 @@ function DeliveryTable({ api }: { api: ReturnType<typeof useWardSenApi> }) {
         setMessage({ status: "ready", text: `${delivery.credentialName}: ${titleStatus(refreshed.status)} checked.` });
       }
       if (action === "retry") {
-        const retried = await apiSend<CreatedDeliveryRecord>(`/api/deliveries/${delivery.id}/retry`);
+        const retried = parseCreatedDeliveryRecord(await apiSend<unknown>(`/api/deliveries/${delivery.id}/retry`));
         setMessage({ status: "ready", text: `Retry created for ${delivery.credentialName}.`, url: retried.oneTimeDeliveryUrl });
       }
       if (action === "revoke") {
@@ -1035,17 +1092,17 @@ function DeliveryTable({ api }: { api: ReturnType<typeof useWardSenApi> }) {
     <div className="grid">
       {message.status === "error" && <ErrorNotice message={message.text} compact />}
       {message.status !== "idle" && message.status !== "error" && (
-        <div className="notice compact">
+        <div className="notice compact" role="status" aria-live="polite">
           {message.text}
-          {message.url && <button type="button" onClick={() => navigator.clipboard?.writeText(message.url ?? "")}><Copy size={15} /> Copy retry link</button>}
+          {message.url && <button type="button" onClick={() => navigator.clipboard?.writeText(message.url ?? "")}><Copy size={15} aria-hidden="true" /> Copy retry link</button>}
         </div>
       )}
       <div className="filters">
-        <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+        <select aria-label="Delivery status filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
           <option value="all">All statuses</option>
           {statuses.map((status) => <option key={status} value={status}>{titleStatus(status)}</option>)}
         </select>
-        <button onClick={() => void refreshAll()}><RefreshCcw size={16} /> Refresh active</button>
+        <button type="button" onClick={() => void refreshAll()}><RefreshCcw size={16} aria-hidden="true" /> Refresh active</button>
       </div>
       <div className="table">
         <div className="tableHead">
@@ -1063,17 +1120,86 @@ function DeliveryTable({ api }: { api: ReturnType<typeof useWardSenApi> }) {
             <span>{delivery.accessCount ?? 0}{delivery.viewLimit ? ` / ${delivery.viewLimit}` : ""}</span>
             <Status value={titleStatus(delivery.status)} />
             <div className="actions">
-              <button title="Copy provider ID" onClick={() => navigator.clipboard?.writeText(delivery.providerDeliveryId ?? delivery.id)}><Copy size={15} /></button>
-              <button title="Create email draft" disabled={delivery.deliveryMethod !== "email"} onClick={() => window.open(`mailto:?subject=${encodeURIComponent(`WardSen delivery: ${delivery.credentialName}`)}&body=${encodeURIComponent(`Delivery record ${delivery.providerDeliveryId ?? delivery.id}`)}`, "_blank", "noopener,noreferrer")}><Mail size={15} /></button>
-              <button title="Refresh" onClick={() => void rowAction(delivery, "refresh")}><RefreshCcw size={15} /></button>
-              <button title="Retry" onClick={() => void rowAction(delivery, "retry")}><RotateCcw size={15} /></button>
-              <button title="Revoke" disabled={delivery.status === "revoked"} onClick={() => void rowAction(delivery, "revoke")}><Trash2 size={15} /></button>
+              <button type="button" aria-label={`Copy provider ID for ${delivery.credentialName}`} title="Copy provider ID" onClick={() => navigator.clipboard?.writeText(delivery.providerDeliveryId ?? delivery.id)}><Copy size={15} aria-hidden="true" /></button>
+              <button type="button" aria-label={`Create email draft for ${delivery.credentialName}`} title="Create email draft" disabled={delivery.deliveryMethod !== "email"} onClick={() => window.open(`mailto:?subject=${encodeURIComponent(`WardSen delivery: ${delivery.credentialName}`)}&body=${encodeURIComponent(`Delivery record ${delivery.providerDeliveryId ?? delivery.id}`)}`, "_blank", "noopener,noreferrer")}><Mail size={15} aria-hidden="true" /></button>
+              <button type="button" aria-label={`Refresh ${delivery.credentialName}`} title="Refresh" onClick={() => void rowAction(delivery, "refresh")}><RefreshCcw size={15} aria-hidden="true" /></button>
+              <button type="button" aria-label={`Retry ${delivery.credentialName}`} title="Retry" onClick={() => void rowAction(delivery, "retry")}><RotateCcw size={15} aria-hidden="true" /></button>
+              <button type="button" aria-label={`Revoke ${delivery.credentialName}`} title="Revoke" disabled={delivery.status === "revoked"} onClick={() => void rowAction(delivery, "revoke")}><Trash2 size={15} aria-hidden="true" /></button>
             </div>
           </div>
         ))}
         {visibleDeliveries.length === 0 && <EmptyState text="No deliveries match this status filter." />}
       </div>
     </div>
+  );
+}
+
+function BulkHandoffResults({
+  results,
+  personName,
+  method,
+  onCopy
+}: {
+  results: BulkDeliveryItemResult[];
+  personName: (id?: string) => string;
+  method: "copy" | "whatsapp" | "email";
+  onCopy: (url: string) => Promise<void>;
+}) {
+  const [handoffStatus, setHandoffStatus] = useState<Record<string, string>>({});
+
+  async function copyLink(result: BulkDeliveryItemResult) {
+    const url = result.delivery?.oneTimeDeliveryUrl;
+    if (!url) return;
+    await onCopy(url);
+    setHandoffStatus((current) => ({ ...current, [resultKey(result)]: "Copied" }));
+  }
+
+  function openDraft(result: BulkDeliveryItemResult) {
+    const delivery = result.delivery;
+    if (!delivery?.oneTimeDeliveryUrl) return;
+    const label = personName(result.recipientId);
+    if (method === "email") {
+      window.open(
+        `mailto:?subject=${encodeURIComponent(`WardSen delivery: ${delivery.credentialName}`)}&body=${encodeURIComponent(`Secure link for ${label}: ${delivery.oneTimeDeliveryUrl}`)}`,
+        "_blank",
+        "noopener,noreferrer"
+      );
+      setHandoffStatus((current) => ({ ...current, [resultKey(result)]: "Email draft opened" }));
+      return;
+    }
+    if (method === "whatsapp") {
+      window.open(`https://wa.me/?text=${encodeURIComponent(`Secure link for ${label}: ${delivery.oneTimeDeliveryUrl}`)}`, "_blank", "noopener,noreferrer");
+      setHandoffStatus((current) => ({ ...current, [resultKey(result)]: "WhatsApp draft opened" }));
+    }
+  }
+
+  return (
+    <section className="bulkHandoff">
+      <div className="riskSummary">
+        <strong>Bulk handoff links</strong>
+        <span>These links are kept only for this WardSen session. Closing or refreshing this screen may make unhanded links unavailable.</span>
+      </div>
+      <div className="table">
+        <div className="tableHead handoff">
+          <span>Person</span><span>Creation</span><span>Handoff</span><span>Action</span>
+        </div>
+        {results.map((result) => {
+          const key = resultKey(result);
+          const url = result.delivery?.oneTimeDeliveryUrl;
+          return (
+            <div className="tableRow handoff" key={key}>
+              <strong>{personName(result.recipientId)}</strong>
+              <Status value={result.ok ? "Created" : "Failed"} />
+              <span>{handoffStatus[key] ?? (result.ok ? "Not handed off" : result.error ?? "Failed")}</span>
+              <div className="buttonRow">
+                <button type="button" disabled={!url} onClick={() => void copyLink(result)}><Copy size={15} aria-hidden="true" /> Copy link</button>
+                <button type="button" disabled={!url || method === "copy"} onClick={() => openDraft(result)}><Mail size={15} aria-hidden="true" /> Open draft</button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -1101,16 +1227,84 @@ function BatchTable({
           <Status value={batch.cancelled ? "Cancelled" : batch.completedAt ? "Complete" : "Queued"} />
           <span>{formatDate(batch.createdAt)}</span>
           <div className="actions">
-            <button title="View batch deliveries" onClick={() => void onSelectBatch(batch.id)}><Search size={15} /></button>
-            <button title="Copy batch ID" onClick={() => navigator.clipboard?.writeText(batch.id)}><Copy size={15} /></button>
-            <button title="Cancel batch" disabled={batch.cancelled || Boolean(batch.completedAt)} onClick={() => void confirmDestructiveAction(`CANCEL BATCH ${batch.id}`, `Cancel batch ${batch.id}? Any queued work for this batch will stop.`).then((confirmed) => {
+            <button type="button" aria-label={`View deliveries for batch ${batch.id}`} title="View batch deliveries" onClick={() => void onSelectBatch(batch.id)}><Search size={15} aria-hidden="true" /></button>
+            <button type="button" aria-label={`Copy batch ID ${batch.id}`} title="Copy batch ID" onClick={() => navigator.clipboard?.writeText(batch.id)}><Copy size={15} aria-hidden="true" /></button>
+            <button type="button" aria-label={`Cancel batch ${batch.id}`} title="Cancel batch" disabled={batch.cancelled || Boolean(batch.completedAt)} onClick={() => void confirmDestructiveAction(`CANCEL BATCH ${batch.id}`, `Cancel batch ${batch.id}? Any queued work for this batch will stop.`).then((confirmed) => {
               if (confirmed) void api.action(`/api/batches/${batch.id}/cancel`, { body: JSON.stringify({ confirm: `CANCEL BATCH ${batch.id}` }) });
-            })}><Trash2 size={15} /></button>
+            })}><Trash2 size={15} aria-hidden="true" /></button>
           </div>
         </div>
       ))}
     </div>
   );
+}
+
+function resultKey(result: BulkDeliveryItemResult): string {
+  return result.recipientId ?? result.delivery?.id ?? result.error ?? "bulk-result";
+}
+
+function attributionLabel(delivery: DeliveryRecord, personName: (id?: string) => string): string {
+  const label = delivery.personId ? `${personName(delivery.personId)}'s link` : "Shared link";
+  if ((delivery.accessCount ?? 0) > 0 || delivery.status === "viewed" || delivery.status === "limit_reached") {
+    return `${label} was viewed`;
+  }
+  if (delivery.status === "revoked") return `${label} was revoked`;
+  if (delivery.status === "expired") return `${label} expired`;
+  return `${label} has no observed access`;
+}
+
+function accessLabel(delivery: DeliveryRecord): string {
+  const count = delivery.accessCount ?? 0;
+  return delivery.viewLimit ? `${count} / ${delivery.viewLimit}` : String(count);
+}
+
+function firstObservedLabel(delivery: DeliveryRecord): string {
+  if ((delivery.accessCount ?? 0) <= 0 && delivery.status !== "viewed" && delivery.status !== "limit_reached") return "No access observed";
+  return delivery.lastCheckedAt ? formatDate(delivery.lastCheckedAt) : "Before last sync";
+}
+
+function leakSignal(delivery: DeliveryRecord): { label: string; detail: string; level: "low" | "watch" | "high" } {
+  const accessCount = delivery.accessCount ?? 0;
+  if (delivery.status === "limit_reached" || (delivery.viewLimit !== undefined && accessCount > delivery.viewLimit)) {
+    return {
+      label: "Unexpected access",
+      detail: "Provider access count reached or exceeded the intended limit. Revoke this link and issue a replacement if the recipient still needs access.",
+      level: "high"
+    };
+  }
+  if (accessCount > 1 && (delivery.viewLimit ?? 1) <= 1) {
+    return {
+      label: "Unexpected access",
+      detail: "This per-recipient link shows more opens than expected. Treat it as a leak signal, not proof of which person or device opened it.",
+      level: "high"
+    };
+  }
+  if (accessCount > 0 || delivery.status === "viewed") {
+    return {
+      label: "Low",
+      detail: "A provider link assigned to this recipient was accessed. WardSen does not claim the named person or a specific device opened it.",
+      level: "low"
+    };
+  }
+  if (!delivery.lastCheckedAt && delivery.status === "active") {
+    return {
+      label: "Needs check",
+      detail: "Refresh provider status to see whether this assigned link has been accessed, expired, limited or revoked.",
+      level: "watch"
+    };
+  }
+  return {
+    label: titleStatus(delivery.status),
+    detail: "No unexpected provider access signal is visible from the current status fields.",
+    level: "watch"
+  };
+}
+
+function leakSignalRank(delivery: DeliveryRecord): number {
+  const signal = leakSignal(delivery);
+  if (signal.level === "high") return 3;
+  if (signal.level === "watch") return 2;
+  return 1;
 }
 
 function BatchDeliveryTable({ deliveries, people }: { deliveries: DeliveryRecord[]; people: PersonRecord[] }) {
@@ -1148,7 +1342,7 @@ function Metric({ label, value, detail }: { label: string; value: string; detail
 function PanelTitle({ icon: Icon, title, action, onAction }: { icon: React.ElementType; title: string; action: string; onAction?: () => void }) {
   return (
     <div className="panelTitle">
-      <h2><Icon size={18} /> {title}</h2>
+      <h2><Icon size={18} aria-hidden="true" /> {title}</h2>
       <button type="button" onClick={onAction}>{action}</button>
     </div>
   );
@@ -1179,7 +1373,7 @@ function ErrorNotice({ message, compact = false, actionLabel, onAction }: { mess
         aria-label="Close error message"
         title="Close"
         onClick={() => setDismissed(true)}
-      ><X size={16} /></button>
+      ><X size={16} aria-hidden="true" /></button>
       <strong>{help.title}</strong>
       <span>{help.detail}</span>
       <small>{help.guidance}</small>
@@ -1211,7 +1405,7 @@ function ErrorNotice({ message, compact = false, actionLabel, onAction }: { mess
                 const detail = error instanceof Error ? error.message : String(error);
                 setCopyStatus(`Copy was blocked. Manually copy this link: ${externalAction.href}. Detail: ${detail}`);
               });
-          }}><Copy size={15} /> Copy install link</button>
+          }}><Copy size={15} aria-hidden="true" /> Copy install link</button>
         </div>
       ) : null}
       {terminalCommand ? (
@@ -1227,7 +1421,7 @@ function ErrorNotice({ message, compact = false, actionLabel, onAction }: { mess
                 const detail = error instanceof Error ? error.message : String(error);
                 setCopyStatus(`Copy was blocked. Manually copy this command: ${terminalCommand.command}. Detail: ${detail}`);
               });
-          }}><Copy size={15} /> Copy terminal command</button>
+          }}><Copy size={15} aria-hidden="true" /> Copy terminal command</button>
         </div>
       ) : null}
       {actionError ? <small>{actionError}</small> : null}
@@ -1275,8 +1469,22 @@ function formatLocalServiceStatus(status: LocalServiceStatus) {
   ];
   if (status.lastExit) lines.push(`Last exit: ${status.lastExit}`);
   if (status.lastError) lines.push(`Last launch error: ${status.lastError}`);
-  if (status.lastOutput) lines.push(`Service output: ${status.lastOutput}`);
+  if (status.lastOutput) lines.push(`Recent service output: ${summarizeLocalServiceOutput(status.lastOutput)}`);
   return lines.join("\n");
+}
+
+function summarizeLocalServiceOutput(output: string) {
+  const compact = output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(-6)
+    .join(" ");
+  if (!compact) return "none";
+  if (compact.includes('"statusCode":401') || compact.includes("desktop API token")) {
+    return "request log shows rejected desktop-session API calls; close all WardSen windows and reopen the app.";
+  }
+  return compact.length > 220 ? `${compact.slice(0, 217)}...` : compact;
 }
 
 function accountLabel(accounts: AccountRecord[], accountId: string) {

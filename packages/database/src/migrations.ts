@@ -76,5 +76,48 @@ CREATE TABLE IF NOT EXISTS audit_log (
   created_at TEXT NOT NULL
 );
 `
+  },
+  {
+    id: "002_constraints_indexes_retention",
+    sql: `
+CREATE INDEX IF NOT EXISTS idx_people_active_name ON people(active, name);
+CREATE INDEX IF NOT EXISTS idx_people_email ON people(email);
+CREATE INDEX IF NOT EXISTS idx_people_phone ON people(phone);
+CREATE INDEX IF NOT EXISTS idx_deliveries_batch_created ON deliveries(batch_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_deliveries_status_checked ON deliveries(status, last_checked_at);
+CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at);
+
+CREATE TRIGGER IF NOT EXISTS deliveries_validate_insert
+BEFORE INSERT ON deliveries
+WHEN NEW.status NOT IN ('queued', 'creating', 'active', 'viewed', 'limit_reached', 'expired', 'revoked', 'failed', 'cancelled')
+  OR (NEW.view_limit IS NOT NULL AND NEW.view_limit <= 0)
+  OR (NEW.access_count IS NOT NULL AND NEW.access_count < 0)
+BEGIN
+  SELECT RAISE(ABORT, 'invalid delivery metadata');
+END;
+
+CREATE TRIGGER IF NOT EXISTS deliveries_validate_update
+BEFORE UPDATE ON deliveries
+WHEN NEW.status NOT IN ('queued', 'creating', 'active', 'viewed', 'limit_reached', 'expired', 'revoked', 'failed', 'cancelled')
+  OR (NEW.view_limit IS NOT NULL AND NEW.view_limit <= 0)
+  OR (NEW.access_count IS NOT NULL AND NEW.access_count < 0)
+BEGIN
+  SELECT RAISE(ABORT, 'invalid delivery metadata');
+END;
+
+CREATE TRIGGER IF NOT EXISTS audit_log_validate_insert
+BEFORE INSERT ON audit_log
+WHEN NEW.outcome NOT IN ('success', 'failure', 'cancelled')
+BEGIN
+  SELECT RAISE(ABORT, 'invalid audit outcome');
+END;
+
+CREATE TRIGGER IF NOT EXISTS audit_log_validate_update
+BEFORE UPDATE ON audit_log
+WHEN NEW.outcome NOT IN ('success', 'failure', 'cancelled')
+BEGIN
+  SELECT RAISE(ABORT, 'invalid audit outcome');
+END;
+`
   }
 ];

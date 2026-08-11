@@ -64,9 +64,12 @@ WardSen_0.1.0_windows_x64.msi
 WardSen_0.1.0_macos_aarch64.dmg
 WardSen_0.1.0_macos_x64.dmg
 SHA256SUMS.txt
+RELEASE-MANIFEST.json
 ```
 
 Users download one installer for their platform. They should not need to clone the repository, open a terminal or run npm commands when installing from a release.
+
+Each platform build also produces `SHA256SUMS-<platform>.txt` and `RELEASE-MANIFEST-<platform>.json`. The manifest records schema version, package version, release tag, verified git SHA, UTC build timestamp, bundle root and artifact hashes. Treat the manifest as release evidence, not as a substitute for installer signing or notarization.
 
 ## Windows Release Check
 

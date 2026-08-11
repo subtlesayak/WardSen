@@ -11,7 +11,7 @@ import type {
   SensitiveCredential
 } from "@wardsen/core";
 import { AccountSessionManager } from "@wardsen/core";
-import { runCliCommand, type CliCommandInput, type CliCommandResult } from "@wardsen/security";
+import { resolveProviderExecutable, runCliCommand, type CliCommandInput, type CliCommandResult } from "@wardsen/security";
 
 export type BitwardenCommandRunner = (input: CliCommandInput) => Promise<CliCommandResult>;
 
@@ -224,14 +224,15 @@ function bitwardenSessionHandoffPath(profilePath: string): string {
 }
 
 function resolveBitwardenExecutable(): string {
-  const candidates = bitwardenExecutableCandidates();
-  return candidates.find((candidate) => fs.existsSync(candidate)) ?? "bw";
+  return resolveProviderExecutable({
+    toolName: "bw",
+    envPathKey: "WARDSEN_BITWARDEN_CLI_PATH",
+    trustedCandidates: bitwardenExecutableCandidates()
+  });
 }
 
 function bitwardenExecutableCandidates(): string[] {
-  const explicit = process.env.WARDSEN_BITWARDEN_CLI_PATH;
   const candidates: string[] = [];
-  if (explicit && path.isAbsolute(explicit)) candidates.push(explicit);
 
   if (process.env.LOCALAPPDATA) {
     candidates.push(path.join(process.env.LOCALAPPDATA, "WardSen", "tools", "bw.exe"));

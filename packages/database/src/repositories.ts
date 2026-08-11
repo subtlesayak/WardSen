@@ -39,6 +39,7 @@ export interface WardSenRepository {
   updateBatch(id: string, patch: Partial<DeliveryBatchRecord>): Promise<DeliveryBatchRecord>;
   appendAuditLog(record: Omit<AuditLogRecord, "id" | "createdAt"> & { id?: string }): Promise<AuditLogRecord>;
   listAuditLog(query: PaginationInput): Promise<PaginatedResult<AuditLogRecord>>;
+  pruneAuditLogBefore(cutoffIso: string): Promise<number>;
 }
 
 export class InMemoryWardSenRepository implements WardSenRepository {
@@ -199,5 +200,13 @@ export class InMemoryWardSenRepository implements WardSenRepository {
     const pageSize = Math.min(Math.max(1, query.pageSize), 100);
     const start = (page - 1) * pageSize;
     return { items: rows.slice(start, start + pageSize), page, pageSize, total: rows.length };
+  }
+
+  async pruneAuditLogBefore(cutoffIso: string): Promise<number> {
+    const before = this.auditLog.size;
+    for (const [id, item] of this.auditLog) {
+      if (item.createdAt < cutoffIso) this.auditLog.delete(id);
+    }
+    return before - this.auditLog.size;
   }
 }

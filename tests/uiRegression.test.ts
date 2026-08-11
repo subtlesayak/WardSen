@@ -27,8 +27,31 @@ describe("web UI regression guards", () => {
     expect(styles).toMatch(/@media \(max-width:\s*640px\)[\s\S]*\.workspace\s*{[\s\S]*height:\s*auto;[\s\S]*overflow:\s*visible;/);
   });
 
+  it("keeps keyboard navigation, control names, and live announcements accessible", () => {
+    expect(webSource).toContain("Skip to content");
+    expect(webSource).toContain("id=\"main-content\"");
+    expect(webSource).toContain("nav aria-label=\"Primary\"");
+    expect(webSource).toContain("aria-current={active === id ? \"page\" : undefined}");
+    expect(webSource).toContain("role=\"status\" aria-live=\"polite\"");
+    expect(webSource).toContain("aria-label=\"Credential search query\"");
+    expect(webSource).toContain("aria-label={`Copy provider ID for ${delivery.credentialName}`}");
+    expect(webSource).toContain("aria-label={`Cancel batch ${batch.id}`}");
+    expect(webSource).toContain("aria-pressed={form.mode === \"shared\"}");
+    expect(styles).toMatch(/:focus-visible[\s\S]*outline:\s*3px solid #0f6bff;/);
+    expect(styles).toMatch(/\.skipLink\s*{/);
+    expect(styles).toContain("@media (prefers-reduced-motion: reduce)");
+    expect(styles).toContain("@media (forced-colors: active)");
+  });
+
   it("keeps error help visible as a floating toast while workspace content scrolls", () => {
     expect(styles).toMatch(/\.notice\.error\s*{[\s\S]*position:\s*sticky;[\s\S]*top:\s*12px;[\s\S]*z-index:\s*3;/);
+  });
+
+  it("summarizes noisy local-service request logs in desktop recovery diagnostics", () => {
+    expect(webSource).toContain("summarizeLocalServiceOutput");
+    expect(webSource).toContain("Recent service output:");
+    expect(webSource).toContain("request log shows rejected desktop-session API calls");
+    expect(webSource).not.toContain("Service output: ${status.lastOutput}");
   });
 
   it("renders provider help actions as opener-backed controls inside error toasts", () => {

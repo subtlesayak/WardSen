@@ -94,4 +94,18 @@ describe("AccountSessionManager", () => {
     expect(() => sessions.getSessionToken("short", "bitwarden")).toThrow();
     expect(sessions.getSessionToken("long", "bitwarden")).toBe("token-long");
   });
+
+  it("can report inactive sessions without locking them", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+    const sessions = new AccountSessionManager();
+    sessions.markUnlocked("short", "bitwarden", "token-short");
+    sessions.markUnlocked("long", "bitwarden", "token-long");
+
+    const inactive = sessions.inactiveAccountIds(new Date("2026-01-01T00:02:00.000Z"), (accountId) => (accountId === "short" ? 1 : 15));
+
+    expect(inactive).toEqual(["short"]);
+    expect(sessions.getSessionToken("short", "bitwarden")).toBe("token-short");
+    expect(sessions.getSessionToken("long", "bitwarden")).toBe("token-long");
+  });
 });

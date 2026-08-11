@@ -1,4 +1,3 @@
-import fs from "node:fs";
 import path from "node:path";
 import type {
   ConnectionResult,
@@ -8,7 +7,7 @@ import type {
   DeliveryResult,
   DeliveryStatus
 } from "@wardsen/core";
-import { runCliCommand, type CliCommandInput, type CliCommandResult } from "@wardsen/security";
+import { resolveProviderExecutable, runCliCommand, type CliCommandInput, type CliCommandResult } from "@wardsen/security";
 
 export type BitwardenSendCommandRunner = (input: CliCommandInput) => Promise<CliCommandResult>;
 
@@ -37,7 +36,7 @@ export class BitwardenSendDeliveryProvider implements DeliveryProvider {
       arbitraryViewLimit: true,
       viewOnce: false,
       customExpiry: true,
-      accessPassword: false,
+      accessPassword: true,
       hideText: true,
       revokeLink: true,
       accessCount: true
@@ -52,14 +51,11 @@ export class BitwardenSendDeliveryProvider implements DeliveryProvider {
   async createDelivery(input: CreateDeliveryInput): Promise<DeliveryResult> {
     const accountId = input.deliveryAccountId;
     if (!accountId) throw new Error("Bitwarden Send delivery account is required");
-    if (input.accessPassword) {
-      throw new Error("Bitwarden Send access passwords are disabled because the Bitwarden CLI requires this secret as a process argument.");
-    }
     const text = formatCredentialText(input.sourceCredential);
     const sendJson = JSON.stringify(buildTextSendObject(input, text));
-    const encoded = (await this.run(accountId, ["encode"], sendJson, [sendJson, text])).stdout.trim();
+    const encoded = (await this.run(accountId, ["encode"], sendJson, sensitiveValues(input, sendJson, text))).stdout.trim();
     if (!encoded) throw new Error("Bitwarden CLI did not encode the Send payload");
-    const result = await this.run(accountId, ["send", "--fullObject", "create"], encoded, [sendJson, text, encoded]);
+    const result = await this.run(accountId, ["send", "--fullObject", "create"], encoded, sensitiveValues(input, sendJson, text, encoded));
     const parsed = safeJsonObject(result.stdout, "Bitwarden Send create response");
     const id = optionalString(parsed.id);
     const url = optionalString(parsed.accessUrl) ?? optionalString(parsed.url);
@@ -69,7 +65,7 @@ export class BitwardenSendDeliveryProvider implements DeliveryProvider {
   }
 
   async revoke(accountId: string, deliveryId: string): Promise<void> {
-    await this.run(accountId, ["send", "remove", deliveryId]);
+    await this.run(accountId, ["send", "delete", deliveryId]);
   }
 
   async getStatus(accountId: string, deliveryId: string): Promise<DeliveryStatus> {
@@ -77,12 +73,15 @@ export class BitwardenSendDeliveryProvider implements DeliveryProvider {
     const parsed = safeJsonObject(result.stdout, "Bitwarden Send status response");
     const id = optionalString(parsed.id);
     if (!id) throw new Error("Bitwarden Send status response is missing a delivery id");
-    const expiresAt = optionalDate(parsed.expirationDate);
+    const expirationDate = optionalDate(parsed.expirationDate);
+    const deletionDate = optionalDate(parsed.deletionDate);
+    const accessCount = optionalNumber(parsed.accessCount);
+    const maxAccessCount = optionalNumber(parsed.maxAccessCount);
     return {
       deliveryId: id,
-      status: parsed.disabled === true ? "revoked" : expiresAt && expiresAt.getTime() <= Date.now() ? "expired" : "active",
-      accessCount: optionalNumber(parsed.accessCount),
-      expiresAt
+      status: deliveryStatus(parsed.disabled === true, deletionDate, expirationDate, accessCount, maxAccessCount),
+      accessCount,
+      expiresAt: expirationDate ?? deletionDate
     };
   }
 
@@ -109,14 +108,15 @@ export class BitwardenSendDeliveryProvider implements DeliveryProvider {
 }
 
 function resolveBitwardenExecutable(): string {
-  const candidates = bitwardenExecutableCandidates();
-  return candidates.find((candidate) => fs.existsSync(candidate)) ?? "bw";
+  return resolveProviderExecutable({
+    toolName: "bw",
+    envPathKey: "WARDSEN_BITWARDEN_CLI_PATH",
+    trustedCandidates: bitwardenExecutableCandidates()
+  });
 }
 
 function bitwardenExecutableCandidates(): string[] {
-  const explicit = process.env.WARDSEN_BITWARDEN_CLI_PATH;
   const candidates: string[] = [];
-  if (explicit && path.isAbsolute(explicit)) candidates.push(explicit);
 
   if (process.env.LOCALAPPDATA) {
     candidates.push(path.join(process.env.LOCALAPPDATA, "WardSen", "tools", "bw.exe"));
@@ -136,9 +136,6 @@ function formatCredentialText(credential: CreateDeliveryInput["sourceCredential"
   const lines = [`Title: ${credential.title}`];
   if (credential.username) lines.push(`Username: ${credential.username}`);
   if (credential.password) lines.push(`Password: ${credential.password}`);
-  if (credential.urls.length) lines.push(`URLs: ${credential.urls.join(", ")}`);
-  if (credential.notes) lines.push(`Notes: ${credential.notes}`);
-  if (credential.totp) lines.push(`TOTP: ${credential.totp}`);
   return lines.join("\n");
 }
 
@@ -156,11 +153,34 @@ function buildTextSendObject(input: CreateDeliveryInput, text: string): Record<s
     maxAccessCount: input.viewLimit ?? null,
     deletionDate: input.expiresAt.toISOString(),
     expirationDate: null,
-    password: null,
+    password: input.accessPassword ?? null,
     emails: null,
     disabled: false,
     hideEmail: false
   };
+}
+
+function sensitiveValues(input: CreateDeliveryInput, ...values: Array<string | undefined>): string[] {
+  return [
+    ...values.filter((value): value is string => Boolean(value)),
+    input.sourceCredential.password,
+    input.accessPassword
+  ].filter((value): value is string => Boolean(value));
+}
+
+function deliveryStatus(
+  disabled: boolean,
+  deletionDate?: Date,
+  expirationDate?: Date,
+  accessCount?: number,
+  maxAccessCount?: number
+): DeliveryStatus["status"] {
+  const now = Date.now();
+  if (disabled) return "revoked";
+  if ((deletionDate && deletionDate.getTime() <= now) || (expirationDate && expirationDate.getTime() <= now)) return "expired";
+  if (maxAccessCount !== undefined && accessCount !== undefined && accessCount >= maxAccessCount) return "limit_reached";
+  if ((accessCount ?? 0) > 0) return "viewed";
+  return "active";
 }
 
 function safeJson(value: string, label: string): unknown {

@@ -95,17 +95,25 @@ export class AccountSessionManager {
 
   lockInactive(now = new Date(), autoLockMinutesFor: (accountId: string) => number = () => 15): string[] {
     const locked: string[] = [];
+    for (const accountId of this.inactiveAccountIds(now, autoLockMinutesFor)) {
+      this.markLocked(accountId);
+      locked.push(accountId);
+    }
+    return locked;
+  }
+
+  inactiveAccountIds(now = new Date(), autoLockMinutesFor: (accountId: string) => number = () => 15): string[] {
+    const inactive: string[] = [];
     for (const session of this.sessions.values()) {
       if (session.status !== "unlocked" || !session.lastActivityAt) continue;
       if (session.activeOperations > 0) continue;
       const inactiveMs = now.getTime() - session.lastActivityAt.getTime();
       const autoLockMinutes = Math.max(1, autoLockMinutesFor(session.accountId));
       if (inactiveMs >= autoLockMinutes * 60 * 1000) {
-        this.markLocked(session.accountId);
-        locked.push(session.accountId);
+        inactive.push(session.accountId);
       }
     }
-    return locked;
+    return inactive;
   }
 
   lockAll(): void {
