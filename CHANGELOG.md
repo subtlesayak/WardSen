@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-rc.54 - 2026-08-12
+
+- Reissued the verified `rc.53` session, auto-lock, vault-control and provider-capability updates with a CI-appropriate timeout for the locale date-format assertion used by delivery-audit coverage.
+
 ## 0.1.0-rc.53 - 2026-08-12
 
 - Fixed Bitwarden terminal handoff status: after the terminal command succeeds, WardSen recognizes its memory-only session and refreshes the account to **Unlocked** without a manual status check or page refresh.

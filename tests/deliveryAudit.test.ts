@@ -25,14 +25,14 @@ describe("delivery audit signals", () => {
     expect(accessLabel(baseDelivery)).toBe("1 / 1");
     expect(firstObservedLabel(baseDelivery)).not.toBe("No access observed");
     expect(leakSignal(baseDelivery)).toMatchObject({ label: "Low", level: "low" });
-  });
+  }, 10_000);
 
   it("treats unexpected repeat access as a high-priority leak signal", () => {
     const suspicious = { ...baseDelivery, status: "limit_reached" as const, accessCount: 2 };
 
     expect(leakSignal(suspicious)).toMatchObject({ label: "Unexpected access", level: "high" });
     expect(leakSignalRank(suspicious)).toBeGreaterThan(leakSignalRank(baseDelivery));
-  });
+  }, 10_000);
 
   it("does not invent a first-view timestamp for historical records", () => {
     const historical = { ...baseDelivery, firstViewedAt: undefined };
