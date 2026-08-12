@@ -30,7 +30,7 @@ writeFileSync(outputPath, sbomJson.endsWith("\n") ? sbomJson : `${sbomJson}\n`, 
 console.log(`Wrote ${outputPath}`);
 
 function npmInvocation() {
-  const args = ["sbom", "--sbom-format", "cyclonedx", "--sbom-type", "application", "--json"];
+  const args = ["sbom", "--sbom-format", "cyclonedx", "--sbom-type", "application", "--json", "--package-lock-only"];
   if (process.env.npm_execpath) {
     return { command: process.execPath, args: [process.env.npm_execpath, ...args] };
   }

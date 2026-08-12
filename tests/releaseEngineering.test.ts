@@ -188,7 +188,9 @@ describe("release engineering guardrails", () => {
     expect(sbomScript).toContain("npm.cmd");
     expect(sbomScript).toContain("--sbom-format");
     expect(sbomScript).toContain("cyclonedx");
+    expect(sbomScript).toContain("--package-lock-only");
     expect(packageJson.scripts.sbom).toContain("--sbom-format cyclonedx");
+    expect(packageJson.scripts.sbom).toContain("--package-lock-only");
   });
 
   it("keeps web smoke testing as a repeatable desktop and mobile release check", () => {

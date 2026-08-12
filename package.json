@@ -23,7 +23,7 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:bitwarden-send:live": "vitest run tests/bitwardenSend.live.test.ts",
-    "sbom": "npm sbom --sbom-format cyclonedx --sbom-type application --json",
+    "sbom": "npm sbom --sbom-format cyclonedx --sbom-type application --json --package-lock-only",
     "start": "node apps/server/dist/index.cjs",
     "desktop:dev": "tauri dev",
     "desktop:info": "tauri info",
