@@ -92,6 +92,14 @@ export function describeError(message?: string): ErrorHelp {
     };
   }
 
+  if (lower.includes("env: node: no such file or directory")) {
+    return {
+      title: "Bitwarden CLI could not find Node.js",
+      detail,
+      guidance: "WardSen found the Bitwarden CLI but macOS could not reach its Node.js runtime. Fully quit WardSen, install the latest WardSen update, then reopen it and check terminal status again. Do not enter your Bitwarden password in WardSen."
+    };
+  }
+
   if (lower.includes("bitwarden send account") && (lower.includes("not ready") || lower.includes("not logged in") || lower.includes("unlock"))) {
     return {
       title: "Bitwarden Send account needs unlock",

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-rc.51 - 2026-08-12
+
+- Fixed macOS Bitwarden CLI status checks after terminal login. Finder-launched WardSen now passes its already-running trusted Node.js runtime to npm-installed `bw` wrappers, preventing `env: node: No such file or directory` for vault search and Bitwarden Send.
+
 ## 0.1.0-rc.50 - 2026-08-12
 
 - Fixed desktop recovery after a Force Quit: each packaged launch now selects a fresh loopback port and the UI obtains that exact trusted address from the desktop shell, so an orphaned prior service on port 4777 cannot receive the new desktop session's requests.

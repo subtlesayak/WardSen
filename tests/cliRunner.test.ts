@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { runCliCommand, safeErrorMessage } from "@wardsen/security";
@@ -69,6 +69,38 @@ describe("CLI runner", () => {
       expect(result.stdout.trim()).toBe("allowed:not-inherited");
     } finally {
       delete process.env.WARDSEN_SECRET_PROBE;
+    }
+  });
+
+  it("adds the local service Node runtime to provider PATH", async () => {
+    const previousPath = process.env.PATH;
+    process.env.PATH = "";
+    try {
+      const result = await runCliCommand({
+        executable: process.execPath,
+        args: ["-e", "process.stdout.write(process.env.PATH ?? '')"]
+      });
+
+      expect(result.stdout.split(path.delimiter)).toContain(path.dirname(process.execPath));
+    } finally {
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+    }
+  });
+
+  it.runIf(process.platform !== "win32")("runs Node-based provider wrappers when the inherited PATH is empty", async () => {
+    const tempDir = mkdtempSync(path.join(os.tmpdir(), "wardsen-node-wrapper-"));
+    const launcher = path.join(tempDir, "bw");
+    const previousPath = process.env.PATH;
+    writeFileSync(launcher, "#!/usr/bin/env node\nprocess.stdout.write('wrapper-ready')\n");
+    chmodSync(launcher, 0o700);
+    process.env.PATH = "";
+    try {
+      await expect(runCliCommand({ executable: launcher, args: [] })).resolves.toMatchObject({ stdout: "wrapper-ready" });
+    } finally {
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+      rmSync(tempDir, { recursive: true, force: true });
     }
   });
 

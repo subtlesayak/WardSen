@@ -1,4 +1,5 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import path from "node:path";
 import { redactSecrets } from "./redaction";
 
 const DEFAULT_MAX_OUTPUT_BYTES = 1_048_576;
@@ -241,7 +242,17 @@ function buildChildEnvironment(explicit: Record<string, string> = {}): NodeJS.Pr
     const inherited = getEnvValue(key);
     if (inherited !== undefined) env[key] = inherited;
   }
+  env.PATH = withServerNodeOnPath(env.PATH);
   return { ...env, ...explicit };
+}
+
+function withServerNodeOnPath(inheritedPath: string | undefined): string {
+  // npm-installed CLIs commonly start with `#!/usr/bin/env node`. Finder does not
+  // provide the same PATH as Terminal, but the local service's Node runtime is known.
+  const nodeDirectory = path.dirname(process.execPath);
+  const entries = [nodeDirectory, ...(inheritedPath?.split(path.delimiter) ?? [])]
+    .filter(Boolean);
+  return [...new Set(entries)].join(path.delimiter);
 }
 
 function getEnvValue(key: string): string | undefined {

@@ -79,6 +79,13 @@ describe("web error help", () => {
     expect(help.guidance).toContain("Login first");
   });
 
+  it("explains macOS npm Bitwarden wrappers that cannot find Node.js", () => {
+    const help = describeError('Provider command "bw status" failed. Detail: env: node: No such file or directory');
+
+    expect(help.title).toBe("Bitwarden CLI could not find Node.js");
+    expect(help.guidance).toContain("latest WardSen update");
+  });
+
   it("explains stale Bitwarden Send sessions as an unlock task", () => {
     const help = describeError('Bitwarden Send account "red" is not ready. Go to Vaults > Account Access, select "red", use Terminal login / unlock if Bitwarden asks for first login or verification, then wait for WardSen to show the account as unlocked. Detail: Provider command "bw send" failed. Detail: You are not logged in.');
 

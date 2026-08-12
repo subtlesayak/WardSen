@@ -23,7 +23,7 @@ WardSen is an independent open-source project and is not affiliated with, endors
 
 ## Status
 
-`v0.1.0-rc.50` is the latest published security-review prerelease. It remains unsigned; a trusted public installer release is still pending code signing and macOS notarization.
+`v0.1.0-rc.51` is the current security-review release candidate. It remains unsigned; a trusted public installer release is still pending code signing and macOS notarization.
 
 - **Scope:** Local-first credential dispatch, short-lived provider links, delivery audit signals, and employee request access.
 - **Security:** Destructive actions require exact server-enforced confirmation; credential plaintext remains on the localhost backend.
