@@ -191,6 +191,10 @@ describe("release engineering guardrails", () => {
     expect(sbomScript).toContain("--package-lock-only");
     expect(packageJson.scripts.sbom).toContain("--sbom-format cyclonedx");
     expect(packageJson.scripts.sbom).toContain("--package-lock-only");
+    expect(packageJson.overrides["fast-uri"]).toBe("3.1.5");
+    expect(Object.keys(packageJson.overrides["fast-json-stringify"]).sort()).toEqual(["ajv", "fast-uri"]);
+    expect(packageJson.overrides["fast-json-stringify"]["fast-uri"]).toBe("4.1.2");
+    expect(packageJson.overrides["fast-json-stringify"].ajv["fast-uri"]).toBe("3.1.5");
   });
 
   it("keeps web smoke testing as a repeatable desktop and mobile release check", () => {

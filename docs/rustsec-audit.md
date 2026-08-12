@@ -17,7 +17,7 @@ The 2026-08-11 local rerun could not refresh RustSec's advisory database because
 
 Dependabot follow-up:
 
-- The high-severity `fast-uri` alerts are addressed in `package.json` and `package-lock.json`: the direct `3.x` path is pinned to `3.1.5` and the nested `fast-json-stringify` path is pinned to `4.1.2`. `npm audit --audit-level=high` reports zero vulnerabilities.
+- The high-severity `fast-uri` alerts are addressed in `package.json` and `package-lock.json`: the direct `3.x` path is pinned to `3.1.5`, Fast JSON Stringify uses its required `4.1.2` path, and its nested AJV dependency remains on the compatible `3.1.5` path. `npm audit --audit-level=high` reports zero vulnerabilities.
 - Dependabot alert #1 (`GHSA-wrw7-89jp-8q8g`) remains open for transitive `glib` in `apps/desktop/src-tauri/Cargo.lock`. The patched release is `glib 0.20.0`, but the current published Tauri `2.11.5` graph requires `gtk 0.18.2`, which requires `glib ^0.18`. `cargo update -p glib --precise 0.20.0` therefore fails dependency resolution; forcing the version would produce an invalid graph.
 - `cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml` passes with the refreshed compatible lockfile. Keep the `glib` alert visible and re-evaluate it when Tauri/Wry publishes a GTK/glib-compatible upgrade; do not dismiss it as fixed or silently suppress it.
 

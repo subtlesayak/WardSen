@@ -49,24 +49,31 @@ describe("Bitwarden credential provider", () => {
 
   it("builds a PowerShell terminal command that streams the raw session to the one-time local receiver", () => {
     const expectedProfile = path.join("profiles", "acct-1");
+    const previous = process.env.LOCALAPPDATA;
+    process.env.LOCALAPPDATA = path.resolve("unrelated-local-app-data");
     const provider = new BitwardenCredentialProvider({
       platform: "win32",
       profileRoot: "profiles",
       runCommand: async () => ok()
     });
 
-    const command = provider.createTerminalSessionHandoffCommand("acct-1", { username: "user@example.com" }, {
-      claimUrl: "http://127.0.0.1:4777/api/accounts/acct-1/terminal-handoff/claim",
-      token: "one-time-token"
-    });
+    try {
+      const command = provider.createTerminalSessionHandoffCommand("acct-1", { username: "user@example.com" }, {
+        claimUrl: "http://127.0.0.1:4777/api/accounts/acct-1/terminal-handoff/claim",
+        token: "one-time-token"
+      });
 
-    expect(command).toContain(`$env:BITWARDENCLI_APPDATA_DIR='${expectedProfile}'`);
-    expect(command).toContain("& $bwCommand login 'user@example.com'");
-    expect(command).toContain("& $bwCommand unlock --raw");
-    expect(command).toContain("Invoke-WebRequest");
-    expect(command).toContain("X-WardSen-Terminal-Handoff");
-    expect(command).not.toContain("Set-Content");
-    expect(command).not.toContain(".wardsen-session");
+      expect(command).toContain(`$env:BITWARDENCLI_APPDATA_DIR='${expectedProfile}'`);
+      expect(command).toContain("& $bwCommand login 'user@example.com'");
+      expect(command).toContain("& $bwCommand unlock --raw");
+      expect(command).toContain("Invoke-WebRequest");
+      expect(command).toContain("X-WardSen-Terminal-Handoff");
+      expect(command).not.toContain("Set-Content");
+      expect(command).not.toContain(".wardsen-session");
+    } finally {
+      if (previous === undefined) delete process.env.LOCALAPPDATA;
+      else process.env.LOCALAPPDATA = previous;
+    }
   });
 
   it("uses PowerShell environment expansion for local app data profiles", async () => {

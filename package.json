@@ -72,7 +72,10 @@
   "overrides": {
     "fast-uri": "3.1.5",
     "fast-json-stringify": {
-      "fast-uri": "4.1.2"
+      "fast-uri": "4.1.2",
+      "ajv": {
+        "fast-uri": "3.1.5"
+      }
     }
   }
 }
