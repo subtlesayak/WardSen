@@ -4,7 +4,7 @@ WardSen release installers should be signed before a public release is published
 
 ## Current Release State
 
-`v0.1.0-rc.29` is published as an unsigned prerelease with Windows x64 and macOS Apple Silicon installer artifacts attached. Treat it as a validation build, not a fully trusted end-user release.
+`v0.1.0-rc.49` is the latest published unsigned prerelease with Windows x64 and macOS Apple Silicon installer artifacts attached. `v0.1.0-rc.50` is prepared but intentionally held until signing and notarization are configured. Treat unsigned artifacts as validation builds, not fully trusted end-user releases.
 
 Do not promote a final `v0.1.0` or "latest" release until Windows Authenticode signing and macOS Developer ID notarization are configured and verified, or until the release clearly states that the installers are unsigned.
 
@@ -12,7 +12,7 @@ Unsigned macOS DMGs can show `"WardSen" is damaged and can't be opened` after Sa
 
 ## Maintainer Signing Quick Start
 
-Use this path when preparing a signed update after the unsigned `v0.1.0-rc.29` validation release.
+Use this path when preparing the signed `v0.1.0-rc.50` update after the unsigned `v0.1.0-rc.49` validation release.
 
 ### 1. Get signing identities
 

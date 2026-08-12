@@ -2,6 +2,12 @@
 
 Run this checklist before publishing a public WardSen build.
 
+## v0.1.0-rc.50 Preparation
+
+- Release candidate commit: `a61b6ea` (`Fix macOS desktop recovery and npm CLI discovery`).
+- 2026-08-12 validation passed: `npm run check`, `npm test` (239 passed, 2 skipped), `npm run build`, `npm run smoke:packaged`, `npm run security:scan-secrets`, and `cargo check --offline` in `apps/desktop/src-tauri`.
+- Publication is blocked until Apple Developer ID signing, notarization, and target-machine lifecycle evidence are available. The GitHub repository has no configured Apple signing secrets or `MACOS_SIGNING_ENABLED=true` variable.
+
 ## Latest Local Packaging Evidence
 
 - 2026-08-10: `cmd /c npm run tauri:build -- --bundles nsis` passed on Windows and produced `apps/desktop/src-tauri/target/release/bundle/nsis/WardSen_0.1.0_x64-setup.exe`.

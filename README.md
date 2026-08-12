@@ -23,7 +23,7 @@ WardSen is an independent open-source project and is not affiliated with, endors
 
 ## Status
 
-`v0.1.0-rc.49` is the latest security-review prerelease.
+`v0.1.0-rc.50` is prepared on `main`; `v0.1.0-rc.49` remains the latest published security-review prerelease.
 
 - **Scope:** Local-first credential dispatch, short-lived provider links, delivery audit signals, and employee request access.
 - **Security:** Destructive actions require exact server-enforced confirmation; credential plaintext remains on the localhost backend.
