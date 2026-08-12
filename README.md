@@ -30,6 +30,7 @@ WardSen is an independent open-source project and is not affiliated with, endors
 ## Quick Links
 
 - [Install from release](#install-from-release)
+- [New-user requirements](#new-user-requirements)
 - [Install from source](#install-from-source)
 - [Release artifact structure](#release-artifact-structure)
 - [Signing a trusted release](#signing-a-trusted-release)
@@ -45,9 +46,9 @@ WardSen is an independent open-source project and is not affiliated with, endors
 
 ## Status
 
-`v0.1.0-rc.45` is the latest installer prerelease. It is suitable for developer review, security review and platform packaging validation.
+`v0.1.0-rc.49` is the latest installer prerelease. It is suitable for developer review, security review and platform packaging validation.
 
-Unsigned Windows MSI and macOS Apple Silicon installers are attached to the GitHub prerelease. The previous unsigned Windows setup EXE was pulled after Microsoft Defender flagged it as `Trojan:Win32/Wacatac.B!ml`; `v0.1.0-rc.45` does not publish that NSIS setup EXE. Windows SmartScreen, Microsoft Defender and macOS Gatekeeper may warn until signing certificates and notarization are configured. See [installer signing](docs/installer-signing.md) before publishing a fully trusted end-user release.
+The Windows MSI and macOS Apple Silicon DMG are unsigned security-review artifacts. The previous unsigned Windows setup EXE was pulled after Microsoft Defender flagged it as `Trojan:Win32/Wacatac.B!ml`; rc.49 does not publish that NSIS setup EXE. A signed and notarized macOS release is required for normal end-user installation. Do not use `xattr` or another Gatekeeper bypass for an unsigned WardSen app. See [installer signing](docs/installer-signing.md) before publishing a fully trusted end-user release.
 
 This release contains:
 
@@ -105,7 +106,7 @@ This release contains:
 - Employee request docs describe the employee-side catalog request flow and keep link access wording to "Ravi's link was viewed," not "Ravi viewed it"
 - Third-party provider and trademark policy documents that WardSen is independent, user-installed-provider-tool based and not endorsed by supported providers
 - Settings shows Ente Paste as an experimental manual handoff and keeps other secure-link provider candidates unavailable as functional providers until a real adapter passes conformance
-- macOS first-install docs cover the unsigned-prerelease `"WardSen" is damaged and can't be opened` Gatekeeper message
+- macOS first-install docs explain signed-release, Gatekeeper and Bitwarden CLI requirements
 - Windows and macOS prerequisite and desktop packaging scripts
 
 ## Install From Release
@@ -116,7 +117,7 @@ Go to [GitHub Releases](https://github.com/subtlesayak/WardSen/releases) and dow
 
 - Windows: `WardSen_0.1.0_x64_en-US.msi`
 - macOS Apple Silicon: `WardSen_0.1.0_aarch64.dmg`
-- macOS Intel: not attached to `v0.1.0-rc.45`; maintainers can build it from the manual Intel workflow
+- macOS Intel: not attached to `v0.1.0-rc.49`; maintainers can build it from the manual Intel workflow
 
 Windows first install:
 
@@ -130,23 +131,8 @@ macOS Apple Silicon first install:
 1. Download `WardSen_0.1.0_aarch64.dmg`.
 2. Open the DMG.
 3. Drag WardSen into the Applications folder.
-4. Open WardSen from Applications.
-5. If macOS blocks the app because it is from an unidentified developer, go to **System Settings > Privacy & Security** and allow WardSen only if you trust this prerelease.
-6. If macOS says `"WardSen" is damaged and can't be opened`, keep WardSen in Applications, open **Terminal**, run the command below, then open WardSen again:
-
-```bash
-xattr -dr com.apple.quarantine /Applications/WardSen.app
-```
-
-If Terminal prints `Operation not permitted` for files inside `WardSen.app`, run the same command with administrator permission:
-
-```bash
-sudo xattr -dr com.apple.quarantine /Applications/WardSen.app
-```
-
-Enter the Mac login password when Terminal asks. Terminal does not show password characters while typing.
-
-Only remove quarantine for the WardSen prerelease you intentionally downloaded from this repository. A signed and notarized release should not require this step.
+4. Verify the DMG checksum against `SHA256SUMS-macos-arm64.txt` before opening WardSen.
+5. Do not bypass a Gatekeeper or `"WardSen" is damaged and can't be opened` warning with `xattr`, `sudo xattr` or another override. This unsigned prerelease is not suitable for normal macOS installation; report the warning and checksum to the release maintainer.
 
 Optional checksum verification:
 
@@ -154,6 +140,15 @@ Optional checksum verification:
 2. Compare the checksum with the installer before opening it.
 
 Release users do not need the `WardSen` source folder, `npm ci`, Git, Rust or a terminal. They may still need provider tools such as the Bitwarden CLI or KeePassXC, depending on which vault provider they want to connect.
+
+## New-User Requirements
+
+Before connecting a vault, confirm the following:
+
+- Install a signed and notarized WardSen build for ordinary macOS use. The current macOS DMG is an unsigned review artifact; do not bypass Gatekeeper.
+- Install only the provider tools required for the vault you plan to use. WardSen does not bundle Bitwarden's `bw` CLI or KeePassXC's `keepassxc-cli`.
+- Keep your Bitwarden master password, email/device approval code, authenticator code and session token out of WardSen text fields, chat messages and support tickets. Enter them only into the visible official Bitwarden CLI prompt in Terminal.
+- For any Bitwarden CLI installation or update, fully quit and reopen WardSen before using Credential Search or Bitwarden Send.
 
 ### Bitwarden CLI Setup For Release Users
 
@@ -203,40 +198,34 @@ Windows users who already have Chocolatey can run:
 choco install bitwarden-cli
 ```
 
-Beginner-friendly macOS path:
+macOS Bitwarden CLI requirement:
 
-1. In WardSen, when the missing Bitwarden tool message appears, click **Open Bitwarden CLI install guide**.
-2. On Bitwarden's page, choose **Native Executable** and download **macOS x64** if you are on an Intel Mac.
-3. Create this folder if it does not exist: `~/Library/Application Support/WardSen/tools`.
-4. Put the downloaded `bw` executable in that folder.
-5. Close and reopen WardSen.
-6. To verify outside the app, open **Terminal** and run:
+1. Install the current Node.js LTS macOS installer from [nodejs.org](https://nodejs.org/en/download), then quit and reopen Terminal.
+2. Verify that Node.js and npm are available:
 
 ```bash
-"$HOME/Library/Application Support/WardSen/tools/bw" --version
+node -v && npm -v
 ```
 
-macOS PATH option:
-
-1. Put the downloaded executable in a permanent folder that is on your `PATH`. Packaged WardSen also checks `/opt/homebrew/bin/bw`, `/usr/local/bin/bw` and `/opt/local/bin/bw` directly because Finder-launched macOS apps may not inherit your Terminal `PATH`.
-2. Close and reopen WardSen.
-3. To verify, open **Terminal** and run:
-
-```bash
-bw --version
-```
-
-For macOS Apple Silicon or other arm64 devices, Bitwarden recommends NPM for the CLI. Install Node.js first, then use the in-app **Copy terminal command** button or run:
+3. Install Bitwarden's official CLI package:
 
 ```bash
 npm install -g @bitwarden/cli
 ```
 
+4. Verify the CLI, then fully quit and reopen WardSen:
+
+```bash
+bw --version
+```
+
+Bitwarden recommends this npm route for Apple Silicon and it works on Intel Macs too. Do not use a raw `bw` executable that macOS reports as unverified, and do not remove its quarantine attribute to make it run.
+
 ## Release Artifact Structure
 
 Maintainers build installers from the source checkout. End users only receive the final installer file.
 
-Current unsigned prerelease workflow uploads Windows MSI only. The NSIS setup EXE path below is a possible Tauri output for future signed releases, not a `v0.1.0-rc.45` asset.
+Current unsigned prerelease workflow uploads Windows MSI only. The NSIS setup EXE path below is a possible Tauri output for future signed releases, not a `v0.1.0-rc.49` asset.
 
 Build output stays on the release machine under:
 
