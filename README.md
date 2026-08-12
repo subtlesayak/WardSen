@@ -46,68 +46,14 @@ WardSen is an independent open-source project and is not affiliated with, endors
 
 ## Status
 
-`v0.1.0-rc.49` is the latest installer prerelease. It is suitable for developer review, security review and platform packaging validation.
+`v0.1.0-rc.49` is the latest security-review prerelease.
 
-The Windows MSI and macOS Apple Silicon DMG are unsigned security-review artifacts. The previous unsigned Windows setup EXE was pulled after Microsoft Defender flagged it as `Trojan:Win32/Wacatac.B!ml`; rc.49 does not publish that NSIS setup EXE. A signed and notarized macOS release is required for normal end-user installation. Do not use `xattr` or another Gatekeeper bypass for an unsigned WardSen app. See [installer signing](docs/installer-signing.md) before publishing a fully trusted end-user release.
+- **Scope:** Local-first credential dispatch, short-lived provider links, delivery audit signals, and employee request access.
+- **Security:** Destructive actions require exact server-enforced confirmation; credential plaintext remains on the localhost backend.
+- **Installers:** Windows MSI and macOS Apple Silicon DMG are unsigned review artifacts. A signed and notarized macOS build is required for normal use; do not bypass Gatekeeper.
+- **Provider setup:** Bitwarden requires the official `bw` CLI. On macOS, install Node.js LTS if needed, install `@bitwarden/cli`, verify `bw --version`, then reopen WardSen.
 
-This release contains:
-
-- Provider-neutral credential and delivery interfaces
-- Bitwarden credential adapter using the official `bw` CLI
-- Bitwarden Send delivery adapter using the official `bw` CLI
-- Ente Paste manual delivery handoff that copies credential text to the local clipboard, offers explicit cleanup, and returns only the Ente Paste page action
-- KeePassXC credential adapter using the official `keepassxc-cli`
-- Typed scaffolds for 1Password, Proton Pass, Keeper and additional planned delivery providers
-- Localhost-only Fastify API
-- React/Vite desktop administration interface
-- SQLite migration contract
-- Delivery batch and safe audit-log persistence
-- Employee request catalog with assigned-email enforcement and metadata-only credential choices
-- Optional Person-to-Employee linking so contacts can provide the assigned request email without automatically granting request access
-- Guarded bulk provisioning from selected People into linked Employee request identities
-- Catalog access policy rules for exact employees, teams and roles
-- Catalog auto-approval policy that pre-approves matching requests without creating delivery links
-- Safe CLI process runner
-- API coverage for accounts, people CSV, delivery retry, bulk batches and safe delivery history
-- Tests for sessions, view limits, people pagination, SQLite persistence and CLI behavior
-- Tauri desktop shell that starts the local API server in packaged builds
-- Visible app version label for release/debug screenshots
-- Release builds include SHA/build timestamp metadata, `RELEASE-MANIFEST-*.json`, `WARDSEN-SBOM-*.json`, `PACKAGED-SMOKE-*.json` and signed-public-release `SIGNING-EVIDENCE-*.json` assets for artifact provenance
-- Release packaging verifies the checked-out tag, pins GitHub Actions dependencies, allows unsigned public RC MSI validation and blocks unsigned final public releases
-- RC release builds keep the MSI package version numeric while preserving the full RC tag in app/release metadata
-- Release checksum generation refuses stale mixed installer outputs unless maintainers point it at the exact fresh bundle folder
-- Repeatable web smoke screenshots cover desktop and mobile layouts before release
-- Windows desktop local-service startup fixes for bundled Node paths, writable data directories and trusted desktop preflight requests
-- Responsive desktop layout with an anchored left sidebar and independently scrolling workspace
-- Easier destructive-action confirmations in the UI while preserving server-side confirmation tokens
-- Sticky floating error help that stays visible while workspace content scrolls
-- Close buttons on sticky error help so users can dismiss overlay messages after reading them
-- Desktop-session trust errors keep service checks readable and summarize raw local-service output instead of filling the UI with JSON request logs
-- Actionable missing provider-tool help when `bw`, `keepassxc-cli` or another CLI is not installed or not visible on `PATH`
-- Provider setup errors include install/download buttons for users who do not know terminal commands
-- Provider setup buttons open official install pages through the packaged desktop app's system-browser opener
-- Provider setup errors include copyable install links and terminal recovery commands
-- Bitwarden CLI setup help now explains Windows and macOS native downloads, WardSen local tools folders, PATH, arm64/NPM installs and `bw --version` verification
-- Packaged macOS builds look for `bw` in WardSen's local tools folder plus common package-manager paths such as `/opt/homebrew/bin/bw`, `/usr/local/bin/bw` and `/opt/local/bin/bw`
-- Bitwarden provider errors now include safe CLI details and timeout guidance instead of leaving login stuck on a generic loading state
-- Bitwarden first login is terminal-first: WardSen shows a same-profile Terminal or PowerShell command instead of asking for the Bitwarden password or OTP inside the app
-- Bitwarden terminal login runs visible provider prompts and transfers the short-lived `bw unlock --raw` session through a one-time authenticated localhost handoff held in memory only
-- Bitwarden terminal commands keep `bw login` intact in copyable error help while still redacting real secrets
-- Bitwarden terminal login commands are platform-aware: Windows gets PowerShell syntax, while macOS and Linux get zsh/bash syntax
-- Bitwarden terminal login avoids repeatedly burning email/new-device codes in hidden CLI prompts
-- macOS terminal login avoids zsh read-only variables and does not hide Bitwarden prompts inside shell command substitution
-- macOS terminal login now resolves `bw` before asking for the master password and checks WardSen's local tools folder plus common Homebrew/MacPorts paths
-- Bitwarden Send delivery uses the same isolated WardSen account profile as Vaults, checks the selected delivery account before creating links and tells users to unlock the account first when `bw` is not logged in
-- Requests view lets admins provision employee emails, publish requestable credential metadata, review requests and approve one-access delivery links only to the assigned employee email
-- Employee portal sign-in uses admin-issued one-time codes and hash-only session storage instead of employee passwords
-- Employee sign-in code handoff can prepare a sender-labelled email draft for the employee's assigned email without putting the code into a `mailto:` URL
-- Employee request replacements revoke the previous delivery and keep replacement count, previous delivery ID and latest replacement time on the original request
-- Emergency break-glass employee requests require exact server confirmation, justification and admin fulfillment before delivery
-- Employee request docs describe the employee-side catalog request flow and keep link access wording to "Ravi's link was viewed," not "Ravi viewed it"
-- Third-party provider and trademark policy documents that WardSen is independent, user-installed-provider-tool based and not endorsed by supported providers
-- Settings shows Ente Paste as an experimental manual handoff and keeps other secure-link provider candidates unavailable as functional providers until a real adapter passes conformance
-- macOS first-install docs explain signed-release, Gatekeeper and Bitwarden CLI requirements
-- Windows and macOS prerequisite and desktop packaging scripts
+See the [current release notes](docs/release-notes/v0.1.0.md), [new-user requirements](#new-user-requirements), [security design](docs/security-design.md), and [installer signing guide](docs/installer-signing.md) for detail.
 
 ## Install From Release
 
