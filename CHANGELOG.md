@@ -1,9 +1,15 @@
 # Changelog
 
-## Unreleased
+## 0.1.0-rc.50 - 2026-08-12
 
 - Fixed desktop recovery after a Force Quit: each packaged launch now selects a fresh loopback port and the UI obtains that exact trusted address from the desktop shell, so an orphaned prior service on port 4777 cannot receive the new desktop session's requests.
 - Fixed macOS Bitwarden CLI discovery for npm's user-owned prefix. Vault search, Bitwarden Send, terminal fallback, and setup help now recognize `~/.local/bin/bw` after the official CLI is installed there.
+
+### Safe Workarounds And Limits
+
+- **macOS Gatekeeper:** this release's macOS DMG is an unsigned security-review artifact. There is no supported end-user workaround for a `cannot be verified` or `is damaged` warning. Do not use `xattr`, `sudo xattr`, or disable Gatekeeper; wait for a signed and notarized build.
+- **macOS Bitwarden CLI `EACCES`:** use a user-owned npm prefix, not `sudo`: create `~/.local/bin`, run `npm config set prefix "$HOME/.local"`, add `export PATH="$HOME/.local/bin:$PATH"` to `~/.zprofile`, restart Terminal, install `@bitwarden/cli`, run `bw --version`, then fully quit and reopen WardSen.
+- **Legacy rc.49 Force Quit state:** if a prior build reports an untrusted desktop session after Force Quit, run `lsof -nP -iTCP:4777 -sTCP:LISTEN` in Terminal. Only end the reported process after confirming it is WardSen's old local Node service, then reopen WardSen. `rc.50` avoids this fixed-port collision.
 
 ## 0.1.0 - 2026-07-30
 

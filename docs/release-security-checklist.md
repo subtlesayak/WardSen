@@ -4,9 +4,9 @@ Run this checklist before publishing a public WardSen build.
 
 ## v0.1.0-rc.50 Preparation
 
-- Release candidate commit: `a61b6ea` (`Fix macOS desktop recovery and npm CLI discovery`).
+- Release candidate includes the desktop recovery and macOS Bitwarden CLI discovery fixes.
 - 2026-08-12 validation passed: `npm run check`, `npm test` (239 passed, 2 skipped), `npm run build`, `npm run smoke:packaged`, `npm run security:scan-secrets`, and `cargo check --offline` in `apps/desktop/src-tauri`.
-- Publication is blocked until Apple Developer ID signing, notarization, and target-machine lifecycle evidence are available. The GitHub repository has no configured Apple signing secrets or `MACOS_SIGNING_ENABLED=true` variable.
+- `v0.1.0-rc.50` is published as an unsigned security-review prerelease. Trusted end-user macOS distribution remains blocked until Apple Developer ID signing, notarization, and target-machine lifecycle evidence are available. The GitHub repository has no configured Apple signing secrets or `MACOS_SIGNING_ENABLED=true` variable.
 
 ## Latest Local Packaging Evidence
 

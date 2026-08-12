@@ -23,7 +23,7 @@ WardSen is an independent open-source project and is not affiliated with, endors
 
 ## Status
 
-`v0.1.0-rc.50` is prepared on `main`; `v0.1.0-rc.49` remains the latest published security-review prerelease.
+`v0.1.0-rc.50` is the latest published security-review prerelease. It remains unsigned; a trusted public installer release is still pending code signing and macOS notarization.
 
 - **Scope:** Local-first credential dispatch, short-lived provider links, delivery audit signals, and employee request access.
 - **Security:** Destructive actions require exact server-enforced confirmation; credential plaintext remains on the localhost backend.
@@ -57,7 +57,7 @@ npm install -g @bitwarden/cli
 bw --version
 ```
 
-If `npm install -g` reports `EACCES`, configure a user-owned npm prefix instead of using `sudo`: [npm's permission guide](https://docs.npmjs.com/resolving-eacces-permissions-errors-when-installing-packages-globally/).
+If `npm install -g` reports `EACCES`, configure a user-owned npm prefix instead of using `sudo`: [npm's permission guide](https://docs.npmjs.com/resolving-eacces-permissions-errors-when-installing-packages-globally/). WardSen detects `~/.local/bin/bw` after a full app restart.
 
 For the first sign-in, select **Terminal login / unlock** in WardSen and run the copied command in your system terminal. WardSen receives a one-time, in-memory local session handoff; it never asks for the Bitwarden password or code in the app.
 
