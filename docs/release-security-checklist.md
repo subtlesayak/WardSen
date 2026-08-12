@@ -2,11 +2,11 @@
 
 Run this checklist before publishing a public WardSen build.
 
-## v0.1.0-rc.51 Preparation
+## v0.1.0-rc.52 Preparation
 
 - Release candidate includes the macOS Finder environment fix for npm-installed Bitwarden CLI wrappers.
 - 2026-08-12 validation passed: `npm run check`, `npm test` (241 passed, 3 skipped), `npm run build`, `npm run smoke:packaged`, `npm run security:scan-secrets`, and `cargo check --offline` in `apps/desktop/src-tauri`.
-- `v0.1.0-rc.51` is published as an unsigned security-review prerelease. Trusted end-user macOS distribution remains blocked until Apple Developer ID signing, notarization, and target-machine lifecycle evidence are available. The GitHub repository has no configured Apple signing secrets or `MACOS_SIGNING_ENABLED=true` variable.
+- `v0.1.0-rc.52` is published as an unsigned security-review prerelease. Trusted end-user macOS distribution remains blocked until Apple Developer ID signing, notarization, and target-machine lifecycle evidence are available. The GitHub repository has no configured Apple signing secrets or `MACOS_SIGNING_ENABLED=true` variable.
 
 ## Latest Local Packaging Evidence
 

@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0-rc.51 - 2026-08-12
+## 0.1.0-rc.52 - 2026-08-12
 
 - Fixed macOS Bitwarden CLI status checks after terminal login. Finder-launched WardSen now passes its already-running trusted Node.js runtime to npm-installed `bw` wrappers, preventing `env: node: No such file or directory` for vault search and Bitwarden Send.
 

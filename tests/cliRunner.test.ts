@@ -78,7 +78,8 @@ describe("CLI runner", () => {
     try {
       const result = await runCliCommand({
         executable: process.execPath,
-        args: ["-e", "process.stdout.write(process.env.PATH ?? '')"]
+        args: ["-e", "process.stdout.write(process.env.PATH ?? '')"],
+        rawOutput: true
       });
 
       expect(result.stdout.split(path.delimiter)).toContain(path.dirname(process.execPath));
