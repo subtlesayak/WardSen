@@ -32,6 +32,7 @@ describe("web error help", () => {
     expect(help.setupNotes?.join("\n")).toContain("%LOCALAPPDATA%\\WardSen\\tools");
     expect(help.setupNotes?.join("\n")).toContain("Windows x64");
     expect(help.setupNotes?.join("\n")).toContain("macOS Apple Silicon");
+    expect(help.setupNotes?.join("\n")).toContain("~/.local/bin/bw");
     expect(help.setupNotes?.join("\n")).toContain("bw --version");
     expect(help.terminalCommands?.map((item) => item.command)).toContain("npm install -g @bitwarden/cli");
     expect(help.terminalCommands?.map((item) => item.command)).toContain("choco install bitwarden-cli");

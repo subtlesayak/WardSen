@@ -48,23 +48,32 @@ describe("web API helpers", () => {
     await expect(apiSend<{ id: string }>("/api/deliveries", { body: "{}" })).resolves.toEqual({ id: "delivery-1" });
   });
 
-  it("targets the localhost API when packaged under Tauri", () => {
+  it("targets the desktop-selected localhost API port when packaged under Tauri", async () => {
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === "get_local_service_url") return "http://127.0.0.1:43127";
+      return undefined;
+    });
     vi.stubGlobal("window", { location: { protocol: "tauri:", hostname: "localhost" } });
 
-    expect(apiUrl("/api/health")).toBe("http://127.0.0.1:4777/api/health");
+    await expect(apiUrl("/api/health")).resolves.toBe("http://127.0.0.1:43127/api/health");
+    expect(invoke).toHaveBeenCalledWith("get_local_service_url");
   });
 
   it("adds the desktop API token when packaged under Tauri", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
-    vi.mocked(invoke).mockResolvedValueOnce("desktop-token");
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === "get_local_service_url") return "http://127.0.0.1:43127";
+      if (command === "get_api_token") return "desktop-token";
+      return undefined;
+    });
     vi.stubGlobal("window", {
       location: { protocol: "tauri:", hostname: "localhost" }
     });
 
     await apiGet("/api/health");
 
-    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:4777/api/health", {
+    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:43127/api/health", {
       headers: { "x-wardsen-api-token": "desktop-token" }
     });
   });
@@ -95,6 +104,7 @@ describe("web API helpers", () => {
   it("reads local service diagnostics when packaged under Tauri", async () => {
     const status = {
       running: false,
+      port: 43127,
       portOpen: false,
       nodeRuntimeFound: true,
       serverBundleFound: true,
@@ -182,7 +192,7 @@ describe("web API helpers", () => {
     await expect(copyExternalUrl("file:///C:/Windows/System32/calc.exe")).rejects.toThrow("HTTP or HTTPS");
   });
 
-  it("rejects absolute API URLs", () => {
-    expect(() => apiUrl("https://example.com/api/health")).toThrow("WardSen API paths must be local application paths");
+  it("rejects absolute API URLs", async () => {
+    await expect(apiUrl("https://example.com/api/health")).rejects.toThrow("WardSen API paths must be local application paths");
   });
 });

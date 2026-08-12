@@ -3,6 +3,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 
 export interface LocalServiceStatus {
   running: boolean;
+  port: number;
   portOpen: boolean;
   nodeRuntimeFound: boolean;
   serverBundleFound: boolean;
@@ -12,14 +13,14 @@ export interface LocalServiceStatus {
 }
 
 export async function apiGet<T>(path: string): Promise<T> {
-  const url = apiUrl(path);
+  const url = await apiUrl(path);
   const response = await fetchLocal(url, { headers: await apiHeaders() });
   if (!response.ok) throw new Error(await errorText(response));
   return response.json() as Promise<T>;
 }
 
 export async function apiSend<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
-  const url = apiUrl(path);
+  const url = await apiUrl(path);
   const response = await fetchLocal(url, {
     ...init,
     method: init.method ?? "POST",
@@ -30,7 +31,7 @@ export async function apiSend<T = unknown>(path: string, init: RequestInit = {})
 }
 
 export async function apiDownload(path: string, filename: string): Promise<void> {
-  const url = apiUrl(path);
+  const url = await apiUrl(path);
   const response = await fetchLocal(url, { headers: await apiHeaders() });
   if (!response.ok) throw new Error(await errorText(response));
   const blob = await response.blob();
@@ -44,9 +45,9 @@ export async function apiDownload(path: string, filename: string): Promise<void>
   URL.revokeObjectURL(objectUrl);
 }
 
-export function apiUrl(path: string): string {
+export async function apiUrl(path: string): Promise<string> {
   if (/^https?:\/\//.test(path)) throw new Error("WardSen API paths must be local application paths, not absolute URLs.");
-  if (isTauriOrigin()) return `http://127.0.0.1:4777${path}`;
+  if (isTauriOrigin()) return `${await localServiceBaseUrl()}${path}`;
   return path;
 }
 
@@ -145,6 +146,24 @@ async function apiToken(): Promise<string | undefined> {
 async function readTauriApiToken(): Promise<string | undefined> {
   const token = await invoke<string>("get_api_token");
   return token.trim() || undefined;
+}
+
+async function localServiceBaseUrl(): Promise<string> {
+  const value = await invoke<string>("get_local_service_url");
+  const parsed = new URL(value);
+  if (
+    parsed.protocol !== "http:" ||
+    parsed.hostname !== "127.0.0.1" ||
+    !parsed.port ||
+    parsed.username ||
+    parsed.password ||
+    parsed.pathname !== "/" ||
+    parsed.search ||
+    parsed.hash
+  ) {
+    throw new Error("WardSen desktop returned an invalid local service address.");
+  }
+  return parsed.origin;
 }
 
 async function errorText(response: Response): Promise<string> {

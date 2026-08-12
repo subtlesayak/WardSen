@@ -117,6 +117,7 @@ describe("Bitwarden credential provider", () => {
 
       expect(command).toContain("export BITWARDENCLI_APPDATA_DIR=\"$HOME/Library/Application Support/dev.wardsen.desktop/wardsen-data/profiles/acct-1\"");
       expect(command).toContain("WardSen could not find the Bitwarden CLI");
+      expect(command).toContain("$HOME/.local/bin/bw");
       expect(command).toContain("\"$bwCommand\" login 'user@example.com'");
       expect(command).toContain("\"$bwCommand\" unlock --raw");
       expect(command).toContain("curl --fail --silent --show-error");
@@ -259,6 +260,38 @@ describe("Bitwarden credential provider", () => {
     } finally {
       if (previous === undefined) delete process.env.WARDSEN_BITWARDEN_CLI_PATH;
       else process.env.WARDSEN_BITWARDEN_CLI_PATH = previous;
+    }
+  });
+
+  it("uses the macOS NPM user-prefix Bitwarden CLI path when it exists", async () => {
+    const previousHome = process.env.HOME;
+    const previousExecutable = process.env.WARDSEN_BITWARDEN_CLI_PATH;
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "wardsen-npm-prefix-"));
+    const executable = path.join(home, ".local", "bin", "bw");
+    const calls: CliCommandInput[] = [];
+    fs.mkdirSync(path.dirname(executable), { recursive: true });
+    fs.writeFileSync(executable, "placeholder");
+    process.env.HOME = home;
+    delete process.env.WARDSEN_BITWARDEN_CLI_PATH;
+
+    try {
+      const provider = new BitwardenCredentialProvider({
+        profileRoot: "profiles",
+        runCommand: async (input) => {
+          calls.push(input);
+          return ok(JSON.stringify({ status: "locked" }));
+        }
+      });
+
+      await provider.testConnection("acct-1");
+
+      expect(calls.at(-1)?.executable).toBe(executable);
+    } finally {
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousExecutable === undefined) delete process.env.WARDSEN_BITWARDEN_CLI_PATH;
+      else process.env.WARDSEN_BITWARDEN_CLI_PATH = previousExecutable;
+      fs.rmSync(home, { recursive: true, force: true });
     }
   });
 

@@ -115,8 +115,8 @@ function assertPackagedInputs() {
   if (config.bundle?.resources?.["gen/runtime"] !== "runtime") {
     throw new Error("Tauri resources must bundle the prepared Node.js runtime directory.");
   }
-  if (!String(config.app?.security?.csp ?? "").includes("http://127.0.0.1:4777")) {
-    throw new Error("Tauri CSP must allow the packaged UI to reach the local API on 127.0.0.1:4777.");
+  if (!String(config.app?.security?.csp ?? "").includes("http://127.0.0.1:*")) {
+    throw new Error("Tauri CSP must allow the packaged UI to reach its dynamically allocated local API port.");
   }
 }
 
@@ -210,7 +210,7 @@ function packagedArtifactEvidence() {
       path: relativePath(tauriConfigPath),
       serverResource: "server/index.cjs",
       runtimeResource: "runtime",
-      apiOrigin: "http://127.0.0.1:4777"
+      apiOrigin: "http://127.0.0.1:<dynamic>"
     }
   };
 }

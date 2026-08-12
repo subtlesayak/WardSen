@@ -2,7 +2,7 @@ use std::{
     env, fs, io,
     io::Read,
     io::Write,
-    net::{SocketAddr, TcpStream},
+    net::{SocketAddr, TcpListener, TcpStream},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::Mutex,
@@ -25,12 +25,14 @@ struct ServerLaunchConfig {
     server_path: PathBuf,
     data_dir: PathBuf,
     log_path: PathBuf,
+    port: u16,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct LocalServiceStatus {
     running: bool,
+    port: u16,
     port_open: bool,
     node_runtime_found: bool,
     server_bundle_found: bool,
@@ -42,6 +44,11 @@ struct LocalServiceStatus {
 #[tauri::command]
 fn get_api_token(token: tauri::State<ApiToken>) -> String {
     token.0.clone()
+}
+
+#[tauri::command]
+fn get_local_service_url(config: tauri::State<ServerLaunchConfig>) -> String {
+    format!("http://127.0.0.1:{}", config.port)
 }
 
 #[tauri::command]
@@ -67,6 +74,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             get_api_token,
+            get_local_service_url,
             restart_local_service,
             local_service_status
         ])
@@ -77,11 +85,13 @@ pub fn run() {
             let node_path = resolve_node_executable(bundled_node_path)?;
             let data_dir = resolve_data_dir(app)?;
             let log_path = data_dir.join("wardsen-service.log");
+            let port = select_available_local_port()?;
             let config = ServerLaunchConfig {
                 node_path,
                 server_path,
                 data_dir,
                 log_path,
+                port,
             };
             let process = ServerProcess {
                 child: Mutex::new(None),
@@ -159,10 +169,11 @@ fn spawn_server_process(config: &ServerLaunchConfig, api_token: &str) -> io::Res
     append_launch_log(
         config,
         &format!(
-            "spawning node={} server={} data={}",
+            "spawning node={} server={} data={} port={}",
             node_path.display(),
             server_path.display(),
-            data_dir.display()
+            data_dir.display(),
+            config.port
         ),
     )?;
     let log_file = fs::OpenOptions::new()
@@ -172,7 +183,7 @@ fn spawn_server_process(config: &ServerLaunchConfig, api_token: &str) -> io::Res
     Command::new(&node_path)
         .arg(&server_path)
         .current_dir(&data_dir)
-        .env("WARDSEN_PORT", "4777")
+        .env("WARDSEN_PORT", config.port.to_string())
         .env("WARDSEN_API_TOKEN", api_token)
         .env("WARDSEN_DATA_DIR", &data_dir)
         .stdin(Stdio::null())
@@ -213,7 +224,8 @@ fn service_status(
 
     Ok(LocalServiceStatus {
         running,
-        port_open: is_port_open(),
+        port: config.port,
+        port_open: is_port_open(config.port),
         node_runtime_found: config.node_path.is_file(),
         server_bundle_found: config.server_path.is_file(),
         last_error: clone_mutex_value(&process.last_error)?,
@@ -223,9 +235,14 @@ fn service_status(
     })
 }
 
-fn is_port_open() -> bool {
-    let address = SocketAddr::from(([127, 0, 0, 1], 4777));
+fn is_port_open(port: u16) -> bool {
+    let address = SocketAddr::from(([127, 0, 0, 1], port));
     TcpStream::connect_timeout(&address, Duration::from_millis(250)).is_ok()
+}
+
+fn select_available_local_port() -> io::Result<u16> {
+    let listener = TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0)))?;
+    listener.local_addr().map(|address| address.port())
 }
 
 fn collect_child_output(child: &mut Child) -> Option<String> {
@@ -439,10 +456,7 @@ fn data_dir_candidates(app: &tauri::App) -> Vec<PathBuf> {
     #[cfg(windows)]
     {
         if let Some(local_app_data) = env::var_os("LOCALAPPDATA").map(PathBuf::from) {
-            push_data_dir_candidate(
-                &mut candidates,
-                local_app_data.join("WardSen").join("data"),
-            );
+            push_data_dir_candidate(&mut candidates, local_app_data.join("WardSen").join("data"));
             push_data_dir_candidate(
                 &mut candidates,
                 local_app_data

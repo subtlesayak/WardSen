@@ -183,7 +183,7 @@ function providerExecutableMessage(executable: string, error: NodeJS.ErrnoExcept
   if (error.code !== "ENOENT") return `Provider command could not start: ${error.message}`;
   const tool = executableName(executable);
   const installHint = tool === "bw"
-    ? "Install the Bitwarden CLI, then close and reopen WardSen. On macOS, Finder-launched apps may not inherit Terminal PATH, so WardSen also checks /opt/homebrew/bin/bw, /usr/local/bin/bw, /opt/local/bin/bw and its local tools folder."
+    ? "Install the Bitwarden CLI, then close and reopen WardSen. On macOS, Finder-launched apps may not inherit Terminal PATH, so WardSen also checks ~/.local/bin/bw, /opt/homebrew/bin/bw, /usr/local/bin/bw, /opt/local/bin/bw and its local tools folder."
     : `Install ${tool}, then close and reopen WardSen so the desktop app can see the updated PATH.`;
   return `Provider command "${tool}" was not found. ${installHint}`;
 }

@@ -2202,7 +2202,7 @@ function sleep(ms: number) {
 function formatLocalServiceStatus(status: LocalServiceStatus) {
   const lines = [
     `Process: ${status.running ? "running" : "not running"}`,
-    `Port 4777: ${status.portOpen ? "open" : "not reachable"}`,
+    `Port ${status.port}: ${status.portOpen ? "open" : "not reachable"}`,
     `Bundled Node runtime: ${status.nodeRuntimeFound ? "found" : "missing"}`,
     `Server bundle: ${status.serverBundleFound ? "found" : "missing"}`
   ];

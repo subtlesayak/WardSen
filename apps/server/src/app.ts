@@ -114,7 +114,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
       directives: {
         defaultSrc: ["'self'"],
         baseUri: ["'self'"],
-        connectSrc: ["'self'", "http://127.0.0.1:4777"],
+        connectSrc: ["'self'", "http://127.0.0.1:*"],
         frameAncestors: ["'none'"],
         imgSrc: ["'self'", "data:"],
         objectSrc: ["'none'"],

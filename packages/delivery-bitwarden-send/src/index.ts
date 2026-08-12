@@ -137,6 +137,7 @@ function bitwardenExecutableCandidates(): string[] {
     candidates.push(path.join(process.env.APPDATA, "WardSen", "tools", "bw.exe"));
   }
   if (process.env.HOME) {
+    candidates.push(path.join(process.env.HOME, ".local", "bin", "bw"));
     candidates.push(path.join(process.env.HOME, "Library", "Application Support", "WardSen", "tools", "bw"));
     candidates.push(path.join(process.env.HOME, ".wardsen", "tools", "bw"));
   }

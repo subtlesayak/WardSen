@@ -1,10 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Fixed desktop recovery after a Force Quit: each packaged launch now selects a fresh loopback port and the UI obtains that exact trusted address from the desktop shell, so an orphaned prior service on port 4777 cannot receive the new desktop session's requests.
+- Fixed macOS Bitwarden CLI discovery for npm's user-owned prefix. Vault search, Bitwarden Send, terminal fallback, and setup help now recognize `~/.local/bin/bw` after the official CLI is installed there.
+
 ## 0.1.0 - 2026-07-30
 
 - First-user install:
   - Windows users should download the unsigned MSI-only prerelease, verify `SHA256SUMS-windows-x64.txt`, and leave it quarantined if Microsoft Defender blocks it.
-  - macOS Apple Silicon users should download `WardSen_0.1.0_aarch64.dmg`, drag WardSen into Applications, then allow the unsigned prerelease in **System Settings > Privacy & Security** if Gatekeeper blocks the first launch.
+  - macOS Apple Silicon users should treat the unsigned DMG as a security-review artifact: verify its checksum, and do not bypass Gatekeeper or a damaged-app warning. A signed and notarized build is required for normal use.
   - Optional checksum verification is available through the attached `SHA256SUMS-*.txt` files.
 - Initial open-source application foundation.
 - Added provider-neutral credential and delivery architecture.
