@@ -23,12 +23,13 @@ WardSen is an independent open-source project and is not affiliated with, endors
 
 ## Status
 
-`v0.1.0-rc.52` is the current security-review release candidate. It remains unsigned; a trusted public installer release is still pending code signing and macOS notarization.
+`v0.1.0-rc.53` is the current security-review release candidate. It remains unsigned; a trusted public installer release is still pending code signing and macOS notarization.
 
 - **Scope:** Local-first credential dispatch, short-lived provider links, delivery audit signals, and employee request access.
 - **Security:** Destructive actions require exact server-enforced confirmation; credential plaintext remains on the localhost backend.
 - **Installers:** Windows MSI and macOS Apple Silicon DMG are unsigned review artifacts. A signed and notarized macOS build is required for normal use; do not bypass Gatekeeper.
 - **Provider setup:** Bitwarden requires the official `bw` CLI. On macOS, install Node.js LTS if needed, install `@bitwarden/cli`, verify `bw --version`, then reopen WardSen.
+- **Vault sessions:** New accounts auto-lock after five minutes of inactivity. Unlocked vault rows show the remaining time; existing accounts keep their individually configured timeout.
 
 See the [current release notes](docs/release-notes/v0.1.0.md), [getting-started steps](#get-started), [security design](docs/security-design.md), and [installer signing guide](docs/installer-signing.md) for detail.
 
@@ -59,7 +60,9 @@ bw --version
 
 If `npm install -g` reports `EACCES`, configure a user-owned npm prefix instead of using `sudo`: [npm's permission guide](https://docs.npmjs.com/resolving-eacces-permissions-errors-when-installing-packages-globally/). WardSen detects `~/.local/bin/bw` after a full app restart.
 
-For the first sign-in, select **Terminal login / unlock** in WardSen and run the copied command in your system terminal. WardSen receives a one-time, in-memory local session handoff; it never asks for the Bitwarden password or code in the app.
+For the first sign-in, select **Terminal login / unlock** in WardSen and run the copied command in your system terminal. WardSen receives a one-time, in-memory local session handoff and changes the account to **Unlocked** automatically; it never asks for the Bitwarden password or code in the app.
+
+In Vault Accounts, **Select** makes an account active in Account Access, **Sync** fetches its latest provider changes, and **Lock** removes its WardSen session and asks the provider to lock. Sync requires an unlocked account.
 
 ## Maintainers
 

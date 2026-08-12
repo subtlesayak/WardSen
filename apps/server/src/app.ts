@@ -80,7 +80,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   const deliveryOperationTails = new Map<string, Promise<void>>();
   const deliveryUrlCache = new Map<string, string>();
   const terminalSessionHandoffs = new Map<string, TerminalSessionHandoffRecord>();
-  const autoLockIntervalMs = Math.max(1_000, options.autoLockIntervalMs ?? 30_000);
+  const autoLockIntervalMs = Math.max(1_000, options.autoLockIntervalMs ?? 5_000);
   const autoLockTimer = setInterval(() => {
     void enforceAutoLock();
   }, autoLockIntervalMs);
@@ -256,7 +256,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
       serverUrl: body.serverUrl,
       profileDirectory: managedProfileDirectory(profileRoot, id),
       accountType: body.accountType,
-      autoLockMinutes: body.autoLockMinutes ?? 15,
+      autoLockMinutes: body.autoLockMinutes ?? 5,
       status: "locked",
       lastActivity: now
     };
@@ -1367,7 +1367,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   async function enforceAutoLock() {
     const accounts = await repository.listAccounts();
     const accountsById = new Map(accounts.map((account) => [account.id, account]));
-    const inactiveIds = sessions.inactiveAccountIds(new Date(), (accountId) => accountsById.get(accountId)?.autoLockMinutes ?? 15);
+    const inactiveIds = sessions.inactiveAccountIds(new Date(), (accountId) => accountsById.get(accountId)?.autoLockMinutes ?? 5);
     for (const id of inactiveIds) {
       const account = accountsById.get(id);
       if (!account) continue;

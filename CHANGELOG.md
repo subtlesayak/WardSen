@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.0-rc.53 - 2026-08-12
+
+- Fixed Bitwarden terminal handoff status: after the terminal command succeeds, WardSen recognizes its memory-only session and refreshes the account to **Unlocked** without a manual status check or page refresh.
+- Fixed Lock to clear WardSen's local session even when Bitwarden's CLI cannot report back. The lock command now uses the active Bitwarden session.
+- Removed the normal-flow **Check terminal status** action. Account Access now uses **Refresh** only as a general data refresh.
+- Added clear hover labels for vault actions: Select for account access, Sync latest provider changes, and Lock and remove WardSen session.
+- Fixed Settings so Provider Capabilities change when the selected delivery provider changes.
+- New vault accounts now default to a five-minute auto-lock. Unlocked vault rows show a live `Locks in M:SS` timer, and backend auto-lock enforcement runs at most five seconds after the timeout. Existing accounts keep their configured timeout.
+
 ## 0.1.0-rc.52 - 2026-08-12
 
 - Fixed macOS Bitwarden CLI status checks after terminal login. Finder-launched WardSen now passes its already-running trusted Node.js runtime to npm-installed `bw` wrappers, preventing `env: node: No such file or directory` for vault search and Bitwarden Send.

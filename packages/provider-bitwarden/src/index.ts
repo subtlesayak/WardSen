@@ -52,6 +52,12 @@ export class BitwardenCredentialProvider implements CredentialProvider {
   }
 
   async testConnection(accountId: string): Promise<ConnectionResult> {
+    const activeSession = this.sessions.snapshot().find(
+      (session) => session.accountId === accountId && session.providerId === this.id && session.status === "unlocked"
+    );
+    if (activeSession) {
+      return { ok: true, status: "unlocked", safeMessage: "WardSen session active" };
+    }
     const result = await this.run(accountId, ["status"], undefined, 10_000);
     const parsed = safeJsonObject(result.stdout, "Bitwarden status");
     const status = typeof parsed?.status === "string" ? parsed.status : undefined;
@@ -84,8 +90,12 @@ export class BitwardenCredentialProvider implements CredentialProvider {
   }
 
   async lock(accountId: string): Promise<void> {
-    await this.run(accountId, ["lock"]);
-    this.sessions.markLocked(accountId);
+    try {
+      await this.runWithSession(accountId, ["lock"]);
+    } finally {
+      // Local access must end even when the external CLI cannot report its lock result.
+      this.sessions.markLocked(accountId);
+    }
   }
 
   async logout(accountId: string): Promise<void> {

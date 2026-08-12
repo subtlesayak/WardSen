@@ -336,6 +336,21 @@ describe("WardSen API", () => {
     await app.close();
   });
 
+  it("defaults new accounts to a five-minute auto-lock", async () => {
+    const app = await buildApp({ credentialProviders: [new MockCredentialProvider()] });
+    const headers = { host: "127.0.0.1:4777", origin: "http://127.0.0.1:4777" };
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/accounts",
+      headers,
+      payload: { id: "source", providerId: "mock-source", label: "Mock source" }
+    });
+
+    expect(created.json()).toMatchObject({ autoLockMinutes: 5 });
+    await app.close();
+  });
+
   it("uses a one-time authenticated, memory-only terminal session handoff", async () => {
     const sessions = new AccountSessionManager();
     const provider = new TerminalHandoffCredentialProvider(sessions);
@@ -388,6 +403,9 @@ describe("WardSen API", () => {
     expect(claim.statusCode).toBe(200);
     expect(provider.acceptedTokens).toEqual(["terminal-session-raw"]);
     expect(sessions.getSessionToken("bitwarden-account", "bitwarden")).toBe("terminal-session-raw");
+
+    const unlockedAccounts = await app.inject({ method: "GET", url: "/api/accounts", headers: desktopHeaders });
+    expect(unlockedAccounts.json()[0]).toMatchObject({ id: "bitwarden-account", status: "unlocked" });
 
     const replay = await app.inject({
       method: "POST",

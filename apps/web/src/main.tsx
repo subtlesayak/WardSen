@@ -62,6 +62,7 @@ interface AccountRecord {
   serverUrl?: string;
   status: string;
   autoLockMinutes: number;
+  lastActivity?: string;
   updatedAt: string;
 }
 
@@ -227,9 +228,6 @@ function App() {
   if (isEmployeePortalView()) return <EmployeePortalPage />;
   const [active, setActive] = useState<NavItem>("Overview");
   const api = useWardSenApi();
-  const deliveryProviderId = api.deliveryProviders[0]?.id ?? "bitwarden-send";
-  const deliveryCapabilities = api.deliveryProviders.find((provider) => provider.id === deliveryProviderId)?.capabilities ?? {};
-
   return (
     <div className="shell">
       <a className="skipLink" href="#main-content">Skip to content</a>
@@ -275,7 +273,7 @@ function App() {
         {active === "People" && <People api={api} />}
         {active === "Requests" && <RequestsView api={api} />}
         {active === "Deliveries" && <Deliveries api={api} />}
-        {active === "Settings" && <SettingsView providers={api.deliveryProviders} plannedProviders={api.plannedProviders} capabilities={deliveryCapabilities} />}
+        {active === "Settings" && <SettingsView providers={api.deliveryProviders} plannedProviders={api.plannedProviders} />}
       </main>
     </div>
   );
@@ -437,7 +435,7 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
     label: "",
     username: "",
     serverUrl: "",
-    autoLockMinutes: "15"
+    autoLockMinutes: "5"
   });
   const [accessForm, setAccessForm] = useState({
     accountId: "",
@@ -452,15 +450,20 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
   const [terminalHandoff, setTerminalHandoff] = useState<{ accountId: string; command: string; expiresAt: string }>();
   const verificationCodeRef = useRef<HTMLInputElement>(null);
   const [message, setMessage] = useState<{ status: "idle" | "loading" | "ready" | "error"; text?: string }>({ status: "idle" });
+  const [clockMs, setClockMs] = useState(() => Date.now());
   const providerLabel = (id: string) => api.credentialProviders.find((provider) => provider.id === id)?.displayName ?? id;
   const selectedAccount = api.accounts.find((account) => account.id === accessForm.accountId) ?? api.accounts[0];
   const providerId = accountForm.providerId || api.credentialProviders[0]?.id || "bitwarden";
   const selectedAccountIsBitwarden = selectedAccount?.providerId === "bitwarden";
-  const unlockDisabledForVerification = selectedAccountIsBitwarden && verificationNeeded;
 
   useEffect(() => {
     if (verificationNeeded) verificationCodeRef.current?.focus();
   }, [verificationNeeded]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setClockMs(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     if (!terminalHandoff || terminalHandoff.accountId !== selectedAccount?.id) return;
@@ -502,7 +505,7 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
           label: accountForm.label,
           username: accountForm.username || undefined,
           serverUrl: accountForm.serverUrl || undefined,
-          autoLockMinutes: Number(accountForm.autoLockMinutes) || 15
+          autoLockMinutes: Number(accountForm.autoLockMinutes) || 5
         })
       });
       setAccessForm((current) => ({ ...current, accountId: account.id }));
@@ -514,7 +517,7 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
     }
   }
 
-  async function accountAccess(action: "login" | "unlock" | "status") {
+  async function accountAccess(action: "login" | "unlock") {
     const account = selectedAccount;
     if (!account) {
       setMessage({ status: "error", text: "Create or select an account first." });
@@ -526,11 +529,6 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
     }
     setMessage({ status: "loading", text: `${titleStatus(action)} running for ${account.label}...` });
     try {
-      if (action === "status") {
-        const result = await apiGet<{ ok: boolean; status: string; safeMessage?: string }>(`/api/accounts/${account.id}/status`);
-        setMessage({ status: result.ok ? "ready" : "error", text: `${account.label}: ${titleStatus(result.status)}${result.safeMessage ? ` (${result.safeMessage})` : ""}` });
-        return;
-      }
       await apiSend(`/api/accounts/${account.id}/${action}`, {
         body: JSON.stringify({
           username: account.username,
@@ -602,6 +600,7 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
       await api.action(`/api/accounts/${vault.id}/lock`);
       setMessage({ status: "ready", text: `${vault.label} locked.` });
     } catch (error) {
+      await api.refresh();
       setMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
     }
   }
@@ -640,7 +639,7 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
         <button className="primary full"><Vault size={16} aria-hidden="true" /> Add account</button>
       </form>
       <section className="panel formGrid accountAccessGrid">
-        <PanelTitle icon={KeyRound} title="Account Access" action="Status" onAction={() => void accountAccess("status")} />
+        <PanelTitle icon={KeyRound} title="Account Access" action="Refresh" onAction={() => void api.refresh()} />
         {selectedAccountIsBitwarden ? (
           <div className="notice compact wide">
             <strong>Bitwarden unlock flow</strong>
@@ -696,14 +695,7 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
         <label className="check"><input name="sso" checked={accessForm.sso} type="checkbox" onChange={(event) => setAccessForm((current) => ({ ...current, sso: event.target.checked }))} /> Login with SSO</label>
         <div className="buttonRow">
           <button type="button" className={selectedAccountIsBitwarden || verificationNeeded ? "primary" : undefined} onClick={() => void accountAccess("login")}><ShieldCheck size={16} /> {selectedAccountIsBitwarden ? "Terminal login / unlock" : verificationNeeded ? "Submit code and login" : "Login"}</button>
-          <button
-            type="button"
-            className={selectedAccountIsBitwarden || verificationNeeded ? undefined : "primary"}
-            disabled={unlockDisabledForVerification}
-            title={unlockDisabledForVerification ? "Submit the Bitwarden verification code with Login first." : undefined}
-            onClick={() => void accountAccess(selectedAccountIsBitwarden ? "status" : "unlock")}
-          >{selectedAccountIsBitwarden ? <RefreshCcw size={16} /> : <KeyRound size={16} />} {selectedAccountIsBitwarden ? "Check terminal status" : "Unlock"}</button>
-          {unlockDisabledForVerification ? <small className="buttonHint">Unlock is available after Bitwarden login finishes.</small> : null}
+          {!selectedAccountIsBitwarden ? <button type="button" className="primary" onClick={() => void accountAccess("unlock")}><KeyRound size={16} /> Unlock</button> : null}
         </div>
       </section>
       <section className="panel">
@@ -718,11 +710,11 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
                 </div>
                 <span>{vault.serverUrl ?? "Default server"}</span>
                 <Status value={titleStatus(vault.status)} />
-                <span>{vault.autoLockMinutes} min lock</span>
+                <span title="Auto-lock counts down from the account's last activity.">{formatAutoLockCountdown(vault, clockMs)}</span>
                 <div className="actions">
-                  <button type="button" aria-label={`Select ${vault.label}`} title="Select" onClick={() => selectVault(vault)}><KeyRound size={16} aria-hidden="true" /></button>
-                  <button type="button" aria-label={`Sync ${vault.label}`} title="Sync" onClick={() => void syncVault(vault)}><RefreshCcw size={16} aria-hidden="true" /></button>
-                  <button type="button" aria-label={`Lock ${vault.label}`} title="Lock" onClick={() => void lockVault(vault)}><Lock size={16} aria-hidden="true" /></button>
+                  <button type="button" aria-label={`Select ${vault.label} for account access`} title="Select for account access" onClick={() => selectVault(vault)}><KeyRound size={16} aria-hidden="true" /></button>
+                  <button type="button" aria-label={`Sync ${vault.label} from its provider`} title="Sync latest provider changes" onClick={() => void syncVault(vault)}><RefreshCcw size={16} aria-hidden="true" /></button>
+                  <button type="button" aria-label={`Lock ${vault.label} and remove its WardSen session`} title="Lock and remove WardSen session" onClick={() => void lockVault(vault)}><Lock size={16} aria-hidden="true" /></button>
                   <button type="button" aria-label={`Delete ${vault.label}`} title="Delete" onClick={() => void deleteVault(vault)}><Trash2 size={16} aria-hidden="true" /></button>
                 </div>
               </div>
@@ -732,6 +724,16 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
       </section>
     </div>
   );
+}
+
+function formatAutoLockCountdown(account: AccountRecord, nowMs: number): string {
+  if (account.status !== "unlocked") return `${account.autoLockMinutes} min lock`;
+  const lastActivityMs = Date.parse(account.lastActivity ?? account.updatedAt);
+  if (!Number.isFinite(lastActivityMs)) return `${account.autoLockMinutes} min lock`;
+  const remainingSeconds = Math.max(0, Math.ceil((lastActivityMs + account.autoLockMinutes * 60_000 - nowMs) / 1000));
+  const minutes = Math.floor(remainingSeconds / 60);
+  const seconds = String(remainingSeconds % 60).padStart(2, "0");
+  return remainingSeconds === 0 ? "Locking..." : `Locks in ${minutes}:${seconds}`;
 }
 
 function Credentials({ api }: { api: ReturnType<typeof useWardSenApi> }) {
@@ -1607,14 +1609,19 @@ function Deliveries({ api }: { api: ReturnType<typeof useWardSenApi> }) {
   );
 }
 
-function SettingsView({ providers, plannedProviders, capabilities }: { providers: ProviderInfo[]; plannedProviders: ProviderInfo[]; capabilities: Record<string, boolean> }) {
+function SettingsView({ providers, plannedProviders }: { providers: ProviderInfo[]; plannedProviders: ProviderInfo[] }) {
+  const [selectedProviderId, setSelectedProviderId] = useState("");
+  const selectedProvider = providers.find((provider) => provider.id === selectedProviderId) ?? providers[0];
+  const capabilities = selectedProvider?.capabilities ?? {};
   const deliveryCandidates = plannedProviders.filter((provider) => provider.kind === "delivery");
   return (
     <div className="grid">
       <section className="panel">
         <PanelTitle icon={Settings} title="Provider Capabilities" action="Refresh" />
         <div className="filters">
-          <select>{providers.map((provider) => <option key={provider.id}>{provider.displayName}</option>)}</select>
+          <select aria-label="Provider capability selection" value={selectedProvider?.id ?? ""} onChange={(event) => setSelectedProviderId(event.target.value)}>
+            {providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.displayName}</option>)}
+          </select>
         </div>
         <div className="capabilityGrid">
           {Object.entries(capabilities).map(([key, enabled]) => (

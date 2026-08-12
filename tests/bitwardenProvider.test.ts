@@ -24,6 +24,43 @@ describe("Bitwarden credential provider", () => {
     });
   });
 
+  it("reports a terminal-handoff session as unlocked without a second CLI status command", async () => {
+    const sessions = new AccountSessionManager();
+    const calls: CliCommandInput[] = [];
+    const provider = new BitwardenCredentialProvider({
+      profileRoot: "profiles",
+      sessions,
+      runCommand: async (input) => {
+        calls.push(input);
+        return ok(JSON.stringify({ status: "locked" }));
+      }
+    });
+
+    provider.acceptTerminalSessionHandoff("acct-1", "terminal-session");
+
+    await expect(provider.testConnection("acct-1")).resolves.toMatchObject({
+      ok: true,
+      status: "unlocked",
+      safeMessage: "WardSen session active"
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it("clears the local session when a Bitwarden lock command fails", async () => {
+    const sessions = new AccountSessionManager();
+    const provider = new BitwardenCredentialProvider({
+      profileRoot: "profiles",
+      sessions,
+      runCommand: async () => {
+        throw new Error("Bitwarden lock command failed");
+      }
+    });
+    sessions.markUnlocked("acct-1", "bitwarden", "terminal-session");
+
+    await expect(provider.lock("acct-1")).rejects.toThrow("Bitwarden lock command failed");
+    expect(() => sessions.getSessionToken("acct-1", "bitwarden")).toThrow();
+  });
+
   it("requires WardSen to initiate a terminal-only Bitwarden login", async () => {
     const calls: CliCommandInput[] = [];
     const provider = new BitwardenCredentialProvider({

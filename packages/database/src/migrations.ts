@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS accounts (
   server_url TEXT,
   profile_directory TEXT NOT NULL,
   account_type TEXT,
-  auto_lock_minutes INTEGER NOT NULL DEFAULT 15,
+  auto_lock_minutes INTEGER NOT NULL DEFAULT 5,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );

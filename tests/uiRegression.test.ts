@@ -78,21 +78,32 @@ describe("web UI regression guards", () => {
   it("turns Bitwarden verification prompts into an inline recovery step", () => {
     expect(webSource).toContain("verificationNeeded");
     expect(webSource).toContain("verificationCodeRef");
-    expect(webSource).toContain("unlockDisabledForVerification");
     expect(webSource).toContain("Submit code and login");
     expect(webSource).toContain("Terminal login / unlock");
     expect(webSource).toContain("WardSen never accepts this password.");
     expect(webSource).toContain("one-time local handoff authorization");
+    expect(webSource).toContain("WardSen will update this account automatically.");
+    expect(webSource).not.toContain("Check terminal status");
     expect(webSource).toContain("Code type");
     expect(webSource).toContain("Email / new-device code");
-    expect(webSource).toContain("Unlock is available after Bitwarden login finishes");
-    expect(webSource).toContain("disabled={unlockDisabledForVerification}");
     expect(webSource).toContain("Bitwarden is waiting for this code");
     expect(webSource).toContain("help.technicalDetail");
     expect(styles).toMatch(/\.attentionField\s*{/);
-    expect(styles).toMatch(/\.buttonHint\s*{/);
     expect(styles).toMatch(/\.fieldInstruction\s*{/);
     expect(styles).toMatch(/\.technicalDetail\s*{/);
+  });
+
+  it("updates Settings capabilities and explains vault control intents", () => {
+    expect(webSource).toContain("selectedProviderId");
+    expect(webSource).toContain("Provider capability selection");
+    expect(webSource).toContain("value={selectedProvider?.id ?? \"\"}");
+    expect(webSource).toContain("setSelectedProviderId(event.target.value)");
+    expect(webSource).toContain("Select for account access");
+    expect(webSource).toContain("Sync latest provider changes");
+    expect(webSource).toContain("Lock and remove WardSen session");
+    expect(webSource).toContain("formatAutoLockCountdown");
+    expect(webSource).toContain("Locks in ${minutes}:${seconds}");
+    expect(webSource).toContain("autoLockMinutes: \"5\"");
   });
 
   it("keeps delivery recipient copy aligned with the selected delivery mode", () => {
