@@ -38,7 +38,10 @@ describe("Tauri packaging config", () => {
     expect(rustLauncher).toContain("collect_child_output");
     expect(rustLauncher).toContain("WARDSEN_DATA_DIR");
     expect(rustLauncher).toContain("LOCALAPPDATA");
+    expect(rustLauncher).toContain("APPDATA");
     expect(rustLauncher).toContain("WardSen");
+    expect(rustLauncher).toContain("data_root_database_size");
+    expect(rustLauncher).toContain("dev.wardsen.desktop");
     expect(rustLauncher).toMatch(/tauri::generate_handler!\[[\s\S]*get_api_token[\s\S]*restart_local_service[\s\S]*local_service_status[\s\S]*\]/);
   });
 

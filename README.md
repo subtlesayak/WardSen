@@ -21,7 +21,8 @@ WardSen is an independent open-source project and is not affiliated with, endors
 - Bitwarden credential adapter through the official `bw` CLI
 - Bitwarden Send delivery adapter through the official `bw` CLI
 - KeePassXC credential adapter through `keepassxc-cli`
-- Provider-neutral scaffolds for 1Password, Proton Pass, Keeper and planned secure-link providers such as Ente Paste
+- Experimental Ente Paste manual handoff for one-time encrypted pastes
+- Provider-neutral scaffolds for 1Password, Proton Pass, Keeper and additional planned secure-link providers
 - SQLite metadata persistence with safe audit logs
 - Cross-origin mutation protection and user-facing error help
 - Windows and macOS setup helpers
@@ -53,8 +54,9 @@ This release contains:
 - Provider-neutral credential and delivery interfaces
 - Bitwarden credential adapter using the official `bw` CLI
 - Bitwarden Send delivery adapter using the official `bw` CLI
+- Ente Paste manual delivery handoff that copies credential text to the local clipboard, offers explicit cleanup, and returns only the Ente Paste page action
 - KeePassXC credential adapter using the official `keepassxc-cli`
-- Typed scaffolds for 1Password, Proton Pass, Keeper and planned delivery providers
+- Typed scaffolds for 1Password, Proton Pass, Keeper and additional planned delivery providers
 - Localhost-only Fastify API
 - React/Vite desktop administration interface
 - SQLite migration contract
@@ -69,7 +71,7 @@ This release contains:
 - Tests for sessions, view limits, people pagination, SQLite persistence and CLI behavior
 - Tauri desktop shell that starts the local API server in packaged builds
 - Visible app version label for release/debug screenshots
-- Release builds include SHA/build timestamp metadata and a `RELEASE-MANIFEST-*.json` asset for artifact provenance
+- Release builds include SHA/build timestamp metadata, `RELEASE-MANIFEST-*.json`, `WARDSEN-SBOM-*.json`, `PACKAGED-SMOKE-*.json` and signed-public-release `SIGNING-EVIDENCE-*.json` assets for artifact provenance
 - Release packaging verifies the checked-out tag, pins GitHub Actions dependencies, allows unsigned public RC MSI validation and blocks unsigned final public releases
 - RC release builds keep the MSI package version numeric while preserving the full RC tag in app/release metadata
 - Release checksum generation refuses stale mixed installer outputs unless maintainers point it at the exact fresh bundle folder
@@ -88,18 +90,21 @@ This release contains:
 - Packaged macOS builds look for `bw` in WardSen's local tools folder plus common package-manager paths such as `/opt/homebrew/bin/bw`, `/usr/local/bin/bw` and `/opt/local/bin/bw`
 - Bitwarden provider errors now include safe CLI details and timeout guidance instead of leaving login stuck on a generic loading state
 - Bitwarden first login is terminal-first: WardSen shows a same-profile Terminal or PowerShell command instead of asking for the Bitwarden password or OTP inside the app
-- Bitwarden terminal login runs visible provider prompts, captures the short-lived `bw unlock --raw` session into WardSen's local profile, then **Unlock from terminal session** consumes it and deletes the handoff file
+- Bitwarden terminal login runs visible provider prompts and transfers the short-lived `bw unlock --raw` session through a one-time authenticated localhost handoff held in memory only
 - Bitwarden terminal commands keep `bw login` intact in copyable error help while still redacting real secrets
 - Bitwarden terminal login commands are platform-aware: Windows gets PowerShell syntax, while macOS and Linux get zsh/bash syntax
 - Bitwarden terminal login avoids repeatedly burning email/new-device codes in hidden CLI prompts
 - macOS terminal login avoids zsh read-only variables and does not hide Bitwarden prompts inside shell command substitution
+- macOS terminal login now resolves `bw` before asking for the master password and checks WardSen's local tools folder plus common Homebrew/MacPorts paths
 - Bitwarden Send delivery uses the same isolated WardSen account profile as Vaults, checks the selected delivery account before creating links and tells users to unlock the account first when `bw` is not logged in
 - Requests view lets admins provision employee emails, publish requestable credential metadata, review requests and approve one-access delivery links only to the assigned employee email
 - Employee portal sign-in uses admin-issued one-time codes and hash-only session storage instead of employee passwords
 - Employee sign-in code handoff can prepare a sender-labelled email draft for the employee's assigned email without putting the code into a `mailto:` URL
 - Employee request replacements revoke the previous delivery and keep replacement count, previous delivery ID and latest replacement time on the original request
+- Emergency break-glass employee requests require exact server confirmation, justification and admin fulfillment before delivery
 - Employee request docs describe the employee-side catalog request flow and keep link access wording to "Ravi's link was viewed," not "Ravi viewed it"
 - Third-party provider and trademark policy documents that WardSen is independent, user-installed-provider-tool based and not endorsed by supported providers
+- Settings shows Ente Paste as an experimental manual handoff and keeps other secure-link provider candidates unavailable as functional providers until a real adapter passes conformance
 - macOS first-install docs cover the unsigned-prerelease `"WardSen" is damaged and can't be opened` Gatekeeper message
 - Windows and macOS prerequisite and desktop packaging scripts
 
@@ -155,10 +160,10 @@ Release users do not need the `WardSen` source folder, `npm ci`, Git, Rust or a 
 WardSen uses Bitwarden through the official `bw` command-line tool. Installing WardSen alone does not install `bw`.
 For first Bitwarden login, WardSen does not ask for your Bitwarden password, email code, authenticator code or YubiKey code inside the app. Select **Terminal login**, copy the same-profile terminal command, run it in your system terminal, and type those secrets only into Terminal or the official Bitwarden CLI prompts shown there.
 
-When the command finishes, return to WardSen and select **Unlock from terminal session**. WardSen reads the short-lived Bitwarden session from the same local profile and deletes the local handoff file. The command does not contain your password, verification code or session token.
+When the command finishes, WardSen receives the short-lived Bitwarden session through its one-time local handoff and updates the account automatically. The raw session is never written to a file, returned to the WardSen UI, stored in SQLite, or written to audit logs. The command does not contain your password or verification code; it contains a short-lived local handoff authorization that expires after five minutes and can be used once.
 
-On Windows, the command should start with `$env:BITWARDENCLI_APPDATA_DIR=` and include `$bwResult=bw login ... --raw`.
-On macOS and Linux, the command should start with `export BITWARDENCLI_APPDATA_DIR=`, run visible `bw login ...` prompts, and write the `bw unlock --raw` output into WardSen's `.wardsen-session-*` handoff file.
+On Windows, the command should start with `$env:BITWARDENCLI_APPDATA_DIR=` and submit the raw unlock output through `Invoke-WebRequest` directly to WardSen's localhost service.
+On macOS and Linux, the command should start with `export BITWARDENCLI_APPDATA_DIR=`, run visible `bw login ...` prompts, and pipe the raw `bw unlock --raw` output directly to WardSen's localhost service with `curl`.
 If the macOS app shows a command with `$env:` or `Remove-Item Env:`, install `v0.1.0-rc.29` or newer before trying terminal login. That is Windows PowerShell syntax and will not run correctly in macOS Terminal.
 If you see an older command containing `[REDACTED] login` or a quoted literal `'%LOCALAPPDATA%\WardSen\...'`, install `v0.1.0-rc.29` or newer before trying terminal login. Those older RC commands cannot import the login correctly.
 
@@ -253,7 +258,7 @@ apps/
               WardSen.app
 ```
 
-Upload only the installer artifacts to GitHub Releases. Do not ask users to download the full `target` folder, `bundle` folder, source checkout, `node_modules` or build cache directories.
+Upload only the installer artifacts plus their checksum, manifest, SBOM, packaged-smoke and signing evidence to GitHub Releases. Do not ask users to download the full `target` folder, `bundle` folder, source checkout, `node_modules` or build cache directories.
 
 ## Signing A Trusted Release
 
@@ -265,7 +270,7 @@ High-level signing path:
 2. Add the required GitHub Actions secrets for Windows and macOS signing.
 3. Set `MACOS_SIGNING_ENABLED=true` only after all Apple signing and notarization secrets are present.
 4. Run the `Release Installers` workflow for a new RC tag.
-5. Verify downloaded artifacts with `signtool`, `spctl`, `xcrun stapler` and the attached checksum files.
+5. Verify downloaded artifacts with `signtool`, `spctl`, `xcrun stapler`, the attached checksum files and `npm run release:verify-evidence`.
 6. Promote a final non-prerelease only after signed assets are attached and verified.
 
 See [installer signing](docs/installer-signing.md) for the exact secret names, local commands and GitHub Actions flow.

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   builtInProviderManifests,
+  verifyProviderManifestCatalog,
   verifyCredentialProviderConformance,
   verifyDeliveryProviderConformance
 } from "@wardsen/core";
@@ -52,11 +53,68 @@ describe("provider conformance", () => {
     expect(report).toEqual({ providerId: "bitwarden-send", kind: "delivery", passed: true, failures: [] });
   });
 
-  it("keeps secure-link candidates planned and disabled", () => {
-    for (const providerId of ["ente-paste", "password-pusher", "yopass", "onetime-secret", "onepassword-item-share"]) {
+  it("keeps secure-link candidates planned and disabled until they have a safe integration path", () => {
+    for (const providerId of ["password-pusher", "yopass", "onetime-secret", "onepassword-item-share"]) {
       const manifest = builtInProviderManifests.find((item) => item.id === providerId);
-      expect(manifest).toMatchObject({ id: providerId, kind: "delivery", maturity: "planned", enabledByDefault: false });
+      expect(manifest).toMatchObject({
+        id: providerId,
+        kind: "delivery",
+        maturity: "planned",
+        enabledByDefault: false,
+        delivery: expect.objectContaining({
+          secureLinkCreation: "unknown",
+          viewerIdentity: "unknown"
+        })
+      });
+      expect(manifest?.delivery?.promotionBlockedBy.length).toBeGreaterThan(0);
     }
+  });
+
+  it("enables Ente Paste only as an experimental manual handoff provider", () => {
+    const manifest = builtInProviderManifests.find((item) => item.id === "ente-paste");
+
+    expect(manifest).toMatchObject({
+      maturity: "experimental",
+      enabledByDefault: true,
+      documentationUrl: "https://paste.ente.com/",
+      delivery: {
+        integrationSurface: "web_only",
+        secureLinkCreation: "manual",
+        revoke: "unsupported",
+        statusLookup: "unsupported",
+        accessCount: "unsupported",
+        viewerIdentity: "unsupported",
+        promotionBlockedBy: expect.arrayContaining(["official API or CLI contract", "operator confirmation of browser-side one-time paste creation"])
+      }
+    });
+  });
+
+  it("passes Ente Paste conformance as an experimental manual delivery provider", async () => {
+    const manifest = builtInProviderManifests.find((item) => item.id === "ente-paste");
+    expect(manifest).toBeTruthy();
+
+    const report = await verifyDeliveryProviderConformance(new ManualEnteDeliveryProvider(), manifest!);
+
+    expect(report).toEqual({ providerId: "ente-paste", kind: "delivery", passed: true, failures: [] });
+  });
+
+  it("validates the provider manifest catalog before provider expansion", () => {
+    const report = verifyProviderManifestCatalog(builtInProviderManifests);
+
+    expect(report).toEqual({ providerId: "provider-catalog", kind: "delivery", passed: true, failures: [] });
+  });
+
+  it("requires active delivery providers to declare supported lifecycle metadata", async () => {
+    const manifest = builtInProviderManifests.find((item) => item.id === "bitwarden-send");
+    expect(manifest).toBeTruthy();
+
+    const report = await verifyDeliveryProviderConformance(new ConformantDeliveryProvider(), {
+      ...manifest!,
+      delivery: { ...manifest!.delivery!, revoke: "unknown" }
+    });
+
+    expect(report.passed).toBe(false);
+    expect(report.failures).toContain("Delivery readiness revoke must be supported when the capability is enabled");
   });
 });
 
@@ -100,7 +158,8 @@ class ConformantDeliveryProvider implements DeliveryProvider {
       accessPassword: true,
       hideText: true,
       revokeLink: true,
-      accessCount: true
+      accessCount: true,
+      statusLookup: true
     };
   }
   async testConnection(_accountId: string): Promise<ConnectionResult> {
@@ -112,5 +171,33 @@ class ConformantDeliveryProvider implements DeliveryProvider {
   async revoke(_accountId: string, _deliveryId: string): Promise<void> {}
   async getStatus(_accountId: string, deliveryId: string): Promise<DeliveryStatus> {
     return { deliveryId, status: "active" };
+  }
+}
+
+class ManualEnteDeliveryProvider extends ConformantDeliveryProvider {
+  readonly id = "ente-paste";
+  readonly displayName = "Ente Paste (manual)";
+  async getCapabilities(): Promise<DeliveryProviderCapabilities> {
+    return {
+      externalLinks: true,
+      recipientEmailRestriction: false,
+      arbitraryViewLimit: false,
+      viewOnce: true,
+      customExpiry: false,
+      accessPassword: false,
+      hideText: false,
+      revokeLink: false,
+      accessCount: false,
+      statusLookup: false
+    };
+  }
+  async createDelivery(input: CreateDeliveryInput): Promise<DeliveryResult> {
+    return { deliveryId: "ente-manual-1", url: "https://paste.ente.com/", expiresAt: input.expiresAt, viewLimit: 1, status: "handoff_pending" };
+  }
+  async revoke(_accountId: string, _deliveryId: string): Promise<void> {
+    throw new Error("unsupported");
+  }
+  async getStatus(_accountId: string, deliveryId: string): Promise<DeliveryStatus> {
+    return { deliveryId, status: "handoff_pending" };
   }
 }

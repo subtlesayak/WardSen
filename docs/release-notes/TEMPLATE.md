@@ -19,7 +19,7 @@ Provider setup:
 
 1. Install the provider tool you want to use, such as Bitwarden CLI `bw` or KeePassXC.
 2. If WardSen cannot find the tool, use the install button and copyable help shown in the app.
-3. For Bitwarden first login, use **Terminal login**, then return to WardSen and select **Unlock from terminal session**.
+3. For Bitwarden first login, use **Terminal login / unlock**, paste the copied command into Terminal or PowerShell, and wait for WardSen to update the account automatically.
 
 Optional verification:
 

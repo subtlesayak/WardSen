@@ -18,6 +18,7 @@
       "@wardsen/provider-bitwarden": ["./packages/provider-bitwarden/src/index.ts"],
       "@wardsen/provider-keepassxc": ["./packages/provider-keepassxc/src/index.ts"],
       "@wardsen/delivery-bitwarden-send": ["./packages/delivery-bitwarden-send/src/index.ts"],
+      "@wardsen/delivery-ente-paste": ["./packages/delivery-ente-paste/src/index.ts"],
       "@wardsen/provider-scaffolds": ["./packages/provider-scaffolds/src/index.ts"]
     }
   }

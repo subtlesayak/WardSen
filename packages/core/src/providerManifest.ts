@@ -1,5 +1,18 @@
 export type ProviderKind = "credential" | "delivery";
 export type ProviderMaturity = "active" | "experimental" | "planned";
+export type ProviderIntegrationSurface = "official_cli" | "official_api" | "self_hosted_api" | "web_only" | "unknown";
+export type ProviderSupportLevel = "supported" | "manual" | "unsupported" | "unknown";
+export type ViewerIdentitySupport = "provider_verified" | "recipient_link_only" | "unsupported" | "unknown";
+
+export interface DeliveryProviderReadiness {
+  integrationSurface: ProviderIntegrationSurface;
+  secureLinkCreation: ProviderSupportLevel;
+  revoke: ProviderSupportLevel;
+  statusLookup: ProviderSupportLevel;
+  accessCount: ProviderSupportLevel;
+  viewerIdentity: ViewerIdentitySupport;
+  promotionBlockedBy: string[];
+}
 
 export interface ProviderManifest {
   id: string;
@@ -10,6 +23,7 @@ export interface ProviderManifest {
   documentationUrl?: string;
   enabledByDefault: boolean;
   notes: string;
+  delivery?: DeliveryProviderReadiness;
 }
 
 export const builtInProviderManifests: ProviderManifest[] = [
@@ -41,17 +55,41 @@ export const builtInProviderManifests: ProviderManifest[] = [
     packageName: "@wardsen/delivery-bitwarden-send",
     documentationUrl: "https://bitwarden.com/help/send-cli/",
     enabledByDefault: true,
-    notes: "Supported delivery provider through Bitwarden Send."
+    notes: "Supported delivery provider through Bitwarden Send.",
+    delivery: {
+      integrationSurface: "official_cli",
+      secureLinkCreation: "supported",
+      revoke: "supported",
+      statusLookup: "supported",
+      accessCount: "supported",
+      viewerIdentity: "recipient_link_only",
+      promotionBlockedBy: []
+    }
   },
   {
     id: "ente-paste",
-    displayName: "Ente Paste",
+    displayName: "Ente Paste (manual)",
     kind: "delivery",
-    maturity: "planned",
-    packageName: "@wardsen/provider-scaffolds",
+    maturity: "experimental",
+    packageName: "@wardsen/delivery-ente-paste",
     documentationUrl: "https://paste.ente.com/",
-    enabledByDefault: false,
-    notes: "Candidate delivery provider only. The public page advertises private E2EE, one-time view and 24-hour auto-delete; do not enable until a supported API or CLI and provider status/revoke semantics pass conformance."
+    enabledByDefault: true,
+    notes: "Experimental manual handoff provider. WardSen copies the formatted credential to the local clipboard, offers an explicit local clipboard-clear action, returns an Ente Paste open action for the operator, and records a handoff-pending delivery. Public Ente Paste docs do not expose sender-visible status, revoke, access count, IP, device or user-agent telemetry.",
+    delivery: {
+      integrationSurface: "web_only",
+      secureLinkCreation: "manual",
+      revoke: "unsupported",
+      statusLookup: "unsupported",
+      accessCount: "unsupported",
+      viewerIdentity: "unsupported",
+      promotionBlockedBy: [
+        "official API or CLI contract",
+        "automated ciphertext upload contract",
+        "sender-visible status mapping",
+        "revoke semantics",
+        "operator confirmation of browser-side one-time paste creation"
+      ]
+    }
   },
   {
     id: "password-pusher",
@@ -61,7 +99,21 @@ export const builtInProviderManifests: ProviderManifest[] = [
     packageName: "@wardsen/provider-scaffolds",
     documentationUrl: "https://docs.pwpush.com/docs/api-v1/",
     enabledByDefault: false,
-    notes: "Candidate delivery provider only. Its documented API includes expiration and view controls; verify instance authentication, redaction, revoke behavior and access telemetry before implementation."
+    notes: "Candidate delivery provider only. Its documented API includes expiration and view controls; verify instance authentication, redaction, revoke behavior and access telemetry before implementation.",
+    delivery: {
+      integrationSurface: "official_api",
+      secureLinkCreation: "unknown",
+      revoke: "unknown",
+      statusLookup: "unknown",
+      accessCount: "unknown",
+      viewerIdentity: "unknown",
+      promotionBlockedBy: [
+        "trusted instance policy",
+        "authentication isolation",
+        "redacted error model",
+        "provider-specific conformance tests"
+      ]
+    }
   },
   {
     id: "yopass",
@@ -71,7 +123,21 @@ export const builtInProviderManifests: ProviderManifest[] = [
     packageName: "@wardsen/provider-scaffolds",
     documentationUrl: "https://github.com/jhaals/yopass",
     enabledByDefault: false,
-    notes: "Candidate self-hostable delivery provider only. Its official project documents browser encryption, one-time URLs, expiry and a CLI; verify deployment ownership and status/revoke semantics before implementation."
+    notes: "Candidate self-hostable delivery provider only. Its official project documents browser encryption, one-time URLs, expiry and a CLI; verify deployment ownership and status/revoke semantics before implementation.",
+    delivery: {
+      integrationSurface: "self_hosted_api",
+      secureLinkCreation: "unknown",
+      revoke: "unknown",
+      statusLookup: "unknown",
+      accessCount: "unknown",
+      viewerIdentity: "unknown",
+      promotionBlockedBy: [
+        "operator-controlled endpoint",
+        "status and revoke mapping",
+        "link-preview one-time access handling",
+        "provider-specific conformance tests"
+      ]
+    }
   },
   {
     id: "onetime-secret",
@@ -81,7 +147,21 @@ export const builtInProviderManifests: ProviderManifest[] = [
     packageName: "@wardsen/provider-scaffolds",
     documentationUrl: "https://docs.onetimesecret.com/en/rest-api/",
     enabledByDefault: false,
-    notes: "Candidate delivery provider only. Its official documentation describes REST API versions, TTL and burn operations; verify regional endpoint policy, sender-side status and revocation before implementation."
+    notes: "Candidate delivery provider only. Its official documentation describes REST API versions, TTL and burn operations; verify regional endpoint policy, sender-side status and revocation before implementation.",
+    delivery: {
+      integrationSurface: "official_api",
+      secureLinkCreation: "unknown",
+      revoke: "unknown",
+      statusLookup: "unknown",
+      accessCount: "unknown",
+      viewerIdentity: "unknown",
+      promotionBlockedBy: [
+        "regional endpoint policy",
+        "authentication and retention review",
+        "sender-visible status mapping",
+        "provider-specific conformance tests"
+      ]
+    }
   },
   {
     id: "onepassword-item-share",
@@ -91,7 +171,21 @@ export const builtInProviderManifests: ProviderManifest[] = [
     packageName: "@wardsen/provider-scaffolds",
     documentationUrl: "https://support.1password.com/share-items/",
     enabledByDefault: false,
-    notes: "Candidate delivery provider only. 1Password documents unique links, expiry and recipient restrictions in its apps and web product; do not infer a supported CLI/API adapter until one is documented."
+    notes: "Candidate delivery provider only. 1Password documents unique links, expiry and recipient restrictions in its apps and web product; do not infer a supported CLI/API adapter until one is documented.",
+    delivery: {
+      integrationSurface: "unknown",
+      secureLinkCreation: "unknown",
+      revoke: "unknown",
+      statusLookup: "unknown",
+      accessCount: "unknown",
+      viewerIdentity: "unknown",
+      promotionBlockedBy: [
+        "supported automation surface",
+        "recipient restriction automation",
+        "status and revoke mapping",
+        "provider-specific conformance tests"
+      ]
+    }
   },
   {
     id: "onepassword",

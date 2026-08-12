@@ -160,6 +160,25 @@ describe("people repository", () => {
     expect((await repo.listCredentialCatalog({ page: 1, pageSize: 10, employeeId: employee.id, employeeTeam: employee.team, employeeRole: employee.role })).items).toHaveLength(2);
     expect((await repo.listCredentialCatalog({ page: 1, pageSize: 10, employeeId: "employee-other", employeeTeam: "Finance", employeeRole: "Analyst" })).items).toHaveLength(0);
     expect(request).toMatchObject({ assignedEmail: "ravi@example.com", status: "pending", replacementCount: 0 });
+    const emergencyRequest = await repo.createCredentialAccessRequest({
+      employeeId: employee.id,
+      assignedEmail: employee.assignedEmail,
+      catalogEntryId: entry.id,
+      sourceProviderId: entry.sourceProviderId,
+      sourceAccountId: entry.sourceAccountId,
+      sourceItemId: entry.sourceItemId,
+      credentialName: entry.credentialName,
+      reason: "Production incident response",
+      status: "break_glass",
+      breakGlass: true,
+      breakGlassJustification: "Production incident needs immediate credential access",
+      breakGlassConfirmedAt: "2026-08-11T00:00:00.000Z"
+    });
+    expect(emergencyRequest).toMatchObject({
+      status: "break_glass",
+      breakGlass: true,
+      breakGlassJustification: "Production incident needs immediate credential access"
+    });
     await repo.updateCredentialAccessRequest(request.id, {
       deliveryId: "delivery-2",
       previousDeliveryId: "delivery-1",
@@ -205,5 +224,64 @@ describe("people repository", () => {
     await repo.updateEmployeeSession(session.id, { revokedAt: "revoked" });
     expect(await repo.getEmployeeSignInCodeByHash(employee.id, codeHash)).toMatchObject({ usedAt: "used" });
     expect(await repo.getEmployeeSessionByTokenHash(tokenHash)).toMatchObject({ revokedAt: "revoked" });
+  });
+
+  it("prunes expired employee auth artifacts without removing active records", async () => {
+    const repo = new InMemoryWardSenRepository();
+    const employee = await repo.upsertEmployee({
+      id: "employee-1",
+      name: "Ravi",
+      assignedEmail: "ravi@example.com"
+    });
+    const oldCodeHash = "c".repeat(64);
+    const activeCodeHash = "d".repeat(64);
+    const oldSessionHash = "s".repeat(64);
+    const revokedSessionHash = "r".repeat(64);
+    const activeSessionHash = "a".repeat(64);
+
+    await repo.createEmployeeSignInCode({
+      id: "old-code",
+      employeeId: employee.id,
+      assignedEmail: employee.assignedEmail,
+      codeHash: oldCodeHash,
+      expiresAt: "2020-01-02T00:00:00.000Z"
+    });
+    await repo.createEmployeeSignInCode({
+      id: "active-code",
+      employeeId: employee.id,
+      assignedEmail: employee.assignedEmail,
+      codeHash: activeCodeHash,
+      expiresAt: "2030-01-02T00:00:00.000Z"
+    });
+    await repo.createEmployeeSession({
+      id: "old-session",
+      employeeId: employee.id,
+      assignedEmail: employee.assignedEmail,
+      tokenHash: oldSessionHash,
+      expiresAt: "2020-01-02T00:00:00.000Z"
+    });
+    await repo.createEmployeeSession({
+      id: "revoked-session",
+      employeeId: employee.id,
+      assignedEmail: employee.assignedEmail,
+      tokenHash: revokedSessionHash,
+      expiresAt: "2030-01-02T00:00:00.000Z",
+      revokedAt: "2020-06-01T00:00:00.000Z"
+    });
+    await repo.createEmployeeSession({
+      id: "active-session",
+      employeeId: employee.id,
+      assignedEmail: employee.assignedEmail,
+      tokenHash: activeSessionHash,
+      expiresAt: "2030-01-02T00:00:00.000Z"
+    });
+
+    expect(await repo.pruneExpiredEmployeeSignInCodes("2021-01-01T00:00:00.000Z")).toBe(1);
+    expect(await repo.pruneExpiredEmployeeSessions("2021-01-01T00:00:00.000Z")).toBe(2);
+    expect(await repo.getEmployeeSignInCodeByHash(employee.id, oldCodeHash)).toBeUndefined();
+    expect(await repo.getEmployeeSignInCodeByHash(employee.id, activeCodeHash)).toMatchObject({ id: "active-code" });
+    expect(await repo.getEmployeeSessionByTokenHash(oldSessionHash)).toBeUndefined();
+    expect(await repo.getEmployeeSessionByTokenHash(revokedSessionHash)).toBeUndefined();
+    expect(await repo.getEmployeeSessionByTokenHash(activeSessionHash)).toMatchObject({ id: "active-session" });
   });
 });

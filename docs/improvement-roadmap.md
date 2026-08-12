@@ -22,6 +22,27 @@ WardSen should stabilize the existing local credential retrieval to provider-hos
 | **P2** | Improve database privacy, indexing and retention | Protects contact and audit metadata |
 | **P3** | Add additional providers | Only after the core safety gates pass |
 
+## Phase Progress
+
+Current percentages are implementation estimates as of 2026-08-12.
+
+| Phase | Area | Progress | Remaining headline |
+| --- | --- | ---: | --- |
+| 0 | Freeze Scope | 100% | Maintain release notes as scope changes |
+| 1 | Secret Minimization | 100% | Keep scans in release workflow |
+| 2 | Bitwarden Send Correctness | 98% | Run the opt-in real-provider create/status/revoke check |
+| 3 | Bulk Handoff Recovery | 100% | Maintain UI smoke coverage |
+| 4 | Account and Profile Isolation | 100% | Completed with managed-path and anti-link checks |
+| 5 | Auto-Lock and Session Safety | 100% | Completed with memory-only authenticated terminal handoff |
+| 6 | Crash-Safe Delivery Creation | 95% | Signed installed-app crash/recovery evidence on target machines |
+| 7 | Shared Contracts and UI Refactor | 100% | Completed for the local-first desktop workflow |
+| 8 | Viewer Attribution and Leak Mitigation | 100% | Completed with provider-supported evidence only |
+| 9 | Employee Credential Request Catalog | 100% | Completed with assigned-email, one-time-code employee access |
+| 10 | Release Engineering | 98% | Successful public GitHub provenance run |
+| 11 | Security Beta Hardening | 94% | Installed-app E2E execution on Windows and macOS |
+| 12 | Trusted Public Release | 58% | Real signing, notarization and target-machine lifecycle proof |
+| 13 | Provider Expansion | 68% | Automated Ente/API providers and packaged UI proof |
+
 ## Phase 0: Freeze Scope
 
 Goal: keep WardSen focused on one safe release path.
@@ -63,7 +84,7 @@ Deliverables:
 - Support Send access passwords through encoded JSON/stdin, not process arguments.
 - Distinguish `active`, `viewed`, `limit_reached`, `expired`, and `revoked`.
 - Add fake CLI tests for command arguments, redaction, malformed output, and revoke.
-- Add opt-in real Bitwarden CLI integration tests later.
+- Run the opt-in real Bitwarden CLI contract test from a disposable account. Set `WARDSEN_BITWARDEN_LIVE_TEST=true`, supply the account's current session through `WARDSEN_BITWARDEN_LIVE_SESSION`, and optionally set `WARDSEN_BITWARDEN_LIVE_PROFILE_DIR` for the isolated CLI profile. The test creates a disposable 15-minute, one-access Send, checks status, and revokes it in cleanup. It does not run in normal CI.
 
 Exit criteria:
 
@@ -114,11 +135,12 @@ Deliverables:
 - Defer lock only while active operations are running.
 - Lock on desktop shutdown.
 - Audit provider lock failures honestly.
-- Replace session-token file handoff with authenticated IPC later.
+- Replace session-token file handoff with authenticated IPC.
 
 Exit criteria:
 
 - Idle vaults lock on time without user/API activity.
+- Terminal login accepts only a one-time authenticated local handoff and never writes a raw session token to a file.
 
 ## Phase 6: Crash-Safe Delivery Creation
 
@@ -151,6 +173,8 @@ Exit criteria:
 
 - The frontend cannot silently drop server fields such as bulk result URLs again.
 
+Implementation completion: delivery, employee, catalog and request responses now have shared runtime contracts. Delivery history and employee access are isolated into feature modules, and regression coverage verifies malformed-response rejection, one-time handoff visibility, employee-only routing and safe external-handoff controls. A future full browser automation harness can extend this coverage, but it is not required for the local-first desktop workflow.
+
 ## Phase 8: Viewer Attribution and Leak Mitigation
 
 Goal: show which assigned link was accessed without overclaiming who or which device viewed it.
@@ -164,6 +188,7 @@ Deliverables:
 - Use one provider link per intended recipient.
 - Add a delivery-audit panel with per-recipient unique links, first viewed time, last checked time, access count, limit reached status, expired/revoked status, and one-click revoke for suspicious deliveries.
 - Add unexpected-access warnings and replacement-link workflow.
+- Persist the first provider-reported access time without rewriting it on later status checks.
 - Support provider-specific richer metadata only when the provider actually returns it and the privacy policy explains the collection.
 - Avoid hidden tracking, fingerprinting, or silent device/IP collection by default.
 
@@ -179,6 +204,12 @@ Leak signal:      Low, single access on intended per-recipient link
 ```
 
 This does not prove Asha personally opened the link. It proves that Asha's assigned link was accessed.
+
+Implementation completion: the delivery audit panel records `firstViewedAt` on the first status refresh that reports access, preserves it across later refreshes, and labels older records without that field as historical observations rather than inventing a time. Access events use `recipient_link` confidence and reject IP, device, user-agent or user fields unless an actual provider returns them with `provider_verified` confidence. Ente Paste manual handoffs remain `handoff_pending` because the provider does not expose sender-visible view status.
+
+Suspicious access signals now expose a guarded "Revoke link" action directly in the audit panel when the selected provider supports sender-side revocation. WardSen still submits the exact server-enforced delivery confirmation; the audit panel never bypasses that API safeguard.
+
+For suspicious bulk sends, WardSen also offers "Revoke batch links." It contains only the active links created in that same bulk batch, after an exact server-enforced confirmation phrase. It does not revoke unrelated later deliveries of the same credential.
 
 Future event model:
 
@@ -255,11 +286,12 @@ Current MVP status:
 - Implemented passwordless employee portal sessions with admin-issued one-time codes, code hashes and session-token hashes.
 - Implemented sender-labelled email draft handoff for employee sign-in codes without placing the one-time code into a `mailto:` URL.
 - Implemented request-bound replacement links that require `REPLACE REQUEST <id>`, revoke the previous delivery, and preserve replacement metadata on the original request.
-- Implemented a local Requests view for admin setup, employee sign-in, employee-side request submission and admin review in one desktop screen.
+- Implemented a local admin Requests view plus a separate request-only Employee Portal route (`?view=employee`) for employee sign-in, catalog access, request submission and session logout.
 - Implemented server-enforced catalog policy rules for exact employees, teams and roles.
 - Implemented conservative catalog auto-approval policies that can mark matching requests as `approved` while still requiring admin confirmation before delivery.
+- Implemented emergency break-glass request state with server-enforced confirmation, justification, audit metadata, admin/employee UI controls and persistence tests.
 - Documented the future employee portal flow in [Employee Credential Request Flow](employee-request-flow.md).
-- Remaining: separate hosted employee portal, SMTP/magic-link delivery or SSO/OIDC and emergency break-glass workflow.
+- Future integrations may add hosted deployment, SMTP, magic-link delivery or SSO/OIDC, but they must retain the current assigned-email, one-time-code and server authorization rules.
 
 Exit criteria:
 
@@ -282,6 +314,14 @@ Deliverables:
 - Embed version, tag, SHA, build timestamp, and schema version.
 - Add SBOM, checksums, and provenance.
 
+Current status:
+
+- Implemented exact-tag release checkout, `HEAD` versus tag verification, pinned workflow action SHAs, scoped workflow permissions, release-tag-derived Tauri versions, app release metadata, signing readiness gates, stale-artifact checksum refusal and release manifests.
+- Implemented per-platform SBOM generation before checksum manifesting for Windows, macOS Apple Silicon and macOS Intel release workflows.
+- Implemented formal GitHub artifact-attestation subject generation and evidence writing for every installer and SBOM on public repositories. The release verifier checks the attestation record against manifest hashes.
+- Hardened release-tag verification so a release build rejects an uncommitted or untracked checkout before it can emit artifacts.
+- Remaining: a successful public GitHub Actions attestation run for the intended release tag, plus the Phase 12 signing and lifecycle proof.
+
 Exit criteria:
 
 - A release named for a tag is built from exactly that tag.
@@ -299,6 +339,21 @@ Deliverables:
 - Add packaged Windows/macOS end-to-end tests.
 - Update threat model and ADRs.
 
+Current status:
+
+- Implemented bounded CLI execution with output caps and process-tree termination.
+- Implemented trusted absolute provider executable resolution with clear missing-tool setup errors.
+- Implemented secret non-persistence scans in the release checklist.
+- Implemented SQLite metadata constraints, indexes, audit retention pruning and confirmed pruning for expired employee sign-in code hashes plus expired or revoked employee session-token hashes.
+- Implemented a bounded packaged server smoke check that verifies Tauri resource wiring, bundled runtime presence, built server boot, desktop API token enforcement, built-in provider registration and temporary SQLite metadata writes.
+- Extended packaged smoke evidence to use a strict fresh data root, forcibly terminate the bundled server, restart it, and verify the one metadata-only account remains isolated and recoverable.
+- Release workflows upload `PACKAGED-SMOKE-<platform>.json` evidence for Windows, macOS Apple Silicon and macOS Intel builds.
+- Implemented update-safe data root recovery so desktop/server startup can preserve existing `wardsen.sqlite` account metadata and provider profiles when an app update changes the winning app-data path.
+- Updated the threat model, security design and ADR boundary for employee portal authorization, one-time-code/session hash retention, link-scoped attribution, data-root recovery and release-evidence limits.
+- Implemented operator-confirmed Windows MSI and macOS DMG lifecycle harnesses that write hash-bound evidence after a disposable-machine fresh install, upgrade, vault metadata preservation and uninstall test.
+- Remaining: execute those installed-app tests on Windows and macOS with actual signed release candidates.
+- The repeatable macOS operator handoff is in [macOS Testing Handoff](macos-testing-handoff.md); it separates bounded local smoke, opt-in disposable Bitwarden Send verification and signed-DMG lifecycle evidence.
+
 Exit criteria:
 
 - The core workflow survives failure, timeout, crash, and packaging tests without leaking secrets.
@@ -313,8 +368,17 @@ Deliverables:
 - macOS signing and notarization.
 - Signature verification after upload.
 - Install/upgrade/uninstall tests.
+- Verify vault accounts survive app updates and data-root migrations.
 - Public security policy.
 - No Gatekeeper/quarantine bypass as the normal user path.
+
+Current status:
+
+- Implemented signing-evidence generation after Windows Authenticode verification and macOS Developer ID/notarization verification.
+- Implemented `release:verify-evidence` so public releases fail unless installer, SBOM, packaged-smoke and signing-evidence artifacts match the release manifest and checksums.
+- Updated release workflows to upload `SIGNING-EVIDENCE-<platform>.json` and run release evidence verification before artifact upload.
+- Implemented hash-bound `INSTALL-LIFECYCLE-EVIDENCE-*.json` generation and optional fail-closed verification. It rejects lifecycle evidence that does not match the final manifest installer path, SHA-256 and size.
+- Remaining: configure real Windows and Apple signing credentials, produce signed/notarized installers on target release machines, run the disposable-machine lifecycle harnesses and verify the published provenance records.
 
 Exit criteria:
 
@@ -333,6 +397,16 @@ Deliverables:
 - Mark new providers experimental first.
 - Promote only after packaged tests pass.
 
+Current status:
+
+- Implemented structured delivery-provider readiness metadata in the provider manifest, including integration surface, status/revoke/access-count support, viewer-identity confidence and promotion blockers.
+- Exposed planned delivery candidates through `/api/providers` with readiness metadata while keeping them out of functional account and delivery-provider selectors.
+- Added a Settings candidate table so admins can see Ente Paste, Password Pusher, Yopass, Onetime Secret and 1Password item sharing as blocked candidates without overclaiming support.
+- Added conformance tests that require active delivery providers to declare supported lifecycle metadata and candidate delivery providers to list blockers.
+- Implemented Ente Paste as an experimental manual handoff provider: WardSen copies credential text to the local clipboard, returns the Ente Paste page as a handoff action, stores `handoff_pending` metadata only, disables bulk sends, and disables refresh/revoke/viewer telemetry that Ente Paste does not expose through public docs.
+- Implemented an explicit, server-backed local clipboard-clear action for Ente handoffs after the operator has created the browser-side paste. The audit record contains only the provider identifier.
+- Remaining: automated Ente Paste creation/status/revoke must wait for an official API or CLI contract; other provider adapters still need provider-specific tests, packaged UI evidence and lifecycle mapping before promotion.
+
 Exit criteria:
 
-- No partially implemented provider appears as functional.
+- No partially implemented provider appears as automated or fully functional.

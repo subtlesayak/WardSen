@@ -16,6 +16,11 @@ if (head !== tagCommit) {
   throw new Error(`Release checkout mismatch: HEAD ${head} does not equal ${tag} commit ${tagCommit}.`);
 }
 
+const dirtyPaths = git("status", "--porcelain", "--untracked-files=all");
+if (dirtyPaths) {
+  throw new Error(`Release checkout contains uncommitted changes. Commit or remove them before building ${tag}.`);
+}
+
 console.log(`Verified ${tag} at ${head}`);
 
 function git(...args) {

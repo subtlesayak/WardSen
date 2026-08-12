@@ -11,7 +11,13 @@ const bundleRoot = configuredBundleRoot
   : path.join(root, "apps", "desktop", "src-tauri", "target", "release", "bundle");
 const outputPath = path.join(bundleRoot, "SHA256SUMS.txt");
 const manifestPath = path.join(bundleRoot, "RELEASE-MANIFEST.json");
-const allowedExtensions = new Set([".exe", ".msi", ".dmg", ".zip"]);
+const installerExtensions = new Set([".exe", ".msi", ".dmg", ".zip"]);
+const sbomPattern = /^WARDSEN-SBOM(?:-[A-Za-z0-9._-]+)?\.json$/;
+const packagedSmokePattern = /^PACKAGED-SMOKE(?:-[A-Za-z0-9._-]+)?\.json$/;
+const signingEvidencePattern = /^SIGNING-EVIDENCE(?:-[A-Za-z0-9._-]+)?\.json$/;
+const provenanceSubjectsPattern = /^ATTESTATION-SUBJECTS(?:-[A-Za-z0-9._-]+)?\.txt$/;
+const provenanceEvidencePattern = /^PROVENANCE-EVIDENCE(?:-[A-Za-z0-9._-]+)?\.json$/;
+const installLifecycleEvidencePattern = /^INSTALL-LIFECYCLE-EVIDENCE(?:-[A-Za-z0-9._-]+)?\.json$/;
 
 if (!existsSync(bundleRoot)) {
   throw new Error(`Bundle folder does not exist: ${bundleRoot}`);
@@ -20,6 +26,9 @@ if (!existsSync(bundleRoot)) {
 const artifacts = findArtifacts(bundleRoot).sort((a, b) => a.localeCompare(b));
 if (artifacts.length === 0) {
   throw new Error(`No release artifacts found under ${bundleRoot}`);
+}
+if (!artifacts.some((artifact) => artifactKind(artifact) === "installer")) {
+  throw new Error(`No installer artifacts found under ${bundleRoot}`);
 }
 assertNoStaleMixedArtifacts(artifacts);
 
@@ -31,7 +40,7 @@ for (const artifact of artifacts) {
   const relative = path.relative(bundleRoot, artifact).replaceAll(path.sep, "/");
   const sizeBytes = statSync(artifact).size;
   lines.push(`${hash}  ${relative}`);
-  manifestArtifacts.push({ path: relative, sha256: hash, sizeBytes });
+  manifestArtifacts.push({ path: relative, sha256: hash, sizeBytes, kind: artifactKind(artifact) });
 }
 
 writeFileSync(outputPath, `${lines.join("\n")}\n`, "utf8");
@@ -58,11 +67,26 @@ function findArtifacts(dir) {
       results.push(...findArtifacts(fullPath));
       continue;
     }
-    if (entry.isFile() && allowedExtensions.has(path.extname(entry.name).toLowerCase())) {
+    if (entry.isFile() && isReleaseArtifact(entry.name)) {
       results.push(fullPath);
     }
   }
   return results;
+}
+
+function isReleaseArtifact(fileName) {
+  return installerExtensions.has(path.extname(fileName).toLowerCase()) || sbomPattern.test(fileName) || packagedSmokePattern.test(fileName) || signingEvidencePattern.test(fileName) || provenanceSubjectsPattern.test(fileName) || provenanceEvidencePattern.test(fileName) || installLifecycleEvidencePattern.test(fileName);
+}
+
+function artifactKind(filePath) {
+  const fileName = path.basename(filePath);
+  if (sbomPattern.test(fileName)) return "sbom";
+  if (packagedSmokePattern.test(fileName)) return "smoke";
+  if (signingEvidencePattern.test(fileName)) return "signing-evidence";
+  if (provenanceSubjectsPattern.test(fileName)) return "provenance-subjects";
+  if (provenanceEvidencePattern.test(fileName)) return "provenance-evidence";
+  if (installLifecycleEvidencePattern.test(fileName)) return "install-lifecycle-evidence";
+  return "installer";
 }
 
 function assertNoStaleMixedArtifacts(artifacts) {

@@ -39,7 +39,8 @@ export class BitwardenSendDeliveryProvider implements DeliveryProvider {
       accessPassword: true,
       hideText: true,
       revokeLink: true,
-      accessCount: true
+      accessCount: true,
+      statusLookup: true
     };
   }
 

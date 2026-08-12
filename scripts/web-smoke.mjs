@@ -9,8 +9,8 @@ const distRoot = path.join(root, "apps", "web", "dist");
 const outputRoot = path.resolve(root, process.env.WARDSEN_WEB_SMOKE_OUTPUT ?? path.join(os.tmpdir(), "wardsen-web-smoke"));
 const host = process.env.WARDSEN_WEB_SMOKE_HOST ?? "127.0.0.1";
 const port = Number(process.env.WARDSEN_WEB_SMOKE_PORT ?? 5177);
-const captureTimeoutMs = Number(process.env.WARDSEN_WEB_SMOKE_TIMEOUT_MS ?? 30_000);
-const httpOnly = process.env.WARDSEN_WEB_SMOKE_HTTP_ONLY === "1";
+const captureTimeoutMs = Number(process.env.WARDSEN_WEB_SMOKE_TIMEOUT_MS ?? 10_000);
+const httpOnly = process.env.WARDSEN_WEB_SMOKE_HTTP_ONLY === "1" || process.argv.includes("--http-only");
 const baseUrl = `http://${host}:${port}/`;
 
 if (!existsSync(path.join(distRoot, "index.html"))) {
@@ -29,7 +29,7 @@ try {
   if (httpOnly) {
     await assertHttpSmoke();
     console.log(`WardSen web HTTP smoke passed at ${baseUrl}`);
-    console.log("Browser screenshot capture skipped because WARDSEN_WEB_SMOKE_HTTP_ONLY=1.");
+    console.log("Browser screenshot capture skipped by the fast HTTP smoke mode.");
   } else {
     const chromePath = findChrome();
     const desktop = capture(chromePath, "desktop-1280x720.png", "1280,720");
@@ -114,32 +114,35 @@ function sendApi(apiPath, response) {
   const routes = {
     "/api/health": { ok: true, version: "0.1.0" },
     "/api/providers": {
-      providers: [
-        { id: "mock-source", label: "Mock Source", capabilities: ["source"], maturity: "stable", enabledByDefault: true },
-        { id: "bitwarden-send", label: "Bitwarden Send", capabilities: ["delivery"], maturity: "stable", enabledByDefault: true }
-      ],
+      credentialProviders: [{ id: "mock-source", displayName: "Mock Source" }],
+      deliveryProviders: [{ id: "bitwarden-send", displayName: "Bitwarden Send", capabilities: { statusLookup: true, revokeLink: true } }],
       plannedProviders: []
     },
     "/api/accounts": [{ id: "source", providerId: "mock-source", label: "Operations Vault", role: "source", status: "connected", lastCheckedAt: now }],
-    "/api/people": [{ id: "asha", name: "Asha", email: "asha@example.test", status: "active" }],
-    "/api/deliveries": [{
+    "/api/people": { items: [{ id: "asha", name: "Asha", email: "asha@example.test", active: true }], page: 1, pageSize: 50, total: 1 },
+    "/api/employees": { items: [], page: 1, pageSize: 100, total: 0 },
+    "/api/credential-catalog": { items: [], page: 1, pageSize: 100, total: 0 },
+    "/api/credential-requests": { items: [], page: 1, pageSize: 100, total: 0 },
+    "/api/deliveries": { items: [{
       id: "delivery-1",
       credentialName: "CMS Login",
-      credentialTitle: "CMS Login",
       personId: "asha",
-      personName: "Asha",
+      sourceProviderId: "mock-source",
+      sourceAccountId: "source",
+      sourceItemId: "cred-1",
+      deliveryProviderId: "bitwarden-send",
+      deliveryAccountId: "source",
+      createdAt: "2026-08-08T12:42:00.000Z",
       status: "viewed",
-      providerStatus: "viewed",
       accessCount: 1,
       viewLimit: 1,
       maxAccessCount: 1,
       firstViewedAt: "2026-08-08T13:12:00.000Z",
       lastCheckedAt: now,
       expiresAt: "2026-08-11T13:12:00.000Z",
-      providerDeliveryId: "send-asha",
-      handoffMethod: "Email draft opened"
-    }],
-    "/api/batches": [],
+      providerDeliveryId: "send-asha"
+    }], page: 1, pageSize: 50, total: 1 },
+    "/api/batches": { items: [], page: 1, pageSize: 10, total: 0 },
     "/api/audit-log": []
   };
 

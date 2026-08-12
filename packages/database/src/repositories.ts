@@ -122,6 +122,8 @@ export interface WardSenRepository {
   appendAuditLog(record: Omit<AuditLogRecord, "id" | "createdAt"> & { id?: string }): Promise<AuditLogRecord>;
   listAuditLog(query: PaginationInput): Promise<PaginatedResult<AuditLogRecord>>;
   pruneAuditLogBefore(cutoffIso: string): Promise<number>;
+  pruneExpiredEmployeeSignInCodes(cutoffIso: string): Promise<number>;
+  pruneExpiredEmployeeSessions(cutoffIso: string): Promise<number>;
 }
 
 export class InMemoryWardSenRepository implements WardSenRepository {
@@ -474,6 +476,24 @@ export class InMemoryWardSenRepository implements WardSenRepository {
       if (item.createdAt < cutoffIso) this.auditLog.delete(id);
     }
     return before - this.auditLog.size;
+  }
+
+  async pruneExpiredEmployeeSignInCodes(cutoffIso: string): Promise<number> {
+    const before = this.employeeSignInCodes.size;
+    for (const [id, item] of this.employeeSignInCodes) {
+      if (item.expiresAt < cutoffIso) this.employeeSignInCodes.delete(id);
+    }
+    return before - this.employeeSignInCodes.size;
+  }
+
+  async pruneExpiredEmployeeSessions(cutoffIso: string): Promise<number> {
+    const before = this.employeeSessions.size;
+    for (const [id, item] of this.employeeSessions) {
+      if (item.expiresAt < cutoffIso || (item.revokedAt !== undefined && item.revokedAt < cutoffIso)) {
+        this.employeeSessions.delete(id);
+      }
+    }
+    return before - this.employeeSessions.size;
   }
 }
 

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 BUNDLE_ROOT="${1:-apps/desktop/src-tauri/target/release/bundle}"
 APP_PATH="$BUNDLE_ROOT/macos/WardSen.app"
 
@@ -27,3 +29,9 @@ fi
 for dmg in "${dmg_files[@]}"; do
   xcrun stapler validate "$dmg"
 done
+
+WARDSEN_BUNDLE_ROOT="$BUNDLE_ROOT" \
+WARDSEN_SIGNING_PLATFORM="${WARDSEN_SIGNING_PLATFORM:-macos}" \
+WARDSEN_SIGNING_METHOD="${WARDSEN_SIGNING_METHOD:-developer-id-notarized}" \
+WARDSEN_SIGNING_VERIFIER="${WARDSEN_SIGNING_VERIFIER:-codesign/spctl/stapler}" \
+node "$ROOT/scripts/write-signing-evidence.mjs"

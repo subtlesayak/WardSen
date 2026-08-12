@@ -542,9 +542,9 @@ export class SqliteWardSenRepository implements WardSenRepository {
       INSERT INTO deliveries (
         id, operation_id, operation_fingerprint, policy_snapshot, provider_delivery_id, source_provider_id, source_account_id, source_item_id, delivery_provider_id,
         delivery_account_id, credential_name, person_id, batch_id, delivery_method, created_at, expires_at,
-        view_limit, access_count, status, revoked_at, last_checked_at
+        view_limit, access_count, status, revoked_at, first_viewed_at, last_checked_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       record.operationId ?? null,
@@ -566,6 +566,7 @@ export class SqliteWardSenRepository implements WardSenRepository {
       record.accessCount ?? null,
       record.status,
       record.revokedAt ?? null,
+      record.firstViewedAt ?? null,
       record.lastCheckedAt ?? null
     );
     return { ...record, id, createdAt };
@@ -601,7 +602,7 @@ export class SqliteWardSenRepository implements WardSenRepository {
     const updated = { ...deliveryFromRow(existing), ...patch };
     this.db.prepare(`
       UPDATE deliveries SET
-        operation_id = ?, operation_fingerprint = ?, policy_snapshot = ?, provider_delivery_id = ?, expires_at = ?, access_count = ?, status = ?, revoked_at = ?, last_checked_at = ?
+        operation_id = ?, operation_fingerprint = ?, policy_snapshot = ?, provider_delivery_id = ?, expires_at = ?, access_count = ?, status = ?, revoked_at = ?, first_viewed_at = ?, last_checked_at = ?
       WHERE id = ?
     `).run(
       updated.operationId ?? null,
@@ -612,6 +613,7 @@ export class SqliteWardSenRepository implements WardSenRepository {
       updated.accessCount ?? null,
       updated.status,
       updated.revokedAt ?? null,
+      updated.firstViewedAt ?? null,
       updated.lastCheckedAt ?? null,
       id
     );
@@ -703,6 +705,18 @@ export class SqliteWardSenRepository implements WardSenRepository {
 
   async pruneAuditLogBefore(cutoffIso: string): Promise<number> {
     const result = this.db.prepare("DELETE FROM audit_log WHERE created_at < ?").run(cutoffIso);
+    return Number(result.changes);
+  }
+
+  async pruneExpiredEmployeeSignInCodes(cutoffIso: string): Promise<number> {
+    const result = this.db.prepare("DELETE FROM employee_sign_in_codes WHERE expires_at < ?").run(cutoffIso);
+    return Number(result.changes);
+  }
+
+  async pruneExpiredEmployeeSessions(cutoffIso: string): Promise<number> {
+    const result = this.db
+      .prepare("DELETE FROM employee_sessions WHERE expires_at < ? OR (revoked_at IS NOT NULL AND revoked_at < ?)")
+      .run(cutoffIso, cutoffIso);
     return Number(result.changes);
   }
 
@@ -876,6 +890,7 @@ interface DeliveryRow {
   access_count: number | null;
   status: DeliveryRecord["status"];
   revoked_at: string | null;
+  first_viewed_at: string | null;
   last_checked_at: string | null;
 }
 
@@ -1051,6 +1066,7 @@ function deliveryFromRow(row: unknown): DeliveryRecord {
     accessCount: item.access_count ?? undefined,
     status: item.status,
     revokedAt: item.revoked_at ?? undefined,
+    firstViewedAt: item.first_viewed_at ?? undefined,
     lastCheckedAt: item.last_checked_at ?? undefined
   };
 }

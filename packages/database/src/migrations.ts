@@ -356,5 +356,44 @@ BEGIN
   SELECT RAISE(ABORT, 'invalid credential access request');
 END;
 `
+  },
+  {
+    id: "011_employee_auth_retention_indexes",
+    sql: `
+CREATE INDEX IF NOT EXISTS idx_employee_sessions_expiry ON employee_sessions(expires_at);
+CREATE INDEX IF NOT EXISTS idx_employee_sessions_revoked_at ON employee_sessions(revoked_at);
+`
+  },
+  {
+    id: "012_delivery_manual_handoff_status",
+    sql: `
+DROP TRIGGER IF EXISTS deliveries_validate_insert;
+DROP TRIGGER IF EXISTS deliveries_validate_update;
+
+CREATE TRIGGER IF NOT EXISTS deliveries_validate_insert
+BEFORE INSERT ON deliveries
+WHEN NEW.status NOT IN ('queued', 'creating', 'handoff_pending', 'active', 'viewed', 'limit_reached', 'expired', 'revoked', 'failed', 'cancelled')
+  OR (NEW.view_limit IS NOT NULL AND NEW.view_limit <= 0)
+  OR (NEW.access_count IS NOT NULL AND NEW.access_count < 0)
+BEGIN
+  SELECT RAISE(ABORT, 'invalid delivery metadata');
+END;
+
+CREATE TRIGGER IF NOT EXISTS deliveries_validate_update
+BEFORE UPDATE ON deliveries
+WHEN NEW.status NOT IN ('queued', 'creating', 'handoff_pending', 'active', 'viewed', 'limit_reached', 'expired', 'revoked', 'failed', 'cancelled')
+  OR (NEW.view_limit IS NOT NULL AND NEW.view_limit <= 0)
+  OR (NEW.access_count IS NOT NULL AND NEW.access_count < 0)
+BEGIN
+  SELECT RAISE(ABORT, 'invalid delivery metadata');
+END;
+`
+  },
+  {
+    id: "013_delivery_first_viewed_at",
+    sql: `
+ALTER TABLE deliveries ADD COLUMN first_viewed_at TEXT;
+CREATE INDEX IF NOT EXISTS idx_deliveries_first_viewed_at ON deliveries(first_viewed_at);
+`
   }
 ];

@@ -3,13 +3,8 @@ name: Build macOS Intel DMG
 on:
   workflow_dispatch:
     inputs:
-      ref:
-        description: "Branch, tag or commit to build, for example v0.1.0"
-        required: true
-        default: "main"
-        type: string
       release_tag:
-        description: "Existing GitHub release tag to attach artifacts to"
+        description: "Existing GitHub release tag to build and attach artifacts to"
         required: true
         default: "v0.1.0-rc.6"
         type: string
@@ -20,7 +15,9 @@ permissions:
 
 env:
   NODE_VERSION: "22"
+  RELEASE_TAG: ${{ inputs.release_tag }}
   VITE_WARDSEN_RELEASE_TAG: ${{ inputs.release_tag }}
+  VITE_WARDSEN_RELEASE_SCHEMA_VERSION: "1"
   WARDSEN_BUNDLE_ROOT: apps/desktop/src-tauri/target/x86_64-apple-darwin/release/bundle
 
 jobs:
@@ -28,13 +25,25 @@ jobs:
     name: Build macos-x64
     runs-on: macos-13
     permissions:
+      attestations: write
       contents: read
+      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ inputs.release_tag }}
+          fetch-depth: 0
           persist-credentials: false
+
+      - name: Verify release tag checkout
+        run: npm run release:verify-ref
+
+      - name: Capture release git SHA
+        run: |
+          sha="$(git rev-parse HEAD)"
+          echo "WARDSEN_RELEASE_SHA=$sha" >> "$GITHUB_ENV"
+          echo "VITE_WARDSEN_RELEASE_SHA=$sha" >> "$GITHUB_ENV"
 
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -50,6 +59,15 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Capture release build timestamp
+        run: |
+          timestamp="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          echo "WARDSEN_BUILD_TIMESTAMP=$timestamp" >> "$GITHUB_ENV"
+          echo "VITE_WARDSEN_BUILD_TIMESTAMP=$timestamp" >> "$GITHUB_ENV"
+
+      - name: Derive Tauri version from release tag
+        run: npm run release:set-tauri-version
 
       - name: Check TypeScript
         run: npm run check
@@ -92,6 +110,8 @@ jobs:
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           MACOS_SIGNING_ENABLED: ${{ vars.MACOS_SIGNING_ENABLED }}
+          WARDSEN_SIGNING_EVIDENCE_NAME: SIGNING-EVIDENCE-macos-x64.json
+          WARDSEN_SIGNING_PLATFORM: macos-x64
         run: |
           if [ "$MACOS_SIGNING_ENABLED" != "true" ]; then
             echo "MACOS_SIGNING_ENABLED is not true; leaving macOS Intel artifacts unsigned."
@@ -106,11 +126,51 @@ jobs:
       - name: Smoke macOS Intel DMG bundle
         run: ./installers/macos/smoke-macos-dmg.sh "$WARDSEN_BUNDLE_ROOT"
 
+      - name: Smoke packaged server bundle
+        env:
+          WARDSEN_PACKAGED_SMOKE_OUTPUT_DIR: ${{ env.WARDSEN_BUNDLE_ROOT }}
+          WARDSEN_PACKAGED_SMOKE_NAME: PACKAGED-SMOKE-macos-x64.json
+        run: npm run smoke:packaged
+
+      - name: Generate SBOM
+        env:
+          WARDSEN_SBOM_NAME: WARDSEN-SBOM-macos-x64.json
+        run: npm run release:sbom
+
+      - name: Prepare provenance subjects
+        env:
+          WARDSEN_PROVENANCE_SUBJECTS_NAME: ATTESTATION-SUBJECTS-macos-x64.txt
+        run: npm run release:provenance-subjects
+
+      - name: Attest installers and SBOM
+        id: provenance
+        if: github.event.repository.visibility == 'public'
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d
+        with:
+          subject-checksums: ${{ env.WARDSEN_BUNDLE_ROOT }}/ATTESTATION-SUBJECTS-macos-x64.txt
+
+      - name: Write provenance evidence
+        if: github.event.repository.visibility == 'public'
+        env:
+          WARDSEN_PROVENANCE_PLATFORM: macos-x64
+          WARDSEN_PROVENANCE_SUBJECTS_NAME: ATTESTATION-SUBJECTS-macos-x64.txt
+          WARDSEN_PROVENANCE_EVIDENCE_NAME: PROVENANCE-EVIDENCE-macos-x64.json
+          WARDSEN_PROVENANCE_ATTESTATION_ID: ${{ steps.provenance.outputs.attestation-id }}
+          WARDSEN_PROVENANCE_ATTESTATION_URL: ${{ steps.provenance.outputs.attestation-url }}
+        run: npm run release:write-provenance-evidence
+
       - name: Generate checksums
         run: npm run release:checksums
 
+      - name: Verify release evidence
+        env:
+          WARDSEN_PROVENANCE_REQUIRED: ${{ github.event.repository.visibility == 'public' && 'true' || 'false' }}
+        run: npm run release:verify-evidence
+
       - name: Rename checksum file
-        run: cp "$WARDSEN_BUNDLE_ROOT/SHA256SUMS.txt" "$WARDSEN_BUNDLE_ROOT/SHA256SUMS-macos-x64.txt"
+        run: |
+          cp "$WARDSEN_BUNDLE_ROOT/SHA256SUMS.txt" "$WARDSEN_BUNDLE_ROOT/SHA256SUMS-macos-x64.txt"
+          cp "$WARDSEN_BUNDLE_ROOT/RELEASE-MANIFEST.json" "$WARDSEN_BUNDLE_ROOT/RELEASE-MANIFEST-macos-x64.json"
 
       - name: Upload macOS Intel artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -119,6 +179,12 @@ jobs:
           path: |
             apps/desktop/src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
             apps/desktop/src-tauri/target/x86_64-apple-darwin/release/bundle/SHA256SUMS-*.txt
+            apps/desktop/src-tauri/target/x86_64-apple-darwin/release/bundle/RELEASE-MANIFEST-*.json
+            apps/desktop/src-tauri/target/x86_64-apple-darwin/release/bundle/WARDSEN-SBOM-*.json
+            apps/desktop/src-tauri/target/x86_64-apple-darwin/release/bundle/PACKAGED-SMOKE-*.json
+            apps/desktop/src-tauri/target/x86_64-apple-darwin/release/bundle/SIGNING-EVIDENCE-*.json
+            apps/desktop/src-tauri/target/x86_64-apple-darwin/release/bundle/ATTESTATION-SUBJECTS-*.txt
+            apps/desktop/src-tauri/target/x86_64-apple-darwin/release/bundle/PROVENANCE-EVIDENCE-*.json
           if-no-files-found: error
 
   attach:
@@ -145,4 +211,4 @@ jobs:
             echo "Release $RELEASE_TAG does not exist; leaving assets in workflow artifact wardsen-macos-x64."
             exit 0
           fi
-          find release-artifacts -type f \( -name "*.dmg" -o -name "SHA256SUMS-macos-x64.txt" \) -print0 | xargs -0 gh release upload "$RELEASE_TAG" --clobber
+          find release-artifacts -type f \( -name "*.dmg" -o -name "SHA256SUMS-macos-x64.txt" -o -name "RELEASE-MANIFEST-macos-x64.json" -o -name "WARDSEN-SBOM-macos-x64.json" -o -name "PACKAGED-SMOKE-macos-x64.json" -o -name "SIGNING-EVIDENCE-macos-x64.json" -o -name "ATTESTATION-SUBJECTS-macos-x64.txt" -o -name "PROVENANCE-EVIDENCE-macos-x64.json" \) -print0 | xargs -0 gh release upload "$RELEASE_TAG" --clobber

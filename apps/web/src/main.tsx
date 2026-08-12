@@ -19,9 +19,13 @@ import {
   Vault,
   X
 } from "lucide-react";
-import { parseBulkDeliveryResult, parseCreatedDeliveryRecord, type BulkDeliveryItemResultContract, type BulkDeliveryResultContract, type CreatedDeliveryRecordContract } from "@wardsen/contracts";
+import { parseBatchDeliveryRevokeResult, parseBulkDeliveryResult, parseCreatedDeliveryRecord, parseCredentialAccessRequestList, parseCredentialCatalogList, parseDeliveryList, parseDeliveryRecord, parseEmployeeList, parseTerminalSessionHandoffResponse, type BulkDeliveryItemResultContract, type BulkDeliveryResultContract, type CreatedDeliveryRecordContract, type DeliveryRecordContract } from "@wardsen/contracts";
 import { apiDownload, apiGet, apiSend, canRestartLocalService, copyExternalUrl, copyTextToClipboard, getLocalServiceStatus, openExternalUrl, openMailDraft, restartLocalService, type LocalServiceStatus } from "./api";
 import { describeError } from "./errorHelp";
+import { DeliveryAuditPanel } from "./deliveryAuditPanel";
+import { BatchDeliveryTable, BatchTable } from "./deliveryBatchTables";
+import { DeliveryHistoryTable, type DeliveryHistoryAction } from "./deliveryHistoryTable";
+import { EmployeePortalPage, isEmployeePortalView } from "./employeePortal";
 import { appReleaseMetadata, appVersion } from "./version";
 import "./styles.css";
 
@@ -31,7 +35,23 @@ type LoadState = "loading" | "ready" | "error";
 interface ProviderInfo {
   id: string;
   displayName: string;
-  capabilities: Record<string, boolean>;
+  kind?: string;
+  maturity?: string;
+  enabledByDefault?: boolean;
+  documentationUrl?: string;
+  notes?: string;
+  capabilities?: Record<string, boolean>;
+  delivery?: DeliveryReadiness;
+}
+
+interface DeliveryReadiness {
+  integrationSurface: string;
+  secureLinkCreation: string;
+  revoke: string;
+  statusLookup: string;
+  accessCount: string;
+  viewerIdentity: string;
+  promotionBlockedBy: string[];
 }
 
 interface AccountRecord {
@@ -55,28 +75,7 @@ interface PersonRecord {
   active: boolean;
 }
 
-interface DeliveryRecord {
-  id: string;
-  operationId?: string;
-  operationFingerprint?: string;
-  policySnapshot?: Record<string, unknown>;
-  providerDeliveryId?: string;
-  credentialName: string;
-  personId?: string;
-  sourceProviderId: string;
-  sourceAccountId: string;
-  deliveryProviderId: string;
-  deliveryAccountId: string;
-  batchId?: string;
-  deliveryMethod?: "copy" | "whatsapp" | "email";
-  createdAt: string;
-  expiresAt: string;
-  viewLimit?: number;
-  accessCount?: number;
-  status: string;
-  revokedAt?: string;
-  lastCheckedAt?: string;
-}
+type DeliveryRecord = DeliveryRecordContract;
 
 interface DeliveryBatchRecord {
   id: string;
@@ -164,12 +163,6 @@ interface BulkEmployeeProvisionResponse {
   skipped: Array<{ personId: string; reason: string; assignedEmail?: string; employeeId?: string }>;
 }
 
-interface EmployeePortalSession {
-  sessionToken: string;
-  expiresAt: string;
-  employee: EmployeeRecord;
-}
-
 type CreatedDeliveryRecord = CreatedDeliveryRecordContract;
 type BulkDeliveryResult = BulkDeliveryResultContract;
 type BulkDeliveryItemResult = BulkDeliveryItemResultContract;
@@ -210,6 +203,7 @@ interface ApiState {
   loadingMessage?: string;
   credentialProviders: ProviderInfo[];
   deliveryProviders: ProviderInfo[];
+  plannedProviders: ProviderInfo[];
   accounts: AccountRecord[];
   people: PersonRecord[];
   employees: EmployeeRecord[];
@@ -230,6 +224,7 @@ const navItems: Array<{ id: NavItem; icon: React.ElementType }> = [
 ];
 
 function App() {
+  if (isEmployeePortalView()) return <EmployeePortalPage />;
   const [active, setActive] = useState<NavItem>("Overview");
   const api = useWardSenApi();
   const deliveryProviderId = api.deliveryProviders[0]?.id ?? "bitwarden-send";
@@ -280,7 +275,7 @@ function App() {
         {active === "People" && <People api={api} />}
         {active === "Requests" && <RequestsView api={api} />}
         {active === "Deliveries" && <Deliveries api={api} />}
-        {active === "Settings" && <SettingsView providers={api.deliveryProviders} capabilities={deliveryCapabilities} />}
+        {active === "Settings" && <SettingsView providers={api.deliveryProviders} plannedProviders={api.plannedProviders} capabilities={deliveryCapabilities} />}
       </main>
     </div>
   );
@@ -291,6 +286,7 @@ function useWardSenApi() {
     status: "loading",
     credentialProviders: [],
     deliveryProviders: [],
+    plannedProviders: [],
     accounts: [],
     people: [],
     employees: [],
@@ -304,25 +300,29 @@ function useWardSenApi() {
     setState((current) => ({ ...current, status: "loading", error: undefined, loadingMessage: "Loading local WardSen data..." }));
     try {
       const [providers, accounts, people, employees, catalogEntries, credentialRequests, deliveries, batches] = await Promise.all([
-        apiGet<{ credentialProviders: ProviderInfo[]; deliveryProviders: ProviderInfo[] }>("/api/providers"),
+        apiGet<{ credentialProviders: ProviderInfo[]; deliveryProviders: ProviderInfo[]; plannedProviders: ProviderInfo[] }>("/api/providers"),
         apiGet<AccountRecord[]>("/api/accounts"),
         apiGet<{ items: PersonRecord[] }>("/api/people?page=1&pageSize=50"),
         apiGet<{ items: EmployeeRecord[] }>("/api/employees?page=1&pageSize=100"),
         apiGet<{ items: CredentialCatalogEntry[] }>("/api/credential-catalog?page=1&pageSize=100"),
         apiGet<{ items: CredentialAccessRequestRecord[] }>("/api/credential-requests?page=1&pageSize=100"),
-        apiGet<{ items: DeliveryRecord[] }>("/api/deliveries?page=1&pageSize=50"),
+        apiGet<unknown>("/api/deliveries?page=1&pageSize=50"),
         apiGet<{ items: DeliveryBatchRecord[] }>("/api/batches?page=1&pageSize=10")
       ]);
+      const parsedEmployees = parseEmployeeList(employees);
+      const parsedCatalogEntries = parseCredentialCatalogList(catalogEntries);
+      const parsedCredentialRequests = parseCredentialAccessRequestList(credentialRequests);
       setState({
         status: "ready",
         credentialProviders: providers.credentialProviders,
         deliveryProviders: providers.deliveryProviders,
+        plannedProviders: providers.plannedProviders,
         accounts,
         people: people.items,
-        employees: employees.items,
-        catalogEntries: catalogEntries.items,
-        credentialRequests: credentialRequests.items,
-        deliveries: deliveries.items,
+        employees: parsedEmployees.items,
+        catalogEntries: parsedCatalogEntries.items,
+        credentialRequests: parsedCredentialRequests.items,
+        deliveries: parseDeliveryList(deliveries).items,
         batches: batches.items,
         loadingMessage: undefined
       });
@@ -449,6 +449,7 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
     sso: false
   });
   const [verificationNeeded, setVerificationNeeded] = useState(false);
+  const [terminalHandoff, setTerminalHandoff] = useState<{ accountId: string; command: string; expiresAt: string }>();
   const verificationCodeRef = useRef<HTMLInputElement>(null);
   const [message, setMessage] = useState<{ status: "idle" | "loading" | "ready" | "error"; text?: string }>({ status: "idle" });
   const providerLabel = (id: string) => api.credentialProviders.find((provider) => provider.id === id)?.displayName ?? id;
@@ -460,6 +461,36 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
   useEffect(() => {
     if (verificationNeeded) verificationCodeRef.current?.focus();
   }, [verificationNeeded]);
+
+  useEffect(() => {
+    if (!terminalHandoff || terminalHandoff.accountId !== selectedAccount?.id) return;
+    let cancelled = false;
+    const checkStatus = async () => {
+      if (Date.now() >= Date.parse(terminalHandoff.expiresAt)) {
+        if (!cancelled) {
+          setTerminalHandoff(undefined);
+          setMessage({ status: "error", text: "The Terminal login command expired before WardSen received a session. Start Terminal login / unlock again." });
+        }
+        return;
+      }
+      try {
+        const result = await apiGet<{ ok: boolean; status: string }>(`/api/accounts/${terminalHandoff.accountId}/status`);
+        if (!cancelled && result.ok && result.status === "unlocked") {
+          setTerminalHandoff(undefined);
+          setMessage({ status: "ready", text: `${selectedAccount.label} unlocked from the terminal session.` });
+          void api.refresh();
+        }
+      } catch {
+        // The regular account-status action presents recoverable errors; this short poll stays quiet.
+      }
+    };
+    void checkStatus();
+    const timer = window.setInterval(() => void checkStatus(), 1500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [selectedAccount?.id, terminalHandoff]);
 
   async function createAccount(event: React.FormEvent) {
     event.preventDefault();
@@ -487,6 +518,10 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
     const account = selectedAccount;
     if (!account) {
       setMessage({ status: "error", text: "Create or select an account first." });
+      return;
+    }
+    if (action === "login" && account.providerId === "bitwarden") {
+      await beginBitwardenTerminalLogin(account);
       return;
     }
     setMessage({ status: "loading", text: `${titleStatus(action)} running for ${account.label}...` });
@@ -525,6 +560,69 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
     }
   }
 
+  async function beginBitwardenTerminalLogin(account: AccountRecord) {
+    setMessage({ status: "loading", text: `Preparing a one-time Terminal login command for ${account.label}...` });
+    try {
+      const response = parseTerminalSessionHandoffResponse(await apiSend(`/api/accounts/${account.id}/terminal-handoff`, {
+        body: JSON.stringify({ username: account.username, serverUrl: account.serverUrl, sso: accessForm.sso })
+      }));
+      setVerificationNeeded(false);
+      setTerminalHandoff({ accountId: account.id, ...response });
+      try {
+        await copyTextToClipboard(response.command);
+        setMessage({ status: "ready", text: "Terminal command copied. Paste and run it in Terminal or PowerShell, then type the Bitwarden password only in the Bitwarden prompt. WardSen will update this account automatically." });
+      } catch {
+        setMessage({ status: "ready", text: "Terminal command is ready below. Copy, paste and run it in Terminal or PowerShell, then type the Bitwarden password only in the Bitwarden prompt." });
+      }
+    } catch (error) {
+      setMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  function selectVault(vault: AccountRecord) {
+    setVerificationNeeded(false);
+    setTerminalHandoff(undefined);
+    setAccessForm((current) => ({ ...current, accountId: vault.id, verificationCode: "" }));
+    setMessage({ status: "ready", text: `${vault.label} selected for account access.` });
+  }
+
+  async function syncVault(vault: AccountRecord) {
+    setMessage({ status: "loading", text: `Sync running for ${vault.label}...` });
+    try {
+      await api.action(`/api/accounts/${vault.id}/sync`);
+      setMessage({ status: "ready", text: `${vault.label} synced.` });
+    } catch (error) {
+      setMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  async function lockVault(vault: AccountRecord) {
+    setMessage({ status: "loading", text: `Lock running for ${vault.label}...` });
+    try {
+      await api.action(`/api/accounts/${vault.id}/lock`);
+      setMessage({ status: "ready", text: `${vault.label} locked.` });
+    } catch (error) {
+      setMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  async function deleteVault(vault: AccountRecord) {
+    const confirm = `DELETE ACCOUNT ${vault.id}`;
+    const confirmed = await confirmDestructiveAction(confirm, `Delete vault account "${vault.label}"? This removes local account metadata.`);
+    if (!confirmed) {
+      setMessage({ status: "idle" });
+      return;
+    }
+    setMessage({ status: "loading", text: `Deleting ${vault.label}...` });
+    try {
+      await api.action(`/api/accounts/${vault.id}`, { method: "DELETE", body: JSON.stringify({ confirm }) });
+      setAccessForm((current) => ({ ...current, accountId: current.accountId === vault.id ? "" : current.accountId }));
+      setMessage({ status: "ready", text: `${vault.label} deleted.` });
+    } catch (error) {
+      setMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
   return (
     <div className="grid">
       {message.status === "error" && <ErrorNotice message={message.text} />}
@@ -541,12 +639,19 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
         <label>Auto-lock minutes<input name="autoLockMinutes" value={accountForm.autoLockMinutes} onChange={(event) => setAccountForm((current) => ({ ...current, autoLockMinutes: event.target.value }))} inputMode="numeric" /></label>
         <button className="primary full"><Vault size={16} aria-hidden="true" /> Add account</button>
       </form>
-      <section className="panel formGrid">
+      <section className="panel formGrid accountAccessGrid">
         <PanelTitle icon={KeyRound} title="Account Access" action="Status" onAction={() => void accountAccess("status")} />
         {selectedAccountIsBitwarden ? (
           <div className="notice compact wide">
             <strong>Bitwarden unlock flow</strong>
-            <span>Use <strong>Terminal login / unlock</strong>, type the Bitwarden password only in PowerShell or Terminal, then return here and select <strong>Unlock from terminal session</strong>.</span>
+            <span>Select <strong>Terminal login / unlock</strong>, paste the copied command into PowerShell or Terminal, and type the Bitwarden password only in Bitwarden's terminal prompt. WardSen unlocks automatically when the one-time handoff succeeds.</span>
+          </div>
+        ) : null}
+        {terminalHandoff && terminalHandoff.accountId === selectedAccount?.id ? (
+          <div className="notice compact wide terminalHandoffNotice" role="status" aria-live="polite">
+            <strong>Terminal command ready</strong>
+            <span>Expires {formatDate(terminalHandoff.expiresAt)}. The command contains a one-time local handoff authorization, not your Bitwarden password or session token.</span>
+            <CopyFeedbackButton value={terminalHandoff.command} label="Copy terminal command" copiedLabel="Terminal command copied" />
           </div>
         ) : null}
         <label>Account<select value={selectedAccount?.id ?? ""} onChange={(event) => {
@@ -555,8 +660,8 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
         }}>
           {api.accounts.map((account) => <option key={account.id} value={account.id}>{account.label}</option>)}
         </select></label>
-        <label>Password<input value={accessForm.password} onChange={(event) => setAccessForm((current) => ({ ...current, password: event.target.value }))} placeholder={selectedAccountIsBitwarden ? "Leave blank for terminal flow" : "Master password or database password"} type="password" />
-          {selectedAccountIsBitwarden ? <small className="fieldInstruction">The copied command runs Bitwarden login visibly, then asks for the Bitwarden password in Terminal to unlock WardSen's isolated profile. Type that password in Terminal, not in WardSen.</small> : null}
+        <label>{selectedAccountIsBitwarden ? "Bitwarden master password" : "Password"}<input value={selectedAccountIsBitwarden ? "" : accessForm.password} readOnly={selectedAccountIsBitwarden} onChange={(event) => setAccessForm((current) => ({ ...current, password: event.target.value }))} placeholder={selectedAccountIsBitwarden ? "Enter only in the Bitwarden Terminal prompt" : "Master password or database password"} type="password" />
+          {selectedAccountIsBitwarden ? <small className="fieldInstruction">WardSen never accepts this password. The copied command runs Bitwarden visibly and its own prompt accepts the password in Terminal or PowerShell.</small> : null}
         </label>
         {selectedAccountIsBitwarden && verificationNeeded ? (
           <label className={verificationNeeded ? "attentionField" : undefined}>Verification code
@@ -596,8 +701,8 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
             className={selectedAccountIsBitwarden || verificationNeeded ? undefined : "primary"}
             disabled={unlockDisabledForVerification}
             title={unlockDisabledForVerification ? "Submit the Bitwarden verification code with Login first." : undefined}
-            onClick={() => void accountAccess("unlock")}
-          ><KeyRound size={16} /> {selectedAccountIsBitwarden ? "Unlock from terminal session" : "Unlock"}</button>
+            onClick={() => void accountAccess(selectedAccountIsBitwarden ? "status" : "unlock")}
+          >{selectedAccountIsBitwarden ? <RefreshCcw size={16} /> : <KeyRound size={16} />} {selectedAccountIsBitwarden ? "Check terminal status" : "Unlock"}</button>
           {unlockDisabledForVerification ? <small className="buttonHint">Unlock is available after Bitwarden login finishes.</small> : null}
         </div>
       </section>
@@ -606,7 +711,7 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
         {api.accounts.length === 0 ? <EmptyState text="No vault accounts yet. Add one above to begin search and delivery." /> : (
           <div className="rows">
             {api.accounts.map((vault) => (
-              <div className="row" key={vault.id}>
+              <div className="row vaultRow" key={vault.id}>
                 <div>
                   <strong>{vault.label}</strong>
                   <span>{providerLabel(vault.providerId)} / {vault.username ?? "No username"}</span>
@@ -615,12 +720,10 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
                 <Status value={titleStatus(vault.status)} />
                 <span>{vault.autoLockMinutes} min lock</span>
                 <div className="actions">
-                  <button type="button" aria-label={`Select ${vault.label}`} title="Select" onClick={() => setAccessForm((current) => ({ ...current, accountId: vault.id }))}><KeyRound size={16} aria-hidden="true" /></button>
-                  <button type="button" aria-label={`Sync ${vault.label}`} title="Sync" onClick={() => api.action(`/api/accounts/${vault.id}/sync`)}><RefreshCcw size={16} aria-hidden="true" /></button>
-                  <button type="button" aria-label={`Lock ${vault.label}`} title="Lock" onClick={() => api.action(`/api/accounts/${vault.id}/lock`)}><Lock size={16} aria-hidden="true" /></button>
-                  <button type="button" aria-label={`Delete ${vault.label}`} title="Delete" onClick={() => void confirmDestructiveAction(`DELETE ACCOUNT ${vault.id}`, `Delete vault account "${vault.label}"? This removes local account metadata.`).then((confirmed) => {
-                    if (confirmed) void api.action(`/api/accounts/${vault.id}`, { method: "DELETE", body: JSON.stringify({ confirm: `DELETE ACCOUNT ${vault.id}` }) });
-                  })}><Trash2 size={16} aria-hidden="true" /></button>
+                  <button type="button" aria-label={`Select ${vault.label}`} title="Select" onClick={() => selectVault(vault)}><KeyRound size={16} aria-hidden="true" /></button>
+                  <button type="button" aria-label={`Sync ${vault.label}`} title="Sync" onClick={() => void syncVault(vault)}><RefreshCcw size={16} aria-hidden="true" /></button>
+                  <button type="button" aria-label={`Lock ${vault.label}`} title="Lock" onClick={() => void lockVault(vault)}><Lock size={16} aria-hidden="true" /></button>
+                  <button type="button" aria-label={`Delete ${vault.label}`} title="Delete" onClick={() => void deleteVault(vault)}><Trash2 size={16} aria-hidden="true" /></button>
                 </div>
               </div>
             ))}
@@ -706,7 +809,7 @@ function Credentials({ api }: { api: ReturnType<typeof useWardSenApi> }) {
         <div className="resultList">
           {search.status === "idle" && <EmptyState text="Run a search after unlocking a vault. Credential secrets stay on the backend." />}
           {search.status === "loading" && <EmptyState text="Searching unlocked vaults..." />}
-          {search.status === "ready" && search.items.length === 0 && lockedSelectedAccount && <EmptyState text={`Unlock ${lockedSelectedAccount.label} in Vaults > Account Access before searching credentials. For Bitwarden, use Terminal login, then Unlock from terminal session.`} />}
+          {search.status === "ready" && search.items.length === 0 && lockedSelectedAccount && <EmptyState text={`Unlock ${lockedSelectedAccount.label} in Vaults > Account Access before searching credentials. For Bitwarden, use Terminal login / unlock and wait for WardSen to update the account automatically.`} />}
           {search.status === "ready" && search.items.length === 0 && !lockedSelectedAccount && searchableAccounts.length === 0 && <EmptyState text="No unlocked vaults match this search filter. Go to Vaults > Account Access, unlock a vault, then search again." />}
           {search.status === "ready" && search.items.length === 0 && !lockedSelectedAccount && searchableAccounts.length > 0 && <EmptyState text="No credential summaries matched this search." />}
           {search.items.map((item) => (
@@ -866,18 +969,6 @@ function RequestsView({ api }: { api: ReturnType<typeof useWardSenApi> }) {
   const [bulkEmployeeForm, setBulkEmployeeForm] = useState<{ personIds: string[]; defaultTeam: string; defaultRole: string }>({ personIds: [], defaultTeam: "", defaultRole: "" });
   const [codeForm, setCodeForm] = useState({ employeeId: "", ttlMinutes: "15", senderEmail: "" });
   const [issuedCode, setIssuedCode] = useState<EmployeeSignInCodeResponse | undefined>();
-  const [portalSignInForm, setPortalSignInForm] = useState({ assignedEmail: "", code: "" });
-  const [portalSession, setPortalSession] = useState<EmployeePortalSession | undefined>();
-  const [portalCatalog, setPortalCatalog] = useState<CredentialCatalogEntry[]>([]);
-  const [portalRequests, setPortalRequests] = useState<CredentialAccessRequestRecord[]>([]);
-  const [portalRequestForm, setPortalRequestForm] = useState({
-    catalogEntryId: "",
-    reason: "",
-    ticketRef: "",
-    expectedDurationMinutes: "60",
-    breakGlass: false,
-    breakGlassJustification: ""
-  });
   const [catalogForm, setCatalogForm] = useState({
     sourceAccountId: "",
     sourceItemId: "",
@@ -912,7 +1003,7 @@ function RequestsView({ api }: { api: ReturnType<typeof useWardSenApi> }) {
     viewOnce: true,
     replacementReason: "Unexpected access or stale link"
   });
-  const [message, setMessage] = useState<{ status: "idle" | "loading" | "ready" | "error"; text?: string; url?: string }>({ status: "idle" });
+  const [message, setMessage] = useState<{ status: "idle" | "loading" | "ready" | "error"; text?: string; url?: string; delivery?: CreatedDeliveryRecord }>({ status: "idle" });
   const activeEmployees = api.employees.filter((employee) => employee.active);
   const employeePeople = api.people.filter((person) => person.active && person.email);
   const employeeEmails = new Set(api.employees.map((employee) => employee.assignedEmail));
@@ -927,9 +1018,15 @@ function RequestsView({ api }: { api: ReturnType<typeof useWardSenApi> }) {
   const codeEmployeeId = codeForm.employeeId || activeEmployees[0]?.id || "";
   const selectedRequestEmployee = activeEmployees.find((employee) => employee.id === requestForm.employeeId);
   const requestCatalog = api.catalogEntries.filter((entry) => entry.active && (!requestForm.employeeId || catalogEntryAllowsEmployee(entry, selectedRequestEmployee)));
-  const portalSelectedEntry = portalCatalog.find((entry) => entry.id === portalRequestForm.catalogEntryId);
+  const requestSelectedEntry = requestCatalog.find((entry) => entry.id === requestForm.catalogEntryId);
   const deliveryProviderId = approvalForm.deliveryProviderId || api.deliveryProviders[0]?.id || "";
   const deliveryAccountId = approvalForm.deliveryAccountId || api.accounts[0]?.id || "";
+  const selectedApprovalProvider = api.deliveryProviders.find((provider) => provider.id === deliveryProviderId);
+  const approvalCapabilities = selectedApprovalProvider?.capabilities ?? {};
+  const approvalManualHandoff = isManualHandoffProvider(selectedApprovalProvider);
+  const approvalExpiryValue = approvalCapabilities.customExpiry === false ? "24" : approvalForm.expiryHours;
+  const approvalViewLimitValue = approvalCapabilities.arbitraryViewLimit ? approvalForm.viewLimit : "";
+  const approvalViewOnceChecked = approvalCapabilities.viewOnce ? (approvalManualHandoff ? true : approvalForm.viewOnce) : false;
 
   async function saveEmployee(event: React.FormEvent) {
     event.preventDefault();
@@ -1017,7 +1114,6 @@ function RequestsView({ api }: { api: ReturnType<typeof useWardSenApi> }) {
         })
       });
       setIssuedCode(result);
-      setPortalSignInForm((current) => ({ ...current, assignedEmail: result.assignedEmail, code: "" }));
       setMessage({ status: "ready", text: result.emailDraft ? `Sign-in code issued and email draft prepared for ${result.assignedEmail}.` : `Sign-in code issued for ${result.assignedEmail}.` });
     } catch (error) {
       setMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
@@ -1034,89 +1130,6 @@ function RequestsView({ api }: { api: ReturnType<typeof useWardSenApi> }) {
         status: "ready",
         text: `Draft body copied. Send it to ${issuedCode.emailDraft.to} from ${issuedCode.emailDraft.senderEmail}.`
       });
-    } catch (error) {
-      setMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
-    }
-  }
-
-  async function employeePortalSignIn(event: React.FormEvent) {
-    event.preventDefault();
-    setMessage({ status: "loading", text: "Signing in employee..." });
-    try {
-      const session = await apiSend<EmployeePortalSession>("/api/employee-sessions", {
-        body: JSON.stringify({
-          assignedEmail: portalSignInForm.assignedEmail,
-          code: portalSignInForm.code
-        })
-      });
-      setPortalSession(session);
-      setPortalSignInForm({ assignedEmail: session.employee.assignedEmail, code: "" });
-      setMessage({ status: "ready", text: `${session.employee.name} signed in to the employee portal.` });
-      await loadEmployeePortal(session.sessionToken);
-    } catch (error) {
-      setMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
-    }
-  }
-
-  async function loadEmployeePortal(sessionToken = portalSession?.sessionToken) {
-    if (!sessionToken) return;
-    const headers = employeeSessionHeaders(sessionToken);
-    const [catalog, requests] = await Promise.all([
-      apiSend<{ items: CredentialCatalogEntry[] }>("/api/employee-portal/catalog?page=1&pageSize=100", { method: "GET", headers }),
-      apiSend<{ items: CredentialAccessRequestRecord[] }>("/api/employee-portal/credential-requests?page=1&pageSize=100", { method: "GET", headers })
-    ]);
-    setPortalCatalog(catalog.items);
-    setPortalRequests(requests.items);
-    setPortalRequestForm((current) => ({
-      ...current,
-      catalogEntryId: current.catalogEntryId && catalog.items.some((entry) => entry.id === current.catalogEntryId)
-        ? current.catalogEntryId
-        : catalog.items[0]?.id ?? ""
-    }));
-  }
-
-  async function submitEmployeePortalRequest(event: React.FormEvent) {
-    event.preventDefault();
-    if (!portalSession) {
-      setMessage({ status: "error", text: "Employee sign-in is required before requesting access." });
-      return;
-    }
-    setMessage({ status: "loading", text: "Submitting employee portal request..." });
-    try {
-      const response = await apiSend<CredentialAccessRequestCreateResponse>("/api/employee-portal/credential-requests", {
-        headers: employeeSessionHeaders(portalSession.sessionToken),
-        body: JSON.stringify({
-          catalogEntryId: portalRequestForm.catalogEntryId,
-          reason: portalRequestForm.reason,
-          ticketRef: portalRequestForm.ticketRef || undefined,
-          expectedDurationMinutes: Number(portalRequestForm.expectedDurationMinutes) || undefined
-        })
-      });
-      const { request, delivery, autoApproved } = normalizeAccessRequestResponse(response);
-      setPortalRequestForm((current) => ({ ...current, reason: "", ticketRef: "" }));
-      setMessage({
-        status: "ready",
-        text: autoApproved ? `Policy approved ${request.credentialName}; admin delivery confirmation is still required.` : `Employee request queued for ${request.credentialName}.`,
-        url: delivery?.oneTimeDeliveryUrl
-      });
-      await loadEmployeePortal(portalSession.sessionToken);
-      await api.refresh();
-    } catch (error) {
-      setMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
-    }
-  }
-
-  async function signOutEmployeePortal() {
-    if (!portalSession) return;
-    setMessage({ status: "loading", text: "Signing out employee..." });
-    try {
-      await apiSend("/api/employee-sessions/current/logout", {
-        headers: employeeSessionHeaders(portalSession.sessionToken)
-      });
-      setPortalSession(undefined);
-      setPortalCatalog([]);
-      setPortalRequests([]);
-      setMessage({ status: "ready", text: "Employee portal signed out." });
     } catch (error) {
       setMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
     }
@@ -1174,6 +1187,14 @@ function RequestsView({ api }: { api: ReturnType<typeof useWardSenApi> }) {
       setMessage({ status: "error", text: "Choose an active employee before submitting a credential request." });
       return;
     }
+    if (requestForm.breakGlass) {
+      if (!requestForm.breakGlassJustification.trim()) {
+        setMessage({ status: "error", text: "Break-glass requests require an emergency justification." });
+        return;
+      }
+      const credentialName = requestSelectedEntry?.credentialName ?? "selected credential";
+      if (!confirmBreakGlassSubmission(credentialName, assignedEmail)) return;
+    }
     setMessage({ status: "loading", text: "Submitting employee credential request..." });
     try {
       const response = await apiSend<CredentialAccessRequestCreateResponse>("/api/credential-requests", {
@@ -1183,15 +1204,17 @@ function RequestsView({ api }: { api: ReturnType<typeof useWardSenApi> }) {
           catalogEntryId: requestForm.catalogEntryId,
           reason: requestForm.reason,
           ticketRef: requestForm.ticketRef || undefined,
-          expectedDurationMinutes: Number(requestForm.expectedDurationMinutes) || undefined
+          expectedDurationMinutes: Number(requestForm.expectedDurationMinutes) || undefined,
+          ...breakGlassRequestPayload(requestForm, requestForm.catalogEntryId)
         })
       });
       const { request: accessRequest, delivery, autoApproved } = normalizeAccessRequestResponse(response);
-      setRequestForm((current) => ({ ...current, reason: "", ticketRef: "" }));
+      setRequestForm((current) => ({ ...current, reason: "", ticketRef: "", breakGlass: false, breakGlassJustification: "" }));
       setMessage({
         status: "ready",
-        text: autoApproved ? `Policy approved ${accessRequest.credentialName}; admin delivery confirmation is still required.` : `Request queued for ${accessRequest.credentialName}.`,
-        url: delivery?.oneTimeDeliveryUrl
+        text: accessRequest.breakGlass ? `Emergency break-glass request queued for ${accessRequest.credentialName}.` : autoApproved ? `Policy approved ${accessRequest.credentialName}; admin delivery confirmation is still required.` : `Request queued for ${accessRequest.credentialName}.`,
+        url: delivery?.oneTimeDeliveryUrl,
+        delivery
       });
       await api.refresh();
     } catch (error) {
@@ -1205,22 +1228,26 @@ function RequestsView({ api }: { api: ReturnType<typeof useWardSenApi> }) {
       return;
     }
     const action = accessRequest.status === "approved" ? "Fulfill" : "Approve";
-    const confirmed = window.confirm(`${action} ${accessRequest.credentialName} for ${accessRequest.assignedEmail}?\n\nWardSen will create a one-access email delivery link for this assigned employee email.`);
+    const confirmed = window.confirm(approvalConfirmationMessage(action, accessRequest, selectedApprovalProvider));
     if (!confirmed) return;
     setMessage({ status: "loading", text: `Approving ${accessRequest.credentialName}...` });
     try {
+      const deliveryOptions = deliveryOptionsForProvider(selectedApprovalProvider, approvalForm);
       const result = await apiSend<{ request: CredentialAccessRequestRecord; delivery: CreatedDeliveryRecord }>(`/api/credential-requests/${accessRequest.id}/approve`, {
         body: JSON.stringify({
           approver: approvalForm.approver || "WardSen admin",
           deliveryProviderId,
           deliveryAccountId,
-          expiresAt: new Date(Date.now() + (Number(approvalForm.expiryHours) || 24) * 3600000).toISOString(),
-          viewLimit: approvalForm.viewLimit || "1",
-          viewOnce: approvalForm.viewOnce,
+          ...deliveryOptions,
           confirmRiskSummary: true
         })
       });
-      setMessage({ status: "ready", text: `${result.request.credentialName} approved for ${result.request.assignedEmail}.`, url: result.delivery.oneTimeDeliveryUrl });
+      setMessage({
+        status: "ready",
+        text: deliveryMessage(`${result.request.credentialName} approved for ${result.request.assignedEmail}.`, result.delivery),
+        url: result.delivery.oneTimeDeliveryUrl,
+        delivery: result.delivery
+      });
       await api.refresh();
     } catch (error) {
       setMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
@@ -1236,24 +1263,28 @@ function RequestsView({ api }: { api: ReturnType<typeof useWardSenApi> }) {
       setMessage({ status: "error", text: "Only fulfilled requests with an existing delivery link can be replaced." });
       return;
     }
-    const confirmed = window.confirm(`Replace the delivery link for ${accessRequest.credentialName} and ${accessRequest.assignedEmail}?\n\nWardSen will revoke the previous link before creating a fresh one-access email delivery.`);
+    const confirmed = window.confirm(replacementConfirmationMessage(accessRequest, selectedApprovalProvider));
     if (!confirmed) return;
     setMessage({ status: "loading", text: `Replacing link for ${accessRequest.credentialName}...` });
     try {
+      const deliveryOptions = deliveryOptionsForProvider(selectedApprovalProvider, approvalForm);
       const result = await apiSend<{ request: CredentialAccessRequestRecord; delivery: CreatedDeliveryRecord }>(`/api/credential-requests/${accessRequest.id}/replacement-link`, {
         body: JSON.stringify({
           approver: approvalForm.approver || "WardSen admin",
           deliveryProviderId,
           deliveryAccountId,
-          expiresAt: new Date(Date.now() + (Number(approvalForm.expiryHours) || 24) * 3600000).toISOString(),
-          viewLimit: approvalForm.viewLimit || "1",
-          viewOnce: approvalForm.viewOnce,
+          ...deliveryOptions,
           replacementReason: approvalForm.replacementReason || "Unexpected access or stale link",
           confirmRiskSummary: true,
           confirm: `REPLACE REQUEST ${accessRequest.id}`
         })
       });
-      setMessage({ status: "ready", text: `Replacement link created for ${result.request.assignedEmail}.`, url: result.delivery.oneTimeDeliveryUrl });
+      setMessage({
+        status: "ready",
+        text: deliveryMessage(`Replacement link created for ${result.request.assignedEmail}.`, result.delivery),
+        url: result.delivery.oneTimeDeliveryUrl,
+        delivery: result.delivery
+      });
       await api.refresh();
     } catch (error) {
       setMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
@@ -1282,7 +1313,7 @@ function RequestsView({ api }: { api: ReturnType<typeof useWardSenApi> }) {
       {message.status !== "idle" && message.status !== "error" && (
         <div className="notice" role="status" aria-live="polite">
           {message.text}
-          {message.url ? <CopyFeedbackButton value={message.url} label="Copy approved link" copiedLabel="Approved link copied" /> : null}
+          {message.url ? <DeliveryLinkAction delivery={message.delivery} url={message.url} label="Copy approved link" copiedLabel="Approved link copied" /> : null}
         </div>
       )}
       <form className="panel formGrid" onSubmit={saveEmployee}>
@@ -1384,7 +1415,7 @@ function RequestsView({ api }: { api: ReturnType<typeof useWardSenApi> }) {
         <button className="primary full" disabled={!sourceAccountId}><KeyRound size={16} aria-hidden="true" /> Publish metadata</button>
       </form>
       <form className="panel formGrid" onSubmit={submitAccessRequest}>
-        <PanelTitle icon={Archive} title="Employee-Side Request" action="Refresh" onAction={api.refresh} />
+        <PanelTitle icon={Archive} title="Admin-Assisted Request" action="Refresh" onAction={api.refresh} />
         <label>Employee<select required value={requestForm.employeeId} onChange={(event) => {
           setRequestForm((current) => ({ ...current, employeeId: event.target.value, catalogEntryId: "" }));
         }}>
@@ -1399,46 +1430,18 @@ function RequestsView({ api }: { api: ReturnType<typeof useWardSenApi> }) {
         <label>Expected minutes<input inputMode="numeric" value={requestForm.expectedDurationMinutes} onChange={(event) => setRequestForm((current) => ({ ...current, expectedDurationMinutes: event.target.value }))} /></label>
         <label className="spanAll">Reason<textarea required value={requestForm.reason} onChange={(event) => setRequestForm((current) => ({ ...current, reason: event.target.value }))} placeholder="Emergency deploy rollback" /></label>
         <label>Ticket<input value={requestForm.ticketRef} onChange={(event) => setRequestForm((current) => ({ ...current, ticketRef: event.target.value }))} placeholder="Optional ticket" /></label>
+        <label className="inlineCheck spanAll"><input type="checkbox" checked={requestForm.breakGlass} onChange={(event) => setRequestForm((current) => ({ ...current, breakGlass: event.target.checked }))} /> Emergency break-glass request</label>
+        {requestForm.breakGlass ? (
+          <label className="spanAll attentionField">Emergency justification<textarea required value={requestForm.breakGlassJustification} onChange={(event) => setRequestForm((current) => ({ ...current, breakGlassJustification: event.target.value }))} placeholder="Why normal approval cannot wait; include incident or customer impact." />
+            <small className="fieldInstruction">Break-glass creates an audited emergency request and requires a final confirmation before submission. It does not deliver a credential without admin fulfillment.</small>
+          </label>
+        ) : null}
         <button className="primary full" disabled={!requestForm.employeeId || !requestForm.catalogEntryId}><Archive size={16} aria-hidden="true" /> Request access</button>
       </form>
-      {!portalSession ? (
-        <form className="panel formGrid" onSubmit={employeePortalSignIn}>
-          <PanelTitle icon={Lock} title="Employee Portal Sign-In" action="Refresh" onAction={api.refresh} />
-          <label>Assigned email<input required type="email" value={portalSignInForm.assignedEmail} onChange={(event) => setPortalSignInForm((current) => ({ ...current, assignedEmail: event.target.value }))} placeholder="ravi@example.com" /></label>
-          <label>One-time code<input required value={portalSignInForm.code} onChange={(event) => setPortalSignInForm((current) => ({ ...current, code: event.target.value }))} placeholder="Code" /></label>
-          <button className="primary full"><Lock size={16} aria-hidden="true" /> Sign in</button>
-        </form>
-      ) : (
-        <form className="panel formGrid" onSubmit={submitEmployeePortalRequest}>
-          <PanelTitle icon={Archive} title="Employee Portal Request" action="Sign out" onAction={() => void signOutEmployeePortal()} />
-          <label>Employee<input readOnly aria-readonly="true" value={`${portalSession.employee.name} / ${portalSession.employee.assignedEmail}`} /></label>
-          <label>Credential<select required value={portalRequestForm.catalogEntryId} onChange={(event) => setPortalRequestForm((current) => ({ ...current, catalogEntryId: event.target.value }))}>
-            <option value="">Choose credential metadata</option>
-            {portalCatalog.map((entry) => <option key={entry.id} value={entry.id}>{entry.credentialName} / {titleStatus(entry.riskTier)}</option>)}
-          </select></label>
-          <label>Expected minutes<input inputMode="numeric" value={portalRequestForm.expectedDurationMinutes} onChange={(event) => setPortalRequestForm((current) => ({ ...current, expectedDurationMinutes: event.target.value }))} /></label>
-          <label>Ticket<input value={portalRequestForm.ticketRef} onChange={(event) => setPortalRequestForm((current) => ({ ...current, ticketRef: event.target.value }))} placeholder="Optional ticket" /></label>
-          <label className="spanAll">Reason<textarea required value={portalRequestForm.reason} onChange={(event) => setPortalRequestForm((current) => ({ ...current, reason: event.target.value }))} placeholder="Emergency deploy rollback" /></label>
-          {portalSelectedEntry ? <small className="spanAll">Selected: {portalSelectedEntry.credentialName} / {portalSelectedEntry.domain ?? portalSelectedEntry.sourceAccountId}</small> : null}
-          <button className="primary full" disabled={!portalRequestForm.catalogEntryId}><Archive size={16} aria-hidden="true" /> Submit portal request</button>
-          <div className="table spanAll">
-            <div className="tableHead requests">
-              <span>Credential</span><span>Employee</span><span>Assigned email</span><span>Reason</span><span>Status</span><span>Actions</span>
-            </div>
-            {portalRequests.map((accessRequest) => (
-              <div className="tableRow requests" key={accessRequest.id}>
-                <strong>{accessRequest.credentialName}</strong>
-                <span>{portalSession.employee.name}</span>
-                <span>{accessRequest.assignedEmail}</span>
-                <span>{accessRequest.reason}</span>
-                <Status value={titleStatus(accessRequest.status)} />
-                <span>{accessRequest.ticketRef ?? formatDate(accessRequest.requestedAt)}</span>
-              </div>
-            ))}
-            {portalRequests.length === 0 ? <EmptyState text="No employee portal requests yet." /> : null}
-          </div>
-        </form>
-      )}
+      <section className="panel employeePortalLaunch">
+        <PanelTitle icon={Lock} title="Employee Portal" action="Open" onAction={() => window.location.assign(`${window.location.pathname}?view=employee`)} />
+        <p>Employees use their assigned email and an admin-issued one-time code in a separate request-only view. It never exposes the admin queue, vault accounts or raw credentials.</p>
+      </section>
       <section className="panel">
         <PanelTitle icon={Send} title="Admin Request Queue" action="Refresh" onAction={api.refresh} />
         <div className="filters">
@@ -1449,11 +1452,18 @@ function RequestsView({ api }: { api: ReturnType<typeof useWardSenApi> }) {
           <select aria-label="Approval delivery account" value={deliveryAccountId} onChange={(event) => setApprovalForm((current) => ({ ...current, deliveryAccountId: event.target.value }))}>
             {api.accounts.map((account) => <option key={account.id} value={account.id}>{account.label}</option>)}
           </select>
-          <input aria-label="Approval expiry hours" inputMode="numeric" value={approvalForm.expiryHours} onChange={(event) => setApprovalForm((current) => ({ ...current, expiryHours: event.target.value }))} placeholder="Hours" />
-          <input aria-label="Approval view limit" inputMode="numeric" value={approvalForm.viewLimit} onChange={(event) => setApprovalForm((current) => ({ ...current, viewLimit: event.target.value }))} placeholder="Views" />
+          <input aria-label="Approval expiry hours" inputMode="numeric" value={approvalExpiryValue} disabled={approvalCapabilities.customExpiry === false} onChange={(event) => setApprovalForm((current) => ({ ...current, expiryHours: event.target.value }))} placeholder="Hours" />
+          <input aria-label="Approval view limit" inputMode="numeric" value={approvalViewLimitValue} disabled={!approvalCapabilities.arbitraryViewLimit} onChange={(event) => setApprovalForm((current) => ({ ...current, viewLimit: event.target.value }))} placeholder={approvalCapabilities.arbitraryViewLimit ? "Views" : "Provider fixed"} />
           <input aria-label="Replacement reason" value={approvalForm.replacementReason} onChange={(event) => setApprovalForm((current) => ({ ...current, replacementReason: event.target.value }))} placeholder="Replacement reason" />
-          <label className="inlineCheck"><input type="checkbox" checked={approvalForm.viewOnce} onChange={(event) => setApprovalForm((current) => ({ ...current, viewOnce: event.target.checked }))} /> One access</label>
+          <label className="inlineCheck"><input type="checkbox" checked={approvalViewOnceChecked} disabled={!approvalCapabilities.viewOnce || approvalManualHandoff} onChange={(event) => setApprovalForm((current) => ({ ...current, viewOnce: event.target.checked }))} /> One access</label>
         </div>
+        {approvalManualHandoff ? (
+          <div className="riskSummary">
+            <strong>Ente Paste approval handoff</strong>
+            <span>WardSen copies the credential text to the local clipboard and records handoff pending. Open Ente Paste, create the one-time link there, then send Ente's generated link to the assigned employee email.</span>
+            <span>WardSen cannot verify Ente views, access counts, IP/device details, or revoke Ente Paste links.</span>
+          </div>
+        ) : null}
         {api.credentialRequests.length === 0 ? <EmptyState text="No credential requests yet." /> : (
           <div className="table">
             <div className="tableHead requests">
@@ -1464,15 +1474,16 @@ function RequestsView({ api }: { api: ReturnType<typeof useWardSenApi> }) {
                 <div>
                   <strong>{accessRequest.credentialName}</strong>
                   <span>{accessRequest.ticketRef ?? formatDate(accessRequest.requestedAt)}</span>
+                  {accessRequest.breakGlass ? <span>Emergency break-glass / {accessRequest.breakGlassConfirmedAt ? formatDate(accessRequest.breakGlassConfirmedAt) : "confirmed"}</span> : null}
                   {(accessRequest.replacementCount ?? 0) > 0 ? <span>{accessRequest.replacementCount} replacement{accessRequest.replacementCount === 1 ? "" : "s"} / previous {accessRequest.previousDeliveryId ?? "link"}</span> : null}
                 </div>
                 <span>{employeeLabel(api.employees, accessRequest.employeeId)}</span>
                 <span>{accessRequest.assignedEmail}</span>
-                <span>{accessRequest.reason}</span>
+                <span>{accessRequest.breakGlassJustification ?? accessRequest.reason}</span>
                 <Status value={titleStatus(accessRequest.status)} />
                 <div className="actions">
                   <button type="button" disabled={accessRequest.status !== "pending" && accessRequest.status !== "approved"} onClick={() => void approveRequest(accessRequest)}><Send size={15} aria-hidden="true" /> {accessRequest.status === "approved" ? "Fulfill" : "Approve"}</button>
-                  <button type="button" disabled={accessRequest.status !== "fulfilled" || !accessRequest.deliveryId} onClick={() => void replaceRequestLink(accessRequest)}><RotateCcw size={15} aria-hidden="true" /> Replace</button>
+                  <button type="button" disabled={accessRequest.status !== "fulfilled" || !accessRequest.deliveryId || (accessRequest.deliveryProviderId ? !deliveryProviderSupports(api.deliveryProviders, accessRequest.deliveryProviderId, "revokeLink") : false)} onClick={() => void replaceRequestLink(accessRequest)}><RotateCcw size={15} aria-hidden="true" /> Replace</button>
                   <button type="button" disabled={accessRequest.status !== "pending" && accessRequest.status !== "approved"} onClick={() => void denyRequest(accessRequest)}><X size={15} aria-hidden="true" /> Deny</button>
                   {accessRequest.deliveryId ? <button type="button" aria-label={`Copy delivery ID for ${accessRequest.credentialName}`} title="Copy delivery ID" onClick={() => navigator.clipboard?.writeText(accessRequest.deliveryId ?? "")}><Copy size={15} aria-hidden="true" /></button> : null}
                 </div>
@@ -1490,14 +1501,74 @@ function Deliveries({ api }: { api: ReturnType<typeof useWardSenApi> }) {
     status: "idle",
     deliveries: []
   });
+  const [auditMessage, setAuditMessage] = useState<{ status: "idle" | "loading" | "ready" | "error"; text?: string }>({ status: "idle" });
 
   async function loadBatch(batchId: string) {
     setBatchDetails({ status: "loading", batchId, deliveries: [] });
     try {
-      const result = await apiGet<{ items: DeliveryRecord[] }>(`/api/deliveries?batchId=${encodeURIComponent(batchId)}&page=1&pageSize=100`);
+      const result = parseDeliveryList(await apiGet<unknown>(`/api/deliveries?batchId=${encodeURIComponent(batchId)}&page=1&pageSize=100`));
       setBatchDetails({ status: "ready", batchId, deliveries: result.items });
     } catch (error) {
       setBatchDetails({ status: "error", batchId, deliveries: [], error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  async function revokeSuspiciousDelivery(delivery: DeliveryRecord) {
+    if (!deliveryProviderSupports(api.deliveryProviders, delivery.deliveryProviderId, "revokeLink")) {
+      setAuditMessage({ status: "error", text: `${delivery.deliveryProviderId} does not expose sender-side revoke through WardSen.` });
+      return;
+    }
+    const confirm = `REVOKE DELIVERY ${delivery.id}`;
+    const confirmed = await confirmDestructiveAction(confirm, `Revoke the suspicious provider link for "${delivery.credentialName}"? Recipients may lose access immediately.`);
+    if (!confirmed) return;
+
+    setAuditMessage({ status: "loading", text: `Revoking ${delivery.credentialName}...` });
+    try {
+      const revoked = parseDeliveryRecord(await apiSend<unknown>(`/api/deliveries/${delivery.id}`, {
+        method: "DELETE",
+        body: JSON.stringify({ confirm })
+      }));
+      setAuditMessage({ status: "ready", text: `${delivery.credentialName}: ${titleStatus(revoked.status)}.` });
+      await api.refresh();
+    } catch (error) {
+      setAuditMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  async function containSuspiciousBatch(delivery: DeliveryRecord) {
+    if (!delivery.batchId) return;
+    if (!deliveryProviderSupports(api.deliveryProviders, delivery.deliveryProviderId, "revokeLink")) {
+      setAuditMessage({ status: "error", text: `${delivery.deliveryProviderId} does not expose sender-side revoke through WardSen.` });
+      return;
+    }
+    const confirm = `REVOKE BATCH LINKS ${delivery.batchId}`;
+    const confirmed = await confirmDestructiveAction(confirm, `Revoke every active provider link created in this batch for "${delivery.credentialName}"? Every recipient in the batch may lose access immediately.`);
+    if (!confirmed) return;
+
+    setAuditMessage({ status: "loading", text: `Revoking active links in batch ${delivery.batchId}...` });
+    try {
+      const result = parseBatchDeliveryRevokeResult(await apiSend<unknown>(`/api/deliveries/${delivery.id}/revoke-batch`, {
+        method: "POST",
+        body: JSON.stringify({ confirm })
+      }));
+      const summary = `Revoked ${result.revokedCount} batch link${result.revokedCount === 1 ? "" : "s"}; ${result.inactiveCount} already inactive.`;
+      setAuditMessage(result.failed.length
+        ? { status: "error", text: `${summary} ${result.failed.length} link revoke${result.failed.length === 1 ? " failed" : "s failed"}; review the local audit log.` }
+        : { status: "ready", text: summary });
+      await api.refresh();
+    } catch (error) {
+      setAuditMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  async function cancelBatch(batch: DeliveryBatchRecord) {
+    const confirm = `CANCEL BATCH ${batch.id}`;
+    const confirmed = await confirmDestructiveAction(confirm, `Cancel batch ${batch.id}? Any queued work for this batch will stop.`);
+    if (!confirmed) return;
+    try {
+      await api.action(`/api/batches/${batch.id}/cancel`, { body: JSON.stringify({ confirm }) });
+    } catch (error) {
+      setAuditMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
     }
   }
 
@@ -1505,7 +1576,16 @@ function Deliveries({ api }: { api: ReturnType<typeof useWardSenApi> }) {
     <div className="grid">
       <section className="panel">
         <PanelTitle icon={ShieldCheck} title="Delivery Audit" action="Refresh" onAction={api.refresh} />
-        <DeliveryAuditPanel deliveries={api.deliveries} people={api.people} />
+        {auditMessage.status === "error" ? <ErrorNotice message={auditMessage.text} compact /> : null}
+        {auditMessage.status === "loading" || auditMessage.status === "ready" ? <div className="notice compact" role="status" aria-live="polite">{auditMessage.text}</div> : null}
+        <DeliveryAuditPanel
+          deliveries={api.deliveries}
+          people={api.people}
+          canRevoke={(delivery) => deliveryProviderSupports(api.deliveryProviders, delivery.deliveryProviderId, "revokeLink")}
+          onRevoke={(delivery) => void revokeSuspiciousDelivery(delivery)}
+          canContainBatch={(delivery) => Boolean(delivery.batchId) && deliveryProviderSupports(api.deliveryProviders, delivery.deliveryProviderId, "revokeLink")}
+          onContainBatch={(delivery) => void containSuspiciousBatch(delivery)}
+        />
       </section>
       <section className="panel">
         <PanelTitle icon={Send} title="Delivery History" action="Refresh" onAction={api.refresh} />
@@ -1513,7 +1593,7 @@ function Deliveries({ api }: { api: ReturnType<typeof useWardSenApi> }) {
       </section>
       <section className="panel">
         <PanelTitle icon={Archive} title="Bulk Batches" action="Refresh" onAction={api.refresh} />
-        <BatchTable api={api} selectedBatchId={batchDetails.batchId} onSelectBatch={loadBatch} />
+        <BatchTable batches={api.batches} selectedBatchId={batchDetails.batchId} onSelectBatch={loadBatch} onCancelBatch={(batch) => void cancelBatch(batch)} />
       </section>
       {batchDetails.status !== "idle" && (
         <section className="panel">
@@ -1527,59 +1607,47 @@ function Deliveries({ api }: { api: ReturnType<typeof useWardSenApi> }) {
   );
 }
 
-function DeliveryAuditPanel({ deliveries, people }: { deliveries: DeliveryRecord[]; people: PersonRecord[] }) {
-  const personName = (id?: string) => people.find((person) => person.id === id)?.name ?? "Shared link";
-  const watched = [...deliveries]
-    .filter((delivery) => ["active", "viewed", "limit_reached", "expired", "revoked"].includes(delivery.status))
-    .sort((a, b) => leakSignalRank(b) - leakSignalRank(a) || (b.lastCheckedAt ?? b.createdAt).localeCompare(a.lastCheckedAt ?? a.createdAt))
-    .slice(0, 6);
-
-  if (watched.length === 0) {
-    return <EmptyState text="No provider access signals yet. Refresh deliveries after creating links to check provider status." />;
-  }
-
+function SettingsView({ providers, plannedProviders, capabilities }: { providers: ProviderInfo[]; plannedProviders: ProviderInfo[]; capabilities: Record<string, boolean> }) {
+  const deliveryCandidates = plannedProviders.filter((provider) => provider.kind === "delivery");
   return (
-    <div className="auditGrid">
-      {watched.map((delivery) => {
-        const signal = leakSignal(delivery);
-        return (
-          <article className={`auditItem ${signal.level}`} key={delivery.id}>
-            <div>
-              <strong>{attributionLabel(delivery, personName)}</strong>
-              <span>{delivery.credentialName}</span>
+    <div className="grid">
+      <section className="panel">
+        <PanelTitle icon={Settings} title="Provider Capabilities" action="Refresh" />
+        <div className="filters">
+          <select>{providers.map((provider) => <option key={provider.id}>{provider.displayName}</option>)}</select>
+        </div>
+        <div className="capabilityGrid">
+          {Object.entries(capabilities).map(([key, enabled]) => (
+            <div className={enabled ? "capability enabled" : "capability"} key={key}>
+              <CheckCircle2 size={16} />
+              <span>{key.replace(/[A-Z]/g, (letter) => ` ${letter.toLowerCase()}`)}</span>
+              <strong>{enabled ? "Supported" : "Hidden or disabled"}</strong>
             </div>
-            <Status value={signal.label} />
-            <dl>
-              <div><dt>Access</dt><dd>{accessLabel(delivery)}</dd></div>
-              <div><dt>First observed</dt><dd>{firstObservedLabel(delivery)}</dd></div>
-              <div><dt>Last checked</dt><dd>{delivery.lastCheckedAt ? formatDate(delivery.lastCheckedAt) : "Not checked"}</dd></div>
-              <div><dt>State</dt><dd>{titleStatus(delivery.status)}</dd></div>
-            </dl>
-            <p>{signal.detail}</p>
-          </article>
-        );
-      })}
-    </div>
-  );
-}
-
-function SettingsView({ providers, capabilities }: { providers: ProviderInfo[]; capabilities: Record<string, boolean> }) {
-  return (
-    <section className="panel">
-      <PanelTitle icon={Settings} title="Provider Capabilities" action="Refresh" />
-      <div className="filters">
-        <select>{providers.map((provider) => <option key={provider.id}>{provider.displayName}</option>)}</select>
-      </div>
-      <div className="capabilityGrid">
-        {Object.entries(capabilities).map(([key, enabled]) => (
-          <div className={enabled ? "capability enabled" : "capability"} key={key}>
-            <CheckCircle2 size={16} />
-            <span>{key.replace(/[A-Z]/g, (letter) => ` ${letter.toLowerCase()}`)}</span>
-            <strong>{enabled ? "Supported" : "Hidden or disabled"}</strong>
+          ))}
+        </div>
+      </section>
+      <section className="panel">
+        <PanelTitle icon={Send} title="Delivery Provider Candidates" action="Refresh" />
+        <div className="table providerTable">
+          <div className="tableHead providerCandidate">
+            <span>Provider</span><span>Status</span><span>Integration</span><span>Telemetry</span><span>Promotion blockers</span>
           </div>
-        ))}
-      </div>
-    </section>
+          {deliveryCandidates.map((provider) => (
+            <div className="tableRow providerCandidate" key={provider.id}>
+              <div>
+                <strong>{provider.displayName}</strong>
+                <span>{provider.documentationUrl ?? provider.id}</span>
+              </div>
+              <Status value={titleStatus(provider.maturity ?? "planned")} />
+              <span>{provider.delivery ? titleStatus(provider.delivery.integrationSurface) : "Unknown"}</span>
+              <span>{provider.delivery ? providerTelemetryLabel(provider.delivery) : "Unknown"}</span>
+              <span>{provider.delivery?.promotionBlockedBy.join(", ") || "Provider-specific conformance tests"}</span>
+            </div>
+          ))}
+          {deliveryCandidates.length === 0 ? <EmptyState text="No planned delivery providers are configured." /> : null}
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -1596,11 +1664,13 @@ function DeliveryComposer({ api, selectedCredential }: { api: ReturnType<typeof 
     accessPassword: "",
     deliveryMethod: "copy" as "copy" | "whatsapp" | "email"
   });
-  const [submit, setSubmit] = useState<{ status: "idle" | "loading" | "ready" | "error"; message?: string; url?: string }>({ status: "idle" });
+  const [submit, setSubmit] = useState<{ status: "idle" | "loading" | "ready" | "error"; message?: string; url?: string; delivery?: CreatedDeliveryRecord }>({ status: "idle" });
   const [bulkResults, setBulkResults] = useState<BulkDeliveryItemResult[]>([]);
   const deliveryProviderId = form.deliveryProviderId || api.deliveryProviders[0]?.id || "";
   const deliveryAccountId = form.deliveryAccountId || selectedCredential?.accountId || api.accounts[0]?.id || "";
-  const capabilities = api.deliveryProviders.find((provider) => provider.id === deliveryProviderId)?.capabilities ?? {};
+  const selectedDeliveryProvider = api.deliveryProviders.find((provider) => provider.id === deliveryProviderId);
+  const capabilities = selectedDeliveryProvider?.capabilities ?? {};
+  const manualHandoff = isManualHandoffProvider(selectedDeliveryProvider);
   const activePeople = api.people.filter((person) => person.active);
   const recipient = activePeople.find((person) => person.id === form.personId);
   const personName = (id?: string) => api.people.find((person) => person.id === id)?.name ?? id ?? "Shared link";
@@ -1627,7 +1697,12 @@ function DeliveryComposer({ api, selectedCredential }: { api: ReturnType<typeof 
       setSubmit({ status: "error", message: "Choose a delivery provider and delivery account." });
       return;
     }
-    const expiresAt = new Date(Date.now() + Number(form.expiryHours) * 60 * 60 * 1000).toISOString();
+    if (manualHandoff && form.mode === "bulk") {
+      setSubmit({ status: "error", message: "Ente Paste manual handoff is single-delivery only because WardSen copies one credential handoff to the local clipboard." });
+      return;
+    }
+    const expiryHours = capabilities.customExpiry === false ? 24 : Number(form.expiryHours);
+    const expiresAt = new Date(Date.now() + expiryHours * 60 * 60 * 1000).toISOString();
     setSubmit({ status: "loading", message: "Creating secure delivery..." });
     setBulkResults([]);
     try {
@@ -1640,7 +1715,7 @@ function DeliveryComposer({ api, selectedCredential }: { api: ReturnType<typeof 
         deliveryAccountId,
         expiresAt,
         viewLimit: capabilities.arbitraryViewLimit ? form.viewLimit || undefined : undefined,
-        viewOnce: capabilities.viewOnce ? form.viewOnce : undefined,
+        viewOnce: capabilities.viewOnce ? (manualHandoff ? true : form.viewOnce) : undefined,
         hideText: capabilities.hideText ? form.hideText : undefined,
         accessPassword: capabilities.accessPassword ? form.accessPassword || undefined : undefined,
         deliveryMethod: form.deliveryMethod
@@ -1680,7 +1755,7 @@ function DeliveryComposer({ api, selectedCredential }: { api: ReturnType<typeof 
             recipient: form.mode === "individual" && recipient ? { id: recipient.id, name: recipient.name, email: recipient.email, phone: recipient.phone } : undefined
           })
         }));
-        setSubmit({ status: "ready", message: "Delivery created.", url: created.oneTimeDeliveryUrl });
+        setSubmit({ status: "ready", message: deliveryMessage("Delivery created.", created), url: created.oneTimeDeliveryUrl, delivery: created });
         setBulkResults([]);
       }
       await api.refresh();
@@ -1707,9 +1782,9 @@ function DeliveryComposer({ api, selectedCredential }: { api: ReturnType<typeof 
       <div className="segmented" role="group" aria-label="Delivery recipient mode">
         <button type="button" aria-pressed={form.mode === "shared"} className={form.mode === "shared" ? "selected" : ""} onClick={() => setForm((current) => ({ ...current, mode: "shared", personId: "" }))}>Shared</button>
         <button type="button" aria-pressed={form.mode === "individual"} className={form.mode === "individual" ? "selected" : ""} onClick={() => setForm((current) => ({ ...current, mode: "individual", personId: current.personId || activePeople[0]?.id || "" }))}>Individual</button>
-        <button type="button" aria-pressed={form.mode === "bulk"} className={form.mode === "bulk" ? "selected" : ""} onClick={() => setForm((current) => ({ ...current, mode: "bulk", personId: "" }))}>All active</button>
+        <button type="button" aria-pressed={form.mode === "bulk"} disabled={manualHandoff} className={form.mode === "bulk" ? "selected" : ""} onClick={() => setForm((current) => ({ ...current, mode: "bulk", personId: "" }))}>All active</button>
       </div>
-      <label>Expiry<select name="expiryHours" value={form.expiryHours} onChange={(event) => setForm((current) => ({ ...current, expiryHours: event.target.value }))}>
+      <label>Expiry<select name="expiryHours" value={capabilities.customExpiry === false ? "24" : form.expiryHours} disabled={capabilities.customExpiry === false} onChange={(event) => setForm((current) => ({ ...current, expiryHours: event.target.value }))}>
         <option value="24">24 hours</option>
         <option value="72">3 days</option>
         <option value="168">7 days</option>
@@ -1720,7 +1795,7 @@ function DeliveryComposer({ api, selectedCredential }: { api: ReturnType<typeof 
         <option value="email">Email</option>
         <option value="whatsapp">WhatsApp</option>
       </select></label>
-      <label className="check"><input name="viewOnce" checked={capabilities.viewOnce ? form.viewOnce : false} disabled={!capabilities.viewOnce} type="checkbox" onChange={(event) => setForm((current) => ({ ...current, viewOnce: event.target.checked }))} /> View once</label>
+      <label className="check"><input name="viewOnce" checked={capabilities.viewOnce ? (manualHandoff ? true : form.viewOnce) : false} disabled={!capabilities.viewOnce || manualHandoff} type="checkbox" onChange={(event) => setForm((current) => ({ ...current, viewOnce: event.target.checked }))} /> View once</label>
       <label className="check"><input name="hideText" checked={capabilities.hideText ? form.hideText : false} disabled={!capabilities.hideText} type="checkbox" onChange={(event) => setForm((current) => ({ ...current, hideText: event.target.checked }))} /> Hide text in provider link</label>
       <label>Access password<input name="accessPassword" value={capabilities.accessPassword ? form.accessPassword : ""} disabled={!capabilities.accessPassword} onChange={(event) => setForm((current) => ({ ...current, accessPassword: event.target.value }))} placeholder="Optional provider password" type="password" /></label>
       {form.mode === "bulk" && selectedCredential && (
@@ -1730,11 +1805,18 @@ function DeliveryComposer({ api, selectedCredential }: { api: ReturnType<typeof 
           <span>Expiry and view limits control link access; they cannot stop someone from saving a viewed credential.</span>
         </div>
       )}
+      {manualHandoff && (
+        <div className="riskSummary">
+          <strong>Ente Paste manual handoff</strong>
+          <span>WardSen copies the credential text to the local clipboard, shows an Open Ente Paste action, and records this as handoff pending. Paste into Ente, create the one-time link there, then send Ente's generated link to the recipient.</span>
+          <span>WardSen cannot verify views, access counts, IP/device details, or revoke Ente Paste links.</span>
+        </div>
+      )}
       {submit.status === "error" && <ErrorNotice message={submit.message} compact />}
       {submit.status !== "idle" && submit.status !== "error" && (
         <div className="notice compact" role="status" aria-live="polite">
           {submit.message}
-          {submit.url && <CopyFeedbackButton value={submit.url} label="Copy link" />}
+          {submit.url && <DeliveryLinkAction delivery={submit.delivery} url={submit.url} label="Copy link" />}
         </div>
       )}
       {bulkResults.length > 0 && (
@@ -1745,7 +1827,7 @@ function DeliveryComposer({ api, selectedCredential }: { api: ReturnType<typeof 
           onCopy={(url) => copyTextToClipboard(url)}
         />
       )}
-      <button className="primary full" disabled={submit.status === "loading" || !selectedCredential || (form.mode === "individual" && !recipient)}>
+      <button className="primary full" disabled={submit.status === "loading" || !selectedCredential || (form.mode === "individual" && !recipient) || (manualHandoff && form.mode === "bulk")}>
         <Send size={16} aria-hidden="true" /> {form.mode === "bulk" ? "Create secure links" : "Create secure link"}
       </button>
     </form>
@@ -1753,31 +1835,35 @@ function DeliveryComposer({ api, selectedCredential }: { api: ReturnType<typeof 
 }
 
 function DeliveryTable({ api }: { api: ReturnType<typeof useWardSenApi> }) {
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [message, setMessage] = useState<{ status: "idle" | "loading" | "ready" | "error"; text?: string; url?: string }>({ status: "idle" });
-  const personName = (id?: string) => api.people.find((person) => person.id === id)?.name ?? "Shared link";
-  const visibleDeliveries = api.deliveries.filter((delivery) => statusFilter === "all" || delivery.status === statusFilter);
-  const statuses = [...new Set(api.deliveries.map((delivery) => delivery.status))].sort();
+  const [message, setMessage] = useState<{ status: "idle" | "loading" | "ready" | "error"; text?: string; url?: string; delivery?: CreatedDeliveryRecord }>({ status: "idle" });
 
-  async function rowAction(delivery: DeliveryRecord, action: "refresh" | "retry" | "revoke") {
+  async function rowAction(delivery: DeliveryRecord, action: DeliveryHistoryAction) {
     setMessage({ status: "loading", text: `${titleStatus(action)} running for ${delivery.credentialName}...` });
     try {
       if (action === "refresh") {
-        const refreshed = await apiSend<DeliveryRecord>(`/api/deliveries/${delivery.id}/refresh`);
+        if (!deliveryProviderSupports(api.deliveryProviders, delivery.deliveryProviderId, "statusLookup")) {
+          setMessage({ status: "error", text: `${delivery.deliveryProviderId} does not expose sender-visible status checks through WardSen.` });
+          return;
+        }
+        const refreshed = parseDeliveryRecord(await apiSend<unknown>(`/api/deliveries/${delivery.id}/refresh`));
         setMessage({ status: "ready", text: `${delivery.credentialName}: ${titleStatus(refreshed.status)} checked.` });
       }
       if (action === "retry") {
         const retried = parseCreatedDeliveryRecord(await apiSend<unknown>(`/api/deliveries/${delivery.id}/retry`));
-        setMessage({ status: "ready", text: `Retry created for ${delivery.credentialName}.`, url: retried.oneTimeDeliveryUrl });
+        setMessage({ status: "ready", text: deliveryMessage(`Retry created for ${delivery.credentialName}.`, retried), url: retried.oneTimeDeliveryUrl, delivery: retried });
       }
       if (action === "revoke") {
+        if (!deliveryProviderSupports(api.deliveryProviders, delivery.deliveryProviderId, "revokeLink")) {
+          setMessage({ status: "error", text: `${delivery.deliveryProviderId} does not expose sender-side revoke through WardSen.` });
+          return;
+        }
         const confirm = `REVOKE DELIVERY ${delivery.id}`;
         const confirmed = await confirmDestructiveAction(confirm, `Revoke the provider link for "${delivery.credentialName}"? Recipients may lose access immediately.`);
         if (!confirmed) {
           setMessage({ status: "idle" });
           return;
         }
-        const revoked = await apiSend<DeliveryRecord>(`/api/deliveries/${delivery.id}`, { method: "DELETE", body: JSON.stringify({ confirm }) });
+        const revoked = parseDeliveryRecord(await apiSend<unknown>(`/api/deliveries/${delivery.id}`, { method: "DELETE", body: JSON.stringify({ confirm }) }));
         setMessage({ status: "ready", text: `${delivery.credentialName}: ${titleStatus(revoked.status)}.` });
       }
       await api.refresh();
@@ -1788,8 +1874,8 @@ function DeliveryTable({ api }: { api: ReturnType<typeof useWardSenApi> }) {
 
   async function refreshAll() {
     setMessage({ status: "loading", text: "Refreshing active deliveries..." });
-    const active = api.deliveries.filter((delivery) => delivery.status === "active");
-    const results = await Promise.allSettled(active.map((delivery) => apiSend<DeliveryRecord>(`/api/deliveries/${delivery.id}/refresh`)));
+    const active = api.deliveries.filter((delivery) => delivery.status === "active" && deliveryProviderSupports(api.deliveryProviders, delivery.deliveryProviderId, "statusLookup"));
+    const results = await Promise.allSettled(active.map(async (delivery) => parseDeliveryRecord(await apiSend<unknown>(`/api/deliveries/${delivery.id}/refresh`))));
     const failures = results.filter((result) => result.status === "rejected").length;
     setMessage({
       status: failures ? "error" : "ready",
@@ -1798,49 +1884,23 @@ function DeliveryTable({ api }: { api: ReturnType<typeof useWardSenApi> }) {
     await api.refresh();
   }
 
-  if (api.deliveries.length === 0) return <EmptyState text="No deliveries yet. Create links after unlocking a vault." />;
   return (
     <div className="grid">
       {message.status === "error" && <ErrorNotice message={message.text} compact />}
       {message.status !== "idle" && message.status !== "error" && (
         <div className="notice compact" role="status" aria-live="polite">
           {message.text}
-          {message.url && <CopyFeedbackButton value={message.url} label="Copy retry link" copiedLabel="Retry link copied" />}
+          {message.url && <DeliveryLinkAction delivery={message.delivery} url={message.url} label="Copy retry link" copiedLabel="Retry link copied" />}
         </div>
       )}
-      <div className="filters">
-        <select aria-label="Delivery status filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
-          <option value="all">All statuses</option>
-          {statuses.map((status) => <option key={status} value={status}>{titleStatus(status)}</option>)}
-        </select>
-        <button type="button" onClick={() => void refreshAll()}><RefreshCcw size={16} aria-hidden="true" /> Refresh active</button>
-      </div>
-      <div className="table">
-        <div className="tableHead">
-          <span>Credential</span><span>Person</span><span>Provider</span><span>Expiry</span><span>Access</span><span>Status</span><span>Actions</span>
-        </div>
-        {visibleDeliveries.map((delivery) => (
-          <div className="tableRow" key={delivery.id}>
-            <div>
-              <strong>{delivery.credentialName}</strong>
-              <span>{delivery.deliveryMethod ? titleStatus(delivery.deliveryMethod) : "Copy"} / {delivery.lastCheckedAt ? `Checked ${formatDate(delivery.lastCheckedAt)}` : "Not checked"}</span>
-            </div>
-            <span>{personName(delivery.personId)}</span>
-            <span>{delivery.deliveryProviderId}</span>
-            <span>{formatDate(delivery.expiresAt)}</span>
-            <span>{delivery.accessCount ?? 0}{delivery.viewLimit ? ` / ${delivery.viewLimit}` : ""}</span>
-            <Status value={titleStatus(delivery.status)} />
-            <div className="actions">
-              <button type="button" aria-label={`Copy provider ID for ${delivery.credentialName}`} title="Copy provider ID" onClick={() => navigator.clipboard?.writeText(delivery.providerDeliveryId ?? delivery.id)}><Copy size={15} aria-hidden="true" /></button>
-              <button type="button" aria-label={`Create email draft for ${delivery.credentialName}`} title="Create email draft" disabled={delivery.deliveryMethod !== "email"} onClick={() => window.open(`mailto:?subject=${encodeURIComponent(`WardSen delivery: ${delivery.credentialName}`)}&body=${encodeURIComponent(`Delivery record ${delivery.providerDeliveryId ?? delivery.id}`)}`, "_blank", "noopener,noreferrer")}><Mail size={15} aria-hidden="true" /></button>
-              <button type="button" aria-label={`Refresh ${delivery.credentialName}`} title="Refresh" onClick={() => void rowAction(delivery, "refresh")}><RefreshCcw size={15} aria-hidden="true" /></button>
-              <button type="button" aria-label={`Retry ${delivery.credentialName}`} title="Retry" onClick={() => void rowAction(delivery, "retry")}><RotateCcw size={15} aria-hidden="true" /></button>
-              <button type="button" aria-label={`Revoke ${delivery.credentialName}`} title="Revoke" disabled={delivery.status === "revoked"} onClick={() => void rowAction(delivery, "revoke")}><Trash2 size={15} aria-hidden="true" /></button>
-            </div>
-          </div>
-        ))}
-        {visibleDeliveries.length === 0 && <EmptyState text="No deliveries match this status filter." />}
-      </div>
+      <DeliveryHistoryTable
+        deliveries={api.deliveries}
+        people={api.people}
+        canRefresh={(delivery) => deliveryProviderSupports(api.deliveryProviders, delivery.deliveryProviderId, "statusLookup")}
+        canRevoke={(delivery) => deliveryProviderSupports(api.deliveryProviders, delivery.deliveryProviderId, "revokeLink")}
+        onAction={(delivery, action) => void rowAction(delivery, action)}
+        onRefreshActive={() => void refreshAll()}
+      />
     </div>
   );
 }
@@ -1883,6 +1943,50 @@ function CopyFeedbackButton({
       {state === "error" ? <small className="copyFeedbackError" role="alert">Copy was blocked. Try again or copy the link manually.</small> : null}
     </span>
   );
+}
+
+function DeliveryLinkAction({
+  delivery,
+  url,
+  label,
+  copiedLabel = "Link copied"
+}: {
+  delivery?: Pick<CreatedDeliveryRecord, "deliveryProviderId" | "status">;
+  url: string;
+  label: string;
+  copiedLabel?: string;
+}) {
+  const [clipboardState, setClipboardState] = useState<"idle" | "clearing" | "cleared" | "error">("idle");
+
+  async function clearManualClipboard() {
+    const providerId = delivery?.deliveryProviderId;
+    if (!providerId) return;
+    setClipboardState("clearing");
+    try {
+      await apiSend(`/api/delivery-providers/${encodeURIComponent(providerId)}/clear-handoff-clipboard`, { body: "{}" });
+      setClipboardState("cleared");
+    } catch {
+      setClipboardState("error");
+    }
+  }
+
+  if (isManualHandoffDelivery(delivery)) {
+    return (
+      <span className="copyFeedback manualHandoffAction">
+        <button type="button" disabled={!url} onClick={() => void openExternalUrl(url)}>
+          <Send size={15} aria-hidden="true" /> Open Ente Paste
+        </button>
+        <CopyFeedbackButton value={url} label="Copy Ente page URL" copiedLabel="Ente URL copied" />
+        {delivery?.deliveryProviderId ? <button type="button" disabled={clipboardState === "clearing" || clipboardState === "cleared"} onClick={() => void clearManualClipboard()}>
+          <Trash2 size={15} aria-hidden="true" /> {clipboardState === "cleared" ? "Clipboard cleared" : "Clear clipboard"}
+        </button> : null}
+        {clipboardState === "error" ? <small className="copyFeedbackError" role="alert">WardSen could not clear the local clipboard.</small> : null}
+        <small className="copyFeedbackStatus" role="status" aria-live="polite">{clipboardState === "cleared" ? "Local clipboard cleared." : "Credential text was copied to the local clipboard. Paste it into Ente, then clear the clipboard before sending Ente's generated one-time link."}</small>
+      </span>
+    );
+  }
+
+  return <CopyFeedbackButton value={url} label={label} copiedLabel={copiedLabel} />;
 }
 
 function BulkHandoffResults({
@@ -1958,130 +2062,8 @@ function BulkHandoffResults({
   );
 }
 
-function BatchTable({
-  api,
-  selectedBatchId,
-  onSelectBatch
-}: {
-  api: ReturnType<typeof useWardSenApi>;
-  selectedBatchId?: string;
-  onSelectBatch: (batchId: string) => void | Promise<void>;
-}) {
-  if (api.batches.length === 0) return <EmptyState text="No bulk batches yet. Create one from the credential delivery form." />;
-  return (
-    <div className="table">
-      <div className="tableHead batch">
-        <span>Batch</span><span>Requested</span><span>Completed</span><span>Failed</span><span>Status</span><span>Created</span><span>Actions</span>
-      </div>
-      {api.batches.map((batch) => (
-        <div className={selectedBatchId === batch.id ? "tableRow batch selected" : "tableRow batch"} key={batch.id}>
-          <strong>{batch.id}</strong>
-          <span>{batch.requestedCount}</span>
-          <span>{batch.completedCount}</span>
-          <span>{batch.failedCount}</span>
-          <Status value={batch.cancelled ? "Cancelled" : batch.completedAt ? "Complete" : "Queued"} />
-          <span>{formatDate(batch.createdAt)}</span>
-          <div className="actions">
-            <button type="button" aria-label={`View deliveries for batch ${batch.id}`} title="View batch deliveries" onClick={() => void onSelectBatch(batch.id)}><Search size={15} aria-hidden="true" /></button>
-            <button type="button" aria-label={`Copy batch ID ${batch.id}`} title="Copy batch ID" onClick={() => navigator.clipboard?.writeText(batch.id)}><Copy size={15} aria-hidden="true" /></button>
-            <button type="button" aria-label={`Cancel batch ${batch.id}`} title="Cancel batch" disabled={batch.cancelled || Boolean(batch.completedAt)} onClick={() => void confirmDestructiveAction(`CANCEL BATCH ${batch.id}`, `Cancel batch ${batch.id}? Any queued work for this batch will stop.`).then((confirmed) => {
-              if (confirmed) void api.action(`/api/batches/${batch.id}/cancel`, { body: JSON.stringify({ confirm: `CANCEL BATCH ${batch.id}` }) });
-            })}><Trash2 size={15} aria-hidden="true" /></button>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function resultKey(result: BulkDeliveryItemResult): string {
   return result.recipientId ?? result.delivery?.id ?? result.error ?? "bulk-result";
-}
-
-function attributionLabel(delivery: DeliveryRecord, personName: (id?: string) => string): string {
-  const label = delivery.personId ? `${personName(delivery.personId)}'s link` : "Shared link";
-  if ((delivery.accessCount ?? 0) > 0 || delivery.status === "viewed" || delivery.status === "limit_reached") {
-    return `${label} was viewed`;
-  }
-  if (delivery.status === "revoked") return `${label} was revoked`;
-  if (delivery.status === "expired") return `${label} expired`;
-  return `${label} has no observed access`;
-}
-
-function accessLabel(delivery: DeliveryRecord): string {
-  const count = delivery.accessCount ?? 0;
-  return delivery.viewLimit ? `${count} / ${delivery.viewLimit}` : String(count);
-}
-
-function firstObservedLabel(delivery: DeliveryRecord): string {
-  if ((delivery.accessCount ?? 0) <= 0 && delivery.status !== "viewed" && delivery.status !== "limit_reached") return "No access observed";
-  return delivery.lastCheckedAt ? formatDate(delivery.lastCheckedAt) : "Before last sync";
-}
-
-function leakSignal(delivery: DeliveryRecord): { label: string; detail: string; level: "low" | "watch" | "high" } {
-  const accessCount = delivery.accessCount ?? 0;
-  if (delivery.status === "limit_reached" || (delivery.viewLimit !== undefined && accessCount > delivery.viewLimit)) {
-    return {
-      label: "Unexpected access",
-      detail: "Provider access count reached or exceeded the intended limit. Revoke this link and issue a replacement if the recipient still needs access.",
-      level: "high"
-    };
-  }
-  if (accessCount > 1 && (delivery.viewLimit ?? 1) <= 1) {
-    return {
-      label: "Unexpected access",
-      detail: "This per-recipient link shows more opens than expected. Treat it as a leak signal, not proof of which person or device opened it.",
-      level: "high"
-    };
-  }
-  if (accessCount > 0 || delivery.status === "viewed") {
-    return {
-      label: "Low",
-      detail: "A provider link assigned to this recipient was accessed. WardSen does not claim the named person or a specific device opened it.",
-      level: "low"
-    };
-  }
-  if (!delivery.lastCheckedAt && delivery.status === "active") {
-    return {
-      label: "Needs check",
-      detail: "Refresh provider status to see whether this assigned link has been accessed, expired, limited or revoked.",
-      level: "watch"
-    };
-  }
-  return {
-    label: titleStatus(delivery.status),
-    detail: "No unexpected provider access signal is visible from the current status fields.",
-    level: "watch"
-  };
-}
-
-function leakSignalRank(delivery: DeliveryRecord): number {
-  const signal = leakSignal(delivery);
-  if (signal.level === "high") return 3;
-  if (signal.level === "watch") return 2;
-  return 1;
-}
-
-function BatchDeliveryTable({ deliveries, people }: { deliveries: DeliveryRecord[]; people: PersonRecord[] }) {
-  const personName = (id?: string) => people.find((person) => person.id === id)?.name ?? "Shared link";
-  if (deliveries.length === 0) return <EmptyState text="This batch has no delivery rows yet." />;
-  return (
-    <div className="table">
-      <div className="tableHead batchDeliveries">
-        <span>Credential</span><span>Person</span><span>Status</span><span>Access</span><span>Expiry</span><span>Provider ID</span>
-      </div>
-      {deliveries.map((delivery) => (
-        <div className="tableRow batchDeliveries" key={delivery.id}>
-          <strong>{delivery.credentialName}</strong>
-          <span>{personName(delivery.personId)}</span>
-          <Status value={titleStatus(delivery.status)} />
-          <span>{delivery.accessCount ?? 0}{delivery.viewLimit ? ` / ${delivery.viewLimit}` : ""}</span>
-          <span>{formatDate(delivery.expiresAt)}</span>
-          <span>{delivery.providerDeliveryId ?? delivery.id}</span>
-        </div>
-      ))}
-    </div>
-  );
 }
 
 function Metric({ label, value, detail }: { label: string; value: string; detail: string }) {
@@ -2172,7 +2154,7 @@ function ErrorNotice({ message, compact = false, actionLabel, onAction }: { mess
             setCopyStatus(undefined);
             void copyTextToClipboard(terminalCommand.command)
               .then(() => setCopyStatus(help.kind === "bitwardenTerminalLogin"
-                ? "Terminal command copied. Paste it into Terminal or PowerShell, run it, then return to WardSen and select Unlock from terminal session."
+                ? "Terminal command copied. Paste it into Terminal or PowerShell, run it, then WardSen will update the account automatically."
                 : "Terminal command copied. Paste it into Terminal, PowerShell or Command Prompt, run it, then close and reopen WardSen."))
               .catch((error: unknown) => {
                 const detail = error instanceof Error ? error.message : String(error);
@@ -2276,8 +2258,42 @@ function normalizeAccessRequestResponse(response: CredentialAccessRequestCreateR
   return { request: response, autoApproved: response.status === "approved" };
 }
 
-function employeeSessionHeaders(sessionToken: string): HeadersInit {
-  return { "x-wardsen-employee-session": sessionToken };
+function breakGlassRequestPayload(form: { breakGlass: boolean; breakGlassJustification: string }, catalogEntryId: string) {
+  if (!form.breakGlass) return {};
+  return {
+    breakGlass: true,
+    breakGlassJustification: form.breakGlassJustification.trim(),
+    confirmRiskSummary: true,
+    confirm: `BREAK GLASS ${catalogEntryId}`
+  };
+}
+
+function confirmBreakGlassSubmission(credentialName: string, assignedEmail: string): boolean {
+  return window.confirm(`Submit emergency break-glass request for ${credentialName} and ${assignedEmail}?\n\nWardSen will mark this as emergency access, record the justification in the audit trail, and still require admin fulfillment before any delivery link is created.`);
+}
+
+function deliveryOptionsForProvider(provider: ProviderInfo | undefined, form: { expiryHours: string; viewLimit: string; viewOnce: boolean }) {
+  const capabilities = provider?.capabilities ?? {};
+  const expiryHours = capabilities.customExpiry === false ? 24 : Number(form.expiryHours) || 24;
+  return {
+    expiresAt: new Date(Date.now() + expiryHours * 60 * 60 * 1000).toISOString(),
+    viewLimit: capabilities.arbitraryViewLimit ? form.viewLimit || undefined : undefined,
+    viewOnce: capabilities.viewOnce ? (isManualHandoffProvider(provider) ? true : form.viewOnce) : undefined
+  };
+}
+
+function approvalConfirmationMessage(action: string, accessRequest: CredentialAccessRequestRecord, provider?: ProviderInfo): string {
+  if (isManualHandoffProvider(provider)) {
+    return `${action} ${accessRequest.credentialName} for ${accessRequest.assignedEmail}?\n\nWardSen will copy the credential text to the local clipboard and mark the delivery handoff pending. You must create the one-time Ente Paste link in the browser and send that generated link to the assigned employee email.`;
+  }
+  return `${action} ${accessRequest.credentialName} for ${accessRequest.assignedEmail}?\n\nWardSen will create a one-access email delivery link for this assigned employee email.`;
+}
+
+function replacementConfirmationMessage(accessRequest: CredentialAccessRequestRecord, provider?: ProviderInfo): string {
+  if (isManualHandoffProvider(provider)) {
+    return `Replace the delivery link for ${accessRequest.credentialName} and ${accessRequest.assignedEmail}?\n\nWardSen will revoke the previous provider link when supported, then copy the credential text to the local clipboard for a new manual Ente Paste handoff.`;
+  }
+  return `Replace the delivery link for ${accessRequest.credentialName} and ${accessRequest.assignedEmail}?\n\nWardSen will revoke the previous link before creating a fresh one-access email delivery.`;
 }
 
 function employeeSignInMailtoHref(draft: { to: string; subject: string }): string {
@@ -2286,6 +2302,32 @@ function employeeSignInMailtoHref(draft: { to: string; subject: string }): strin
 
 function providerLabel(providers: ProviderInfo[], providerId: string) {
   return providers.find((provider) => provider.id === providerId)?.displayName ?? providerId;
+}
+
+function providerTelemetryLabel(readiness: DeliveryReadiness): string {
+  return [
+    `Status ${titleStatus(readiness.statusLookup)}`,
+    `access ${titleStatus(readiness.accessCount)}`,
+    `viewer ${titleStatus(readiness.viewerIdentity)}`
+  ].join(" / ");
+}
+
+function isManualHandoffProvider(provider?: ProviderInfo): boolean {
+  return provider?.delivery?.secureLinkCreation === "manual";
+}
+
+function isManualHandoffDelivery(delivery?: Pick<CreatedDeliveryRecord, "deliveryProviderId" | "status">): boolean {
+  return delivery?.deliveryProviderId === "ente-paste" || delivery?.status === "handoff_pending";
+}
+
+function deliveryProviderSupports(providers: ProviderInfo[], providerId: string, capability: string): boolean {
+  return providers.find((provider) => provider.id === providerId)?.capabilities?.[capability] === true;
+}
+
+function deliveryMessage(message: string, delivery?: Pick<CreatedDeliveryRecord, "deliveryProviderId" | "status">): string {
+  return isManualHandoffDelivery(delivery)
+    ? `${message} Ente Paste handoff is pending; create the Ente link in the browser before sending anything to the recipient.`
+    : message;
 }
 
 function newOperationId(prefix: "delivery" | "bulk"): string {

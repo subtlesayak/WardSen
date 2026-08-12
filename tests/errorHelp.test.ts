@@ -79,36 +79,23 @@ describe("web error help", () => {
   });
 
   it("explains stale Bitwarden Send sessions as an unlock task", () => {
-    const help = describeError('Bitwarden Send account "red" is not ready. Go to Vaults > Account Access, select "red", use Terminal login if Bitwarden asks for first login or verification, then select Unlock from terminal session before creating a secure link. Detail: Provider command "bw send" failed. Detail: You are not logged in.');
+    const help = describeError('Bitwarden Send account "red" is not ready. Go to Vaults > Account Access, select "red", use Terminal login / unlock if Bitwarden asks for first login or verification, then wait for WardSen to show the account as unlocked. Detail: Provider command "bw send" failed. Detail: You are not logged in.');
 
     expect(help.title).toBe("Bitwarden Send account needs unlock");
     expect(help.detail).toContain('"red"');
     expect(help.guidance).toContain("Vaults > Account Access");
-    expect(help.guidance).toContain("Unlock from terminal session");
+    expect(help.guidance).toContain("wait for WardSen");
   });
 
-  it("turns Bitwarden terminal-first login into terminal login help", () => {
-    const help = describeError("Bitwarden terminal login is required. Manual same-profile terminal login command: $env:BITWARDENCLI_APPDATA_DIR='profiles/acct'; $bwResult=bw login 'user@example.com' --raw; if ($LASTEXITCODE -eq 0 -and $bwResult) { Set-Content -LiteralPath 'profiles/acct/.wardsen-session' -Value $bwResult.Trim() -NoNewline }; Remove-Item Env:\\BITWARDENCLI_APPDATA_DIR");
+  it("turns direct Bitwarden login into guidance for the authenticated terminal handoff", () => {
+    const help = describeError("Bitwarden terminal login must be started from WardSen so it can create a one-time local session handoff.");
 
     expect(help.kind).toBe("bitwardenTerminalLogin");
     expect(help.title).toBe("Bitwarden needs terminal login once");
     expect(help.detail).toContain("real terminal");
     expect(help.guidance).toContain("Terminal or PowerShell");
-    expect(help.terminalCommands?.[0]?.label).toContain("Windows PowerShell");
-    expect(help.terminalCommands?.[0]?.command).toContain("BITWARDENCLI_APPDATA_DIR");
-    expect(help.terminalCommands?.[0]?.note).toContain("does not include your password");
-    expect(help.terminalCommands?.[0]?.note).toContain("PowerShell Bitwarden prompt");
-    expect(help.technicalDetail).toContain("terminal login is required");
-  });
-
-  it("labels macOS/Linux terminal-login commands without PowerShell wording", () => {
-    const help = describeError("Bitwarden terminal login is required. Manual same-profile terminal login command: export BITWARDENCLI_APPDATA_DIR=\"$HOME/Library/Application Support/dev.wardsen.desktop/wardsen-data/profiles/acct\"; mkdir -p \"$BITWARDENCLI_APPDATA_DIR\"; bw login 'user@example.com'; printf '\\nWardSen will now unlock this Bitwarden profile. Type your Bitwarden master password here: '; stty -echo; IFS= read -r bwPassword; stty echo; printf '\\n'; umask 077; printf '%s\\n' \"$bwPassword\" | bw unlock --raw > \"$BITWARDENCLI_APPDATA_DIR/.wardsen-session\"; bwExitCode=$?; unset bwPassword; if [ \"$bwExitCode\" -eq 0 ] && [ -s \"$BITWARDENCLI_APPDATA_DIR/.wardsen-session\" ]; then chmod 600 \"$BITWARDENCLI_APPDATA_DIR/.wardsen-session\"; printf '\\nWardSen saved this Bitwarden session. Return to WardSen and select Unlock from terminal session.\\n'; else rm -f \"$BITWARDENCLI_APPDATA_DIR/.wardsen-session\"; printf '\\nWardSen could not save a Bitwarden session. Finish Bitwarden login, then run this command again.\\n' >&2; fi; unset BITWARDENCLI_APPDATA_DIR bwExitCode");
-
-    expect(help.kind).toBe("bitwardenTerminalLogin");
-    expect(help.guidance).toContain("Terminal or PowerShell");
-    expect(help.terminalCommands?.[0]?.label).toContain("macOS/Linux Terminal");
-    expect(help.terminalCommands?.[0]?.note).toContain("Terminal Bitwarden prompt");
-    expect(help.terminalCommands?.[0]?.note).not.toContain("PowerShell Bitwarden prompt");
+    expect(help.guidance).toContain("automatically");
+    expect(help.technicalDetail).toContain("one-time local session handoff");
   });
 
   it("explains Bitwarden local profile lock failures", () => {

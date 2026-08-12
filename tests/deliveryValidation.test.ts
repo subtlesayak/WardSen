@@ -22,7 +22,8 @@ describe("delivery validation", () => {
           accessPassword: false,
           hideText: false,
           revokeLink: true,
-          accessCount: true
+          accessCount: true,
+          statusLookup: true
         },
         { viewLimit: 2 }
       )

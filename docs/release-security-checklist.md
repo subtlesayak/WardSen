@@ -15,10 +15,12 @@ Run this checklist before publishing a public WardSen build.
 - Verify `npm run check`, `npm test` and `npm run build` pass.
 - Confirm delivery creation never persists credential plaintext, TOTP secrets, access passwords, master passwords or provider session tokens.
 - Run `npm run security:scan-secrets` after release smoke tests and attach the output to the release checklist.
-- Run `npm run smoke:web` after `npm run build:web` and attach both desktop and mobile screenshot paths, or record the local browser failure if Chrome/Edge cannot render headlessly on the release machine.
+- Run `npm run smoke:web` after `npm run build:web` for the bounded HTTP contract check. On a release machine, also run `npm run smoke:web:visual` and attach both desktop and mobile screenshot paths; its browser capture is capped at 10 seconds per viewport, so record an environment failure instead of waiting indefinitely when Chrome/Edge cannot render headlessly.
+- Run `npm run smoke:packaged` after desktop packaging or confirm the release workflow uploaded `PACKAGED-SMOKE-<platform>.json` for each target platform.
 - Confirm API delivery responses include only metadata and the provider delivery URL, never source credential fields.
 - Confirm provider CLI secrets are supplied through stdin or environment variables, and configured redaction covers stdout and stderr.
-- Confirm SQLite migration tests cover delivery metadata constraints, audit outcome constraints and audit retention pruning.
+- If Ente Paste is enabled, confirm it is labelled as an experimental manual handoff, returns `handoff_pending`, disables bulk/refresh/revoke/viewer telemetry, copies credential text only through the explicit local clipboard handoff, offers the operator a clipboard-clear action after the browser paste, and does not place plaintext into React responses, logs, URLs or persisted metadata.
+- Confirm SQLite migration tests cover delivery metadata constraints, audit outcome constraints, audit retention pruning and employee auth-artifact retention pruning.
 
 ## Account Isolation
 
@@ -30,15 +32,20 @@ Run this checklist before publishing a public WardSen build.
 ## Supply Chain
 
 - Use `npm ci`, not ad hoc dependency installs, on release builders.
-- Confirm the `Release Installers` workflow checked out `RELEASE_TAG` and `npm run release:verify-ref` verified `HEAD` equals that tag commit.
+- Confirm the `Release Installers` workflow checked out `RELEASE_TAG` and `npm run release:verify-ref` verified `HEAD` equals that tag commit with no tracked or untracked checkout changes.
 - Confirm workflow `uses:` entries are pinned to full 40-character SHAs before publishing.
 - Run `npm audit --audit-level=high`.
 - Run `cargo audit` from `apps/desktop/src-tauri`.
 - Review `docs/rustsec-audit.md` for known warning-class findings.
-- Generate an SBOM with `npm run sbom` and attach it to release artifacts when practical.
-- Generate release checksums with `npm run release:checksums` and attach both `SHA256SUMS-*.txt` and `RELEASE-MANIFEST-*.json`.
+- Generate an SBOM with `npm run release:sbom` before checksums and attach each `WARDSEN-SBOM-*.json` artifact.
+- Generate release checksums with `npm run release:checksums` and attach `SHA256SUMS-*.txt`, `RELEASE-MANIFEST-*.json` and `WARDSEN-SBOM-*.json`.
+- Attach `PACKAGED-SMOKE-*.json` evidence showing the packaged server bundle booted with token enforcement, used a strict temporary SQLite data root, and recovered one metadata-only account after a forced server restart before publishing.
+- Attach `SIGNING-EVIDENCE-*.json` for signed public installers and run `npm run release:verify-evidence` with `WARDSEN_PUBLIC_RELEASE=true`.
+- Attach the formal GitHub `ATTESTATION-SUBJECTS-*.txt` and `PROVENANCE-EVIDENCE-*.json` files. Verify each public installer/SBOM attestation against the release repository before publishing.
+- On a disposable Windows or macOS test account, run the matching lifecycle harness with a previous signed installer and the final signed installer. Confirm a harmless vault account persists across the upgrade, then attach the generated `INSTALL-LIFECYCLE-EVIDENCE-*.json` file.
+- Regenerate checksums after lifecycle evidence is added, then run `WARDSEN_INSTALL_LIFECYCLE_REQUIRED=true npm run release:verify-evidence`. It must confirm the lifecycle record's installer path, SHA-256 and size match the final release manifest.
 - When only one bundle backend is current, set `WARDSEN_BUNDLE_ROOT` to the exact fresh bundle folder before running `npm run release:checksums`; default checksum generation refuses mixed artifact timestamps to avoid blessing stale installers.
-- Confirm each release manifest lists the release tag, verified git SHA, build timestamp, schema version and installer artifact paths.
+- Confirm each release manifest lists the release tag, verified git SHA, build timestamp, schema version, installer artifact paths, SBOM artifact path, packaged-smoke evidence and signing evidence for public releases.
 - Review CodeQL, dependency-review and Dependabot status before tagging.
 - Download provider CLIs from official package managers or verified release artifacts only.
 - Use the `Release Installers` GitHub Actions workflow for repeatable Windows and macOS builds.

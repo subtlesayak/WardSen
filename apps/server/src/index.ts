@@ -1,10 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import { buildApp } from "./app";
+import { resolveWardSenDataRoot } from "./dataRoot";
 import { SqliteWardSenRepository } from "@wardsen/database";
 
 async function main() {
-  const dataRoot = process.env.WARDSEN_DATA_DIR ?? path.join(process.cwd(), ".wardsen-data");
+  const dataRoot = resolveWardSenDataRoot();
   fs.mkdirSync(path.join(dataRoot, "profiles"), { recursive: true });
   const repository = new SqliteWardSenRepository(path.join(dataRoot, "wardsen.sqlite"));
   const app = await buildApp({ repository, profileRoot: path.join(dataRoot, "profiles") });

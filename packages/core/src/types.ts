@@ -3,6 +3,7 @@ export type AccountStatus = "logged_out" | "locked" | "unlocked" | "syncing" | "
 export type DeliveryStatusValue =
   | "queued"
   | "creating"
+  | "handoff_pending"
   | "active"
   | "viewed"
   | "limit_reached"
@@ -46,6 +47,11 @@ export interface ProviderUnlockInput {
   databasePath?: string;
 }
 
+export interface TerminalSessionHandoff {
+  claimUrl: string;
+  token: string;
+}
+
 export interface CredentialSummary {
   id: string;
   accountId: string;
@@ -87,6 +93,8 @@ export interface CredentialProvider {
   sync(accountId: string): Promise<void>;
   search(accountId: string, query: string, pagination: PaginationInput): Promise<CredentialSummary[]>;
   getCredential(accountId: string, itemId: string): Promise<SensitiveCredential>;
+  createTerminalSessionHandoffCommand?(accountId: string, input: ProviderLoginInput, handoff: TerminalSessionHandoff): string;
+  acceptTerminalSessionHandoff?(accountId: string, sessionToken: string): Promise<void> | void;
 }
 
 export interface DeliveryProviderCapabilities {
@@ -99,6 +107,7 @@ export interface DeliveryProviderCapabilities {
   hideText: boolean;
   revokeLink: boolean;
   accessCount: boolean;
+  statusLookup: boolean;
 }
 
 export interface DeliveryRecipient {
@@ -125,6 +134,7 @@ export interface DeliveryResult {
   url: string;
   expiresAt: Date;
   viewLimit?: number;
+  status?: DeliveryStatusValue;
 }
 
 export interface DeliveryStatus {
@@ -156,6 +166,8 @@ export interface DeliveryProvider {
   getCapabilities(): Promise<DeliveryProviderCapabilities>;
   testConnection(accountId: string): Promise<ConnectionResult>;
   createDelivery(input: CreateDeliveryInput): Promise<DeliveryResult>;
+  /** Clears credential text from a provider-owned manual handoff clipboard, when supported. */
+  clearHandoffClipboard?(): Promise<void>;
   findDeliveryByOperationId?(accountId: string, operationId: string): Promise<DeliveryStatus | undefined>;
   revoke(accountId: string, deliveryId: string): Promise<void>;
   getStatus(accountId: string, deliveryId: string): Promise<DeliveryStatus>;
@@ -296,6 +308,7 @@ export interface DeliveryRecord {
   accessCount?: number;
   status: DeliveryStatusValue;
   revokedAt?: string;
+  firstViewedAt?: string;
   lastCheckedAt?: string;
 }
 

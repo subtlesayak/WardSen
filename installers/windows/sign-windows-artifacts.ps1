@@ -72,3 +72,24 @@ if (-not $VerifyOnly) {
 foreach ($artifact in $artifacts) {
   Invoke-SignTool @("verify", "/pa", "/v", $artifact.FullName)
 }
+
+$repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..\..")).Path
+$previousBundleRoot = $env:WARDSEN_BUNDLE_ROOT
+$previousPlatform = $env:WARDSEN_SIGNING_PLATFORM
+$previousMethod = $env:WARDSEN_SIGNING_METHOD
+$previousVerifier = $env:WARDSEN_SIGNING_VERIFIER
+try {
+  $env:WARDSEN_BUNDLE_ROOT = $resolvedBundleRoot
+  if (-not $env:WARDSEN_SIGNING_PLATFORM) { $env:WARDSEN_SIGNING_PLATFORM = "windows-x64" }
+  if (-not $env:WARDSEN_SIGNING_METHOD) { $env:WARDSEN_SIGNING_METHOD = "authenticode" }
+  if (-not $env:WARDSEN_SIGNING_VERIFIER) { $env:WARDSEN_SIGNING_VERIFIER = "signtool verify /pa /v" }
+  & node (Join-Path $repoRoot "scripts\write-signing-evidence.mjs")
+  if ($LASTEXITCODE -ne 0) {
+    throw "Could not write Windows signing evidence."
+  }
+} finally {
+  $env:WARDSEN_BUNDLE_ROOT = $previousBundleRoot
+  $env:WARDSEN_SIGNING_PLATFORM = $previousPlatform
+  $env:WARDSEN_SIGNING_METHOD = $previousMethod
+  $env:WARDSEN_SIGNING_VERIFIER = $previousVerifier
+}

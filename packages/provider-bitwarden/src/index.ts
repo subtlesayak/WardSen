@@ -1,5 +1,4 @@
 import fs from "node:fs";
-import { createHash } from "node:crypto";
 import path from "node:path";
 import type {
   ConnectionResult,
@@ -8,13 +7,12 @@ import type {
   CredentialSummary,
   PaginationInput,
   ProviderLoginInput,
+  TerminalSessionHandoff,
   ProviderUnlockInput,
   SensitiveCredential
 } from "@wardsen/core";
 import { AccountSessionManager } from "@wardsen/core";
 import { resolveProviderExecutable, runCliCommand, type CliCommandInput, type CliCommandResult } from "@wardsen/security";
-
-const TERMINAL_HANDOFF_TTL_MS = 5 * 60 * 1000;
 
 export type BitwardenCommandRunner = (input: CliCommandInput) => Promise<CliCommandResult>;
 
@@ -62,19 +60,26 @@ export class BitwardenCredentialProvider implements CredentialProvider {
 
   async login(accountId: string, input: ProviderLoginInput): Promise<void> {
     if (input.serverUrl) await this.run(accountId, ["config", "server", input.serverUrl]);
-    throw new Error(this.manualTerminalLoginMessage(accountId, input));
+    throw new Error("Bitwarden terminal login must be started from WardSen so it can create a one-time local session handoff.");
   }
 
   async unlock(accountId: string, input: ProviderUnlockInput): Promise<void> {
-    const handoffToken = this.consumeTerminalSessionHandoff(accountId);
-    if (handoffToken) {
-      this.sessions.markUnlocked(accountId, this.id, handoffToken);
-      return;
-    }
-    if (!input.password) throw new Error(this.missingTerminalSessionMessage(accountId));
+    if (!input.password) throw new Error("Bitwarden is not unlocked in WardSen yet. Select Terminal login / unlock in WardSen, run the copied command, and WardSen will update the account automatically.");
     const result = await this.run(accountId, ["unlock", "--raw"], input.password, 60_000, [input.password ?? ""]);
     const token = result.stdout.trim();
     if (!token) throw new Error("Bitwarden unlock did not return a session token");
+    this.sessions.markUnlocked(accountId, this.id, token);
+  }
+
+  createTerminalSessionHandoffCommand(accountId: string, input: ProviderLoginInput, handoff: TerminalSessionHandoff): string {
+    this.cleanupLegacyTerminalSessionHandoffs(accountId);
+    if (this.platform !== "win32") return this.posixTerminalLoginCommand(accountId, input, handoff);
+    return this.powerShellTerminalLoginCommand(accountId, input, handoff);
+  }
+
+  acceptTerminalSessionHandoff(accountId: string, sessionToken: string): void {
+    const token = sessionToken.trim();
+    if (!token) throw new Error("Bitwarden terminal handoff did not include a session token.");
     this.sessions.markUnlocked(accountId, this.id, token);
   }
 
@@ -136,54 +141,36 @@ export class BitwardenCredentialProvider implements CredentialProvider {
     });
   }
 
-  private manualTerminalLoginMessage(accountId: string, input: ProviderLoginInput) {
-    return `Bitwarden terminal login is required. WardSen does not ask for your Bitwarden password or verification code inside the app for first login, because Bitwarden new-device verification is more reliable in a real terminal. Run the same-profile terminal login command, enter your Bitwarden password and verification code in Terminal or PowerShell, then return to WardSen and select Unlock. Manual same-profile terminal login command: ${this.terminalLoginCommand(accountId, input)}`;
-  }
-
-  private missingTerminalSessionMessage(accountId: string) {
-    return `Bitwarden is not unlocked in WardSen yet. Run the same-profile terminal login command first, then return to WardSen and select Unlock. Manual same-profile terminal login command: ${this.terminalLoginCommand(accountId, {})}`;
-  }
-
-  private terminalLoginCommand(accountId: string, input: ProviderLoginInput) {
-    if (this.platform !== "win32") return this.posixTerminalLoginCommand(accountId, input);
-    return this.powerShellTerminalLoginCommand(accountId, input);
-  }
-
-  private powerShellTerminalLoginCommand(accountId: string, input: ProviderLoginInput) {
+  private powerShellTerminalLoginCommand(accountId: string, input: ProviderLoginInput, handoff: TerminalSessionHandoff) {
     const profileDirectory = this.profileDirectory(accountId);
     const profilePath = bitwardenPowerShellProfileExpression(profileDirectory);
-    const handoffPath = bitwardenPowerShellSessionHandoffExpression(profileDirectory, accountId);
     const username = input.username ? ` ${powershellSingleQuote(input.username)}` : "";
-    const server = input.serverUrl ? `bw config server ${powershellSingleQuote(input.serverUrl)}; ` : "";
-    return `$env:BITWARDENCLI_APPDATA_DIR=${profilePath}; ${server}$bwResult=bw login${username} --raw 2>&1; if ($LASTEXITCODE -ne 0 -and "$bwResult" -match "already logged in") { $bwResult=bw unlock --raw }; if ($LASTEXITCODE -eq 0 -and $bwResult) { Set-Content -LiteralPath ${handoffPath} -Value $bwResult.Trim() -NoNewline }; Remove-Item Env:\\BITWARDENCLI_APPDATA_DIR`;
+    const server = input.serverUrl ? `& $bwCommand config server ${powershellSingleQuote(input.serverUrl)}; if ($LASTEXITCODE -ne 0) { throw "WardSen could not set the Bitwarden server." }; ` : "";
+    const command = path.isAbsolute(this.executable) ? powershellSingleQuote(this.executable) : "(Get-Command bw -ErrorAction SilentlyContinue).Source";
+    const claimUrl = powershellSingleQuote(handoff.claimUrl);
+    const token = powershellSingleQuote(handoff.token);
+    return `$env:BITWARDENCLI_APPDATA_DIR=${profilePath}; $bwCommand=${command}; try { if (-not $bwCommand -or -not (Test-Path -LiteralPath $bwCommand -PathType Leaf)) { throw "WardSen could not find the Bitwarden CLI. Install bw, then retry Terminal login / unlock." }; ${server}& $bwCommand login${username}; $bwLoginExitCode=$LASTEXITCODE; if ($bwLoginExitCode -ne 0) { $bwStatus=& $bwCommand status 2>$null; if (-not ($bwStatus -match '"status"\\s*:\\s*"(locked|unlocked)"')) { throw "WardSen could not finish Bitwarden login. Fix the Bitwarden CLI message above, then retry." } }; Write-Host "WardSen will now unlock this Bitwarden profile. Type your Bitwarden master password in the Bitwarden prompt:"; $bwSession=& $bwCommand unlock --raw; $bwExitCode=$LASTEXITCODE; if ($bwExitCode -ne 0 -or -not $bwSession) { throw "WardSen could not unlock Bitwarden. Fix the Bitwarden CLI message above, then retry." }; Invoke-WebRequest -Uri ${claimUrl} -Method Post -ContentType 'text/plain; charset=utf-8' -Headers @{ 'X-WardSen-Terminal-Handoff' = ${token} } -Body $bwSession.Trim() | Out-Null; Write-Host "WardSen received the Bitwarden session. Return to WardSen; this account is unlocked." } finally { $bwSession=$null; Remove-Item Env:\\BITWARDENCLI_APPDATA_DIR -ErrorAction SilentlyContinue }`;
   }
 
-  private posixTerminalLoginCommand(accountId: string, input: ProviderLoginInput) {
+  private posixTerminalLoginCommand(accountId: string, input: ProviderLoginInput, handoff: TerminalSessionHandoff) {
     const profilePath = bitwardenPosixProfileExpression(this.profileDirectory(accountId));
     const username = input.username ? ` ${posixSingleQuote(input.username)}` : "";
-    const server = input.serverUrl ? `bw config server ${posixSingleQuote(input.serverUrl)}; ` : "";
-    const handoffFile = bitwardenSessionHandoffFile(accountId, this.profileDirectory(accountId));
-    const handoffPath = `"$BITWARDENCLI_APPDATA_DIR/${posixDoubleQuoteLiteral(handoffFile)}"`;
-    return `export BITWARDENCLI_APPDATA_DIR=${profilePath}; mkdir -p "$BITWARDENCLI_APPDATA_DIR"; ${server}bw login${username}; printf '\\nWardSen will now unlock this Bitwarden profile. Type your Bitwarden master password here: '; stty -echo; IFS= read -r bwPassword; stty echo; printf '\\n'; umask 077; printf '%s\\n' "$bwPassword" | bw unlock --raw > ${handoffPath}; bwExitCode=$?; unset bwPassword; if [ "$bwExitCode" -eq 0 ] && [ -s ${handoffPath} ]; then chmod 600 ${handoffPath}; printf '\\nWardSen saved this Bitwarden session. Return to WardSen and select Unlock from terminal session.\\n'; else rm -f ${handoffPath}; printf '\\nWardSen could not save a Bitwarden session. Finish Bitwarden login, then run this command again.\\n' >&2; fi; unset BITWARDENCLI_APPDATA_DIR bwExitCode`;
+    const server = input.serverUrl ? `if [ "$bwCanUnlock" -eq 1 ]; then "$bwCommand" config server ${posixSingleQuote(input.serverUrl)} || bwCanUnlock=0; fi; ` : "";
+    const claimUrl = posixSingleQuote(handoff.claimUrl);
+    const claimHeader = posixSingleQuote(`X-WardSen-Terminal-Handoff: ${handoff.token}`);
+    return `export BITWARDENCLI_APPDATA_DIR=${profilePath}; mkdir -p "$BITWARDENCLI_APPDATA_DIR"; ${bitwardenPosixCommandAssignment(this.executable)}; if [ -z "$bwCommand" ] || [ ! -x "$bwCommand" ]; then printf '\\nWardSen could not find the Bitwarden CLI. Install bw or put it at /opt/homebrew/bin/bw, /usr/local/bin/bw, /opt/local/bin/bw or $HOME/Library/Application Support/WardSen/tools/bw, then retry Terminal login / unlock.\\n' >&2; bwCanUnlock=0; else bwCanUnlock=1; fi; ${server}if [ "$bwCanUnlock" -eq 1 ]; then "$bwCommand" login${username}; bwLoginExitCode=$?; if [ "$bwLoginExitCode" -ne 0 ]; then bwStatus="$("$bwCommand" status 2>/dev/null || true)"; if printf '%s' "$bwStatus" | grep -Eq '"status"[[:space:]]*:[[:space:]]*"(locked|unlocked)"'; then bwLoginExitCode=0; else printf '\\nWardSen could not finish Bitwarden login. Fix the Bitwarden CLI message above, then retry.\\n' >&2; bwCanUnlock=0; fi; unset bwStatus; fi; fi; if [ "$bwCanUnlock" -eq 1 ]; then printf '\\nWardSen will now unlock this Bitwarden profile. Type your Bitwarden master password in the Bitwarden prompt:\\n'; bwSession="$("$bwCommand" unlock --raw)"; bwExitCode=$?; else bwExitCode=127; fi; if [ "$bwExitCode" -eq 0 ] && [ -n "$bwSession" ]; then if printf '%s' "$bwSession" | curl --fail --silent --show-error --request POST --header 'Content-Type: text/plain; charset=utf-8' --header ${claimHeader} --data-binary @- ${claimUrl}; then printf '\\nWardSen received the Bitwarden session. Return to WardSen; this account is unlocked.\\n'; else printf '\\nWardSen could not transfer the Bitwarden session. Start Terminal login / unlock again from WardSen before retrying.\\n' >&2; fi; else if [ "$bwCanUnlock" -eq 1 ]; then printf '\\nWardSen could not unlock Bitwarden. Fix the Bitwarden CLI message above, then retry.\\n' >&2; fi; fi; unset BITWARDENCLI_APPDATA_DIR bwSession bwExitCode bwLoginExitCode bwCanUnlock bwCommand bwCandidate bwStatus`;
   }
 
-  private consumeTerminalSessionHandoff(accountId: string): string | undefined {
+  private cleanupLegacyTerminalSessionHandoffs(accountId: string): void {
     const profileDirectory = this.profileDirectory(accountId);
-    cleanupLegacySessionHandoff(profileDirectory);
-    const handoffPath = bitwardenSessionHandoffPath(profileDirectory, accountId);
-    if (!fs.existsSync(handoffPath)) return undefined;
     try {
-      const stats = fs.statSync(handoffPath);
-      if (Date.now() - stats.mtimeMs > TERMINAL_HANDOFF_TTL_MS) {
-        fs.rmSync(handoffPath, { force: true });
-        return undefined;
+      for (const entry of fs.readdirSync(profileDirectory, { withFileTypes: true })) {
+        if (entry.isFile() && (entry.name === ".wardsen-session" || entry.name.startsWith(".wardsen-session-"))) {
+          fs.rmSync(path.join(profileDirectory, entry.name), { force: true });
+        }
       }
-      const token = fs.readFileSync(handoffPath, "utf8").trim();
-      fs.rmSync(handoffPath, { force: true });
-      return token || undefined;
     } catch {
-      fs.rmSync(handoffPath, { force: true });
-      return undefined;
+      // A first-login profile may not exist yet. Do not create it until Bitwarden does.
     }
   }
 
@@ -202,6 +189,11 @@ function posixSingleQuote(value: string): string {
 
 function posixDoubleQuoteLiteral(value: string): string {
   return value.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"").replaceAll("`", "\\`").replaceAll("$", "\\$");
+}
+
+function bitwardenPosixCommandAssignment(executable: string): string {
+  if (path.isAbsolute(executable)) return `bwCommand=${posixSingleQuote(executable)}`;
+  return `bwCommand="$(command -v bw || true)"; if [ -z "$bwCommand" ]; then for bwCandidate in "$HOME/Library/Application Support/WardSen/tools/bw" "$HOME/.wardsen/tools/bw" "/opt/homebrew/bin/bw" "/usr/local/bin/bw" "/opt/local/bin/bw"; do if [ -x "$bwCandidate" ]; then bwCommand="$bwCandidate"; break; fi; done; fi`;
 }
 
 function bitwardenPosixProfileExpression(profilePath: string): string {
@@ -225,23 +217,6 @@ function bitwardenPowerShellProfileExpression(profilePath: string): string {
 function isPathInside(targetPath: string, parentPath: string): boolean {
   const relative = path.relative(path.resolve(parentPath), path.resolve(targetPath));
   return Boolean(relative) && !relative.startsWith("..") && !path.isAbsolute(relative);
-}
-
-function bitwardenPowerShellSessionHandoffExpression(profilePath: string, accountId: string): string {
-  return `$(Join-Path ${bitwardenPowerShellProfileExpression(profilePath)} ${powershellSingleQuote(bitwardenSessionHandoffFile(accountId, profilePath))})`;
-}
-
-function bitwardenSessionHandoffPath(profilePath: string, accountId: string): string {
-  return path.join(profilePath, bitwardenSessionHandoffFile(accountId, profilePath));
-}
-
-function bitwardenSessionHandoffFile(accountId: string, profilePath: string): string {
-  const entropy = createHash("sha256").update(`${accountId}\0${path.resolve(profilePath)}`).digest("hex").slice(0, 16);
-  return `.wardsen-session-${entropy}`;
-}
-
-function cleanupLegacySessionHandoff(profilePath: string): void {
-  fs.rmSync(path.join(profilePath, ".wardsen-session"), { force: true });
 }
 
 function resolveBitwardenExecutable(): string {

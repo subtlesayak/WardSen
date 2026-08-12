@@ -22,7 +22,8 @@ Public end-user installers must be signed, verifiable and tied to release proven
 
 - Windows artifacts pass Authenticode verification.
 - macOS artifacts pass Developer ID signing and notarization validation.
-- Checksums and `RELEASE-MANIFEST-*.json` are attached.
+- Checksums, `RELEASE-MANIFEST-*.json`, `WARDSEN-SBOM-*.json`, `PACKAGED-SMOKE-*.json`, public-release `SIGNING-EVIDENCE-*.json` and `PROVENANCE-EVIDENCE-*.json` are attached.
+- Each final installer is covered by a formal GitHub artifact attestation and a hash-matched `INSTALL-LIFECYCLE-EVIDENCE-*.json` record from a disposable-machine install, upgrade and uninstall check.
 - The release was built from the exact published tag.
 
 Do not treat a Gatekeeper quarantine bypass as a normal installation path.

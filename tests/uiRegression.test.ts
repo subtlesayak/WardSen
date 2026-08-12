@@ -2,6 +2,9 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const webSource = readFileSync("apps/web/src/main.tsx", "utf8");
+const batchTablesSource = readFileSync("apps/web/src/deliveryBatchTables.tsx", "utf8");
+const deliveryHistorySource = readFileSync("apps/web/src/deliveryHistoryTable.tsx", "utf8");
+const employeePortalSource = readFileSync("apps/web/src/employeePortal.tsx", "utf8");
 const styles = readFileSync("apps/web/src/styles.css", "utf8");
 
 describe("web UI regression guards", () => {
@@ -34,8 +37,8 @@ describe("web UI regression guards", () => {
     expect(webSource).toContain("aria-current={active === id ? \"page\" : undefined}");
     expect(webSource).toContain("role=\"status\" aria-live=\"polite\"");
     expect(webSource).toContain("aria-label=\"Credential search query\"");
-    expect(webSource).toContain("aria-label={`Copy provider ID for ${delivery.credentialName}`}");
-    expect(webSource).toContain("aria-label={`Cancel batch ${batch.id}`}");
+    expect(deliveryHistorySource).toContain("aria-label={copyStatus === \"copied\" ? `Provider ID copied for ${delivery.credentialName}` : `Copy provider ID for ${delivery.credentialName}`}");
+    expect(batchTablesSource).toContain("aria-label={`Cancel batch ${batch.id}`}");
     expect(webSource).toContain("aria-pressed={form.mode === \"shared\"}");
     expect(styles).toMatch(/:focus-visible[\s\S]*outline:\s*3px solid #0f6bff;/);
     expect(styles).toMatch(/\.skipLink\s*{/);
@@ -78,8 +81,8 @@ describe("web UI regression guards", () => {
     expect(webSource).toContain("unlockDisabledForVerification");
     expect(webSource).toContain("Submit code and login");
     expect(webSource).toContain("Terminal login / unlock");
-    expect(webSource).toContain("runs Bitwarden login visibly");
-    expect(webSource).toContain("Type that password in Terminal, not in WardSen.");
+    expect(webSource).toContain("WardSen never accepts this password.");
+    expect(webSource).toContain("one-time local handoff authorization");
     expect(webSource).toContain("Code type");
     expect(webSource).toContain("Email / new-device code");
     expect(webSource).toContain("Unlock is available after Bitwarden login finishes");
@@ -135,10 +138,21 @@ describe("web UI regression guards", () => {
     expect(webSource).toContain("Policy approved");
     expect(webSource).toContain("function normalizeAccessRequestResponse");
     expect(webSource).toContain("accessRequest.status === \"approved\" ? \"Fulfill\" : \"Approve\"");
-    expect(webSource).toContain("title=\"Employee-Side Request\"");
+    expect(webSource).toContain("Emergency break-glass request");
+    expect(webSource).toContain("function breakGlassRequestPayload");
+    expect(webSource).toContain("BREAK GLASS ${catalogEntryId}");
+    expect(webSource).toContain("function confirmBreakGlassSubmission");
+    expect(webSource).toContain("Break-glass creates an audited emergency request");
+    expect(webSource).toContain("title=\"Admin-Assisted Request\"");
     expect(webSource).toContain("title=\"Employee Sign-In Code\"");
-    expect(webSource).toContain("title=\"Employee Portal Sign-In\"");
-    expect(webSource).toContain("title=\"Employee Portal Request\"");
+    expect(webSource).toContain('import { EmployeePortalPage, isEmployeePortalView } from "./employeePortal";');
+    expect(webSource).toContain("if (isEmployeePortalView()) return <EmployeePortalPage />;");
+    expect(webSource).toContain("?view=employee");
+    expect(employeePortalSource).toContain("export function EmployeePortalPage");
+    expect(employeePortalSource).toContain("/api/employee-portal/catalog");
+    expect(employeePortalSource).toContain("/api/employee-portal/credential-requests");
+    expect(employeePortalSource).toContain("x-wardsen-employee-session");
+    expect(employeePortalSource).not.toContain("raw password");
     expect(webSource).toContain("title=\"Admin Request Queue\"");
     expect(webSource).toContain("const assignedEmail = selectedRequestEmployee?.assignedEmail;");
     expect(webSource).toContain("Sender email");
@@ -152,16 +166,46 @@ describe("web UI regression guards", () => {
     expect(webSource).toContain("Replacement reason");
     expect(webSource).toContain("previousDeliveryId");
     expect(webSource).toContain("replacementCount");
-    expect(webSource).toContain("/api/employee-sessions");
-    expect(webSource).toContain("/api/employee-portal/catalog");
-    expect(webSource).toContain("\"x-wardsen-employee-session\"");
-    expect(webSource).toContain("sessionToken: string;");
-    expect(webSource).toContain("readOnly aria-readonly=\"true\" type=\"email\"");
+    expect(employeePortalSource).toContain("/api/employee-sessions");
+    expect(employeePortalSource).toContain("/api/employee-portal/catalog");
+    expect(employeePortalSource).toContain("\"x-wardsen-employee-session\"");
+    expect(employeePortalSource).toContain("sessionToken");
+    expect(employeePortalSource).toContain("readOnly aria-readonly=\"true\"");
     const mailtoHelper = webSource.match(/function employeeSignInMailtoHref[\s\S]*?\n}/)?.[0] ?? "";
     expect(mailtoHelper).toContain("mailto:");
     expect(mailtoHelper).not.toContain("body=");
     expect(webSource).not.toContain("assignedEmail: requestForm.assignedEmail");
     expect(webSource).not.toContain("localStorage");
     expect(styles).toMatch(/input\[readonly\]\s*{/);
+    expect(styles).toMatch(/\.employeePortalShell\s*{/);
+  });
+
+  it("shows delivery provider candidates without enabling planned providers as functional", () => {
+    expect(webSource).toContain("plannedProviders: ProviderInfo[]");
+    expect(webSource).toContain("Delivery Provider Candidates");
+    expect(webSource).toContain("providerTelemetryLabel");
+    expect(webSource).toContain("Promotion blockers");
+    expect(webSource).toContain("viewer ${titleStatus(readiness.viewerIdentity)}");
+    expect(webSource).toContain("provider.delivery?.promotionBlockedBy.join");
+    expect(styles).toMatch(/\.tableHead\.providerCandidate,\s*\.tableRow\.providerCandidate/);
+    expect(styles).toMatch(/\.providerTable\s*{/);
+  });
+
+  it("labels Ente Paste as a manual handoff and disables unsupported lifecycle controls", () => {
+    expect(webSource).toContain("function deliveryOptionsForProvider");
+    expect(webSource).toContain("approvalConfirmationMessage");
+    expect(webSource).toContain("replacementConfirmationMessage");
+    expect(webSource).toContain("Ente Paste approval handoff");
+    expect(webSource).toContain("Ente Paste manual handoff");
+    expect(webSource).toContain("Open Ente Paste");
+    expect(webSource).toContain("Clear clipboard");
+    expect(webSource).toContain("clear-handoff-clipboard");
+    expect(webSource).toContain("handoff_pending");
+    expect(deliveryHistorySource).toContain("disabled={!canRefresh(delivery)}");
+    expect(webSource).toContain("canRefresh={(delivery) => deliveryProviderSupports(api.deliveryProviders, delivery.deliveryProviderId, \"statusLookup\")}");
+    expect(webSource).toContain("!deliveryProviderSupports(api.deliveryProviders, accessRequest.deliveryProviderId, \"revokeLink\")");
+    expect(webSource).toContain("const approvalViewLimitValue = approvalCapabilities.arbitraryViewLimit ? approvalForm.viewLimit : \"\";");
+    expect(webSource).toContain("viewLimit: capabilities.arbitraryViewLimit ? form.viewLimit || undefined : undefined");
+    expect(styles).toMatch(/\.manualHandoffAction \.copyFeedbackStatus\s*{/);
   });
 });

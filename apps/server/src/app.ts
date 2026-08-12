@@ -1,6 +1,7 @@
+import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
-import Fastify from "fastify";
+import Fastify, { type FastifyRequest } from "fastify";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import sensible from "@fastify/sensible";
@@ -33,6 +34,7 @@ import { BitwardenSendDeliveryProvider } from "@wardsen/delivery-bitwarden-send"
 import { KeePassXCCredentialProvider } from "@wardsen/provider-keepassxc";
 import { assertSameOrigin, isLocalRequest, safeErrorMessage } from "@wardsen/security";
 import { parsePeopleCsv, peopleToCsv } from "./csv";
+import { EntePasteManualDeliveryProvider } from "../../../packages/delivery-ente-paste/src";
 
 export interface BuildAppOptions {
   repository?: WardSenRepository;
@@ -46,10 +48,26 @@ export interface BuildAppOptions {
   deliveryProviders?: DeliveryProvider[];
 }
 
+interface TerminalSessionHandoffRecord {
+  accountId: string;
+  providerId: string;
+  expiresAt: number;
+}
+
+const TERMINAL_SESSION_HANDOFF_TTL_MS = 5 * 60 * 1000;
+
 export async function buildApp(options: BuildAppOptions = {}) {
   const app = Fastify({
     logger: {
-      redact: ["req.headers.authorization", "req.body.password", "req.body.accessPassword", "req.body.masterPassword"]
+      redact: [
+        "req.headers.authorization",
+        "req.headers['x-wardsen-api-token']",
+        "req.headers['x-wardsen-terminal-handoff']",
+        "req.body",
+        "req.body.password",
+        "req.body.accessPassword",
+        "req.body.masterPassword"
+      ]
     },
     bodyLimit: 128 * 1024
   });
@@ -61,6 +79,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   const accountProfileDirectories = new Map<string, string>();
   const deliveryOperationTails = new Map<string, Promise<void>>();
   const deliveryUrlCache = new Map<string, string>();
+  const terminalSessionHandoffs = new Map<string, TerminalSessionHandoffRecord>();
   const autoLockIntervalMs = Math.max(1_000, options.autoLockIntervalMs ?? 30_000);
   const autoLockTimer = setInterval(() => {
     void enforceAutoLock();
@@ -70,16 +89,17 @@ export async function buildApp(options: BuildAppOptions = {}) {
     const bitwarden = new BitwardenCredentialProvider({
       profileRoot,
       sessions,
-      profileDirectoryFor: (accountId) => accountProfileDirectories.get(accountId)
+      profileDirectoryFor: managedProfileDirectoryForAccount
     });
     registry.registerCredentialProvider(bitwarden);
     registry.registerCredentialProvider(new KeePassXCCredentialProvider({ sessions }));
     registry.registerDeliveryProvider(
       new BitwardenSendDeliveryProvider({
         getSessionToken: (accountId) => sessions.getSessionToken(accountId, "bitwarden"),
-        profileDirectoryFor: (accountId) => accountProfileDirectories.get(accountId)
+        profileDirectoryFor: managedProfileDirectoryForAccount
       })
     );
+    registry.registerDeliveryProvider(new EntePasteManualDeliveryProvider());
   }
   for (const provider of options.credentialProviders ?? []) {
     registry.registerCredentialProvider(provider);
@@ -105,6 +125,29 @@ export async function buildApp(options: BuildAppOptions = {}) {
   });
   await app.register(rateLimit, { max: 120, timeWindow: "1 minute" });
 
+  function pruneTerminalSessionHandoffs(now = Date.now()): void {
+    for (const [token, handoff] of terminalSessionHandoffs) {
+      if (handoff.expiresAt <= now) terminalSessionHandoffs.delete(token);
+    }
+  }
+
+  function terminalHandoffForClaimRequest(request: FastifyRequest): { token: string; record: TerminalSessionHandoffRecord } | undefined {
+    if (request.method !== "POST") return undefined;
+    const path = request.url.split("?", 1)[0];
+    const match = /^\/api\/accounts\/([^/]+)\/terminal-handoff\/claim$/.exec(path);
+    if (!match) return undefined;
+    const token = firstHeaderValue(request.headers["x-wardsen-terminal-handoff"]);
+    if (!token) return undefined;
+    pruneTerminalSessionHandoffs();
+    const record = terminalSessionHandoffs.get(token);
+    if (!record) return undefined;
+    try {
+      return record.accountId === decodeURIComponent(match[1]) ? { token, record } : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   app.addHook("onRequest", async (request, reply) => {
     if (!isLocalRequest(request)) {
       await reply.code(403).send({ error: "WardSen only accepts local requests" });
@@ -124,11 +167,12 @@ export async function buildApp(options: BuildAppOptions = {}) {
       await reply.code(204).send();
       return;
     }
-    if (!isAuthorizedLocalApiRequest(request.headers["x-wardsen-api-token"], apiToken, options.allowUnauthenticatedLocalApi)) {
+    const terminalHandoff = terminalHandoffForClaimRequest(request);
+    if (!terminalHandoff && !isAuthorizedLocalApiRequest(request.headers["x-wardsen-api-token"], apiToken, options.allowUnauthenticatedLocalApi)) {
       await reply.code(401).send({ error: "WardSen local service rejected this request because the desktop API token was missing or invalid. Restart WardSen from the desktop app, then retry." });
       return;
     }
-    if (["POST", "PUT", "DELETE", "PATCH"].includes(request.method)) {
+    if (["POST", "PUT", "DELETE", "PATCH"].includes(request.method) && !terminalHandoff) {
       assertSameOrigin(request);
     }
     await enforceAutoLock();
@@ -157,26 +201,45 @@ export async function buildApp(options: BuildAppOptions = {}) {
       }))
     ),
     deliveryProviders: await Promise.all(
-      registry.listDeliveryProviders().map(async (provider) => ({
-        id: provider.id,
-        displayName: provider.displayName,
-        maturity: "active",
-        enabledByDefault: true,
-        capabilities: await provider.getCapabilities()
-      }))
+      registry.listDeliveryProviders().map(async (provider) => {
+        const manifest = builtInProviderManifests.find((item) => item.id === provider.id);
+        return {
+          id: provider.id,
+          displayName: provider.displayName,
+          kind: manifest?.kind ?? "delivery",
+          maturity: manifest?.maturity ?? "active",
+          enabledByDefault: manifest?.enabledByDefault ?? true,
+          documentationUrl: manifest?.documentationUrl,
+          notes: manifest?.notes,
+          delivery: manifest?.delivery,
+          capabilities: await provider.getCapabilities()
+        };
+      })
     ),
     plannedProviders: builtInProviderManifests
-      .filter((manifest) => manifest.maturity !== "active")
-      .map(({ id, displayName, kind, maturity, enabledByDefault, documentationUrl, notes }) => ({
+      .filter((manifest) => !manifest.enabledByDefault)
+      .map(({ id, displayName, kind, maturity, enabledByDefault, documentationUrl, notes, delivery }) => ({
         id,
         displayName,
         kind,
         maturity,
         enabledByDefault,
         documentationUrl,
-        notes
+        notes,
+        delivery
       }))
   }));
+
+  app.post("/api/delivery-providers/:id/clear-handoff-clipboard", async (request) => {
+    const { id } = idParams.parse(request.params);
+    const provider = registry.getDeliveryProvider(id);
+    if (!provider.clearHandoffClipboard) {
+      throw new Error(`${provider.displayName} does not manage a manual handoff clipboard through WardSen.`);
+    }
+    await provider.clearHandoffClipboard();
+    await audit("delivery.manual_handoff.clipboard_clear", "success", { safeDetails: `provider=${provider.id}` });
+    return { providerId: provider.id, cleared: true };
+  });
 
   app.get("/api/accounts", async () => accountsWithLiveStatus());
 
@@ -246,6 +309,60 @@ export async function buildApp(options: BuildAppOptions = {}) {
     const provider = registry.getCredentialProvider(account.providerId);
     await provider.login(id, body);
     await audit("account.login", "success", { sourceAccountId: id });
+    return { ok: true };
+  });
+
+  app.post("/api/accounts/:id/terminal-handoff", async (request) => {
+    const { id } = idParams.parse(request.params);
+    const body = loginSchema.parse(request.body);
+    const account = await findAccount(repository, id);
+    rememberAccountProfile(account);
+    const provider = registry.getCredentialProvider(account.providerId);
+    if (!provider.createTerminalSessionHandoffCommand || !provider.acceptTerminalSessionHandoff) {
+      throw app.httpErrors.badRequest(`${provider.displayName} does not support a terminal session handoff.`);
+    }
+    const host = request.headers.host;
+    if (!host) throw app.httpErrors.badRequest("WardSen could not determine the local service address for terminal login.");
+    pruneTerminalSessionHandoffs();
+    const token = nanoid(48);
+    const expiresAt = new Date(Date.now() + TERMINAL_SESSION_HANDOFF_TTL_MS);
+    terminalSessionHandoffs.set(token, { accountId: id, providerId: provider.id, expiresAt: expiresAt.getTime() });
+    try {
+      const command = provider.createTerminalSessionHandoffCommand(id, body, {
+        claimUrl: `http://${host}/api/accounts/${encodeURIComponent(id)}/terminal-handoff/claim`,
+        token
+      });
+      await audit("account.terminal_handoff.create", "success", { sourceAccountId: id, safeDetails: `expires=${expiresAt.toISOString()}` });
+      return { command, expiresAt: expiresAt.toISOString() };
+    } catch (error) {
+      terminalSessionHandoffs.delete(token);
+      await audit("account.terminal_handoff.create", "failure", { sourceAccountId: id, safeDetails: safeErrorMessage(error) });
+      throw error;
+    }
+  });
+
+  app.post("/api/accounts/:id/terminal-handoff/claim", async (request) => {
+    const { id } = idParams.parse(request.params);
+    const handoff = terminalHandoffForClaimRequest(request);
+    if (!handoff) {
+      throw app.httpErrors.unauthorized("WardSen terminal session handoff is missing, expired or invalid. Start Terminal login / unlock again from WardSen.");
+    }
+    terminalSessionHandoffs.delete(handoff.token);
+    const sessionToken = typeof request.body === "string" ? request.body.trim() : "";
+    if (!sessionToken) {
+      throw app.httpErrors.badRequest("WardSen terminal session handoff did not receive a session token.");
+    }
+    const account = await findAccount(repository, id);
+    if (account.providerId !== handoff.record.providerId) {
+      throw app.httpErrors.unauthorized("WardSen terminal session handoff no longer matches this account.");
+    }
+    rememberAccountProfile(account);
+    const provider = registry.getCredentialProvider(account.providerId);
+    if (!provider.acceptTerminalSessionHandoff) {
+      throw app.httpErrors.badRequest(`${provider.displayName} does not support a terminal session handoff.`);
+    }
+    await provider.acceptTerminalSessionHandoff(id, sessionToken);
+    await audit("account.terminal_handoff.claim", "success", { sourceAccountId: id, safeDetails: "memory_only" });
     return { ok: true };
   });
 
@@ -830,6 +947,9 @@ export async function buildApp(options: BuildAppOptions = {}) {
   app.post("/api/deliveries/bulk", async (request) => {
     const body = bulkDeliverySchema.parse(request.body);
     const bulkOperationId = operationIdFromRequest(request.headers["x-wardsen-idempotency-key"], body.operationId);
+    if (isManualHandoffProvider(body.deliveryProviderId)) {
+      throw new Error("Manual Ente Paste handoff is single-delivery only because each handoff uses the local clipboard. Use Bitwarden Send for bulk per-recipient links.");
+    }
     if (body.confirmRiskSummary !== true) {
       throw new Error("Bulk delivery requires confirmation of credential, vault, provider, recipient count, expiry and view limit");
     }
@@ -920,6 +1040,37 @@ export async function buildApp(options: BuildAppOptions = {}) {
     return repository.listAuditLog(query);
   });
 
+  app.post("/api/retention/prune", async (request) => {
+    assertDestructiveConfirmation(request.body, RETENTION_PRUNE_CONFIRMATION);
+    const body = retentionPruneSchema.parse(request.body);
+    if (!body.auditLogBefore && !body.employeeAuthBefore) {
+      throw new Error("Retention pruning requires auditLogBefore or employeeAuthBefore.");
+    }
+    const pruned = {
+      auditLog: 0,
+      employeeSignInCodes: 0,
+      employeeSessions: 0
+    };
+    if (body.auditLogBefore) {
+      assertRetentionCutoff("Audit log", body.auditLogBefore);
+      pruned.auditLog = await repository.pruneAuditLogBefore(body.auditLogBefore);
+    }
+    if (body.employeeAuthBefore) {
+      assertRetentionCutoff("Employee auth", body.employeeAuthBefore);
+      pruned.employeeSignInCodes = await repository.pruneExpiredEmployeeSignInCodes(body.employeeAuthBefore);
+      pruned.employeeSessions = await repository.pruneExpiredEmployeeSessions(body.employeeAuthBefore);
+    }
+    const total = pruned.auditLog + pruned.employeeSignInCodes + pruned.employeeSessions;
+    await audit("retention.prune", "success", {
+      safeDetails: JSON.stringify({
+        auditLogBefore: body.auditLogBefore ?? null,
+        employeeAuthBefore: body.employeeAuthBefore ?? null,
+        pruned
+      })
+    });
+    return { pruned: { ...pruned, total } };
+  });
+
   async function createOneDelivery(body: z.infer<typeof deliverySchema> & { batchId?: string }) {
     const operationId = body.operationId ?? nanoid();
     return withDeliveryOperation(operationId, () => createOneDeliveryLocked(body, operationId));
@@ -987,7 +1138,8 @@ export async function buildApp(options: BuildAppOptions = {}) {
         providerDeliveryId: result.deliveryId,
         expiresAt: result.expiresAt.toISOString(),
         viewLimit: result.viewLimit,
-        status: "active"
+        status: result.status ?? "active",
+        ...(deliveryAccessObserved(result.status) ? { firstViewedAt: new Date().toISOString() } : {})
       });
       deliveryUrlCache.set(record.id, result.url);
       await audit("delivery.create", "success", {
@@ -1051,6 +1203,17 @@ export async function buildApp(options: BuildAppOptions = {}) {
     throw app.httpErrors.conflict("Delivery operation already exists, but its one-time URL is no longer available in this app session. Review or revoke the existing delivery before creating a replacement link.");
   }
 
+  async function listAllBatchDeliveries(batchId: string): Promise<DeliveryRecord[]> {
+    const deliveries: DeliveryRecord[] = [];
+    let page = 1;
+    while (true) {
+      const result = await repository.listDeliveries({ batchId, page, pageSize: 100 });
+      deliveries.push(...result.items);
+      if (deliveries.length >= result.total || result.items.length === 0) return deliveries;
+      page += 1;
+    }
+  }
+
   app.get("/api/deliveries", async (request) => {
     const query = deliveryQuerySchema.parse(request.query);
     return repository.listDeliveries(query);
@@ -1068,13 +1231,17 @@ export async function buildApp(options: BuildAppOptions = {}) {
     const delivery = await repository.getDelivery(id);
     if (!delivery) throw app.httpErrors.notFound("Delivery not found");
     const provider = registry.getDeliveryProvider(delivery.deliveryProviderId);
+    await assertDeliveryProviderSupports(provider, "statusLookup", "refresh status");
     const status = await provider.getStatus(delivery.deliveryAccountId, delivery.providerDeliveryId ?? delivery.id);
+    const checkedAt = new Date().toISOString();
+    const firstViewedAt = delivery.firstViewedAt ?? (deliveryAccessObserved(status.status, status.accessCount) ? checkedAt : undefined);
     const updated = await repository.updateDelivery(id, {
       status: status.status,
       accessCount: status.accessCount,
       expiresAt: status.expiresAt?.toISOString() ?? delivery.expiresAt,
       revokedAt: status.revokedAt?.toISOString() ?? delivery.revokedAt,
-      lastCheckedAt: new Date().toISOString()
+      ...(firstViewedAt ? { firstViewedAt } : {}),
+      lastCheckedAt: checkedAt
     });
     await audit("delivery.refresh", "success", { deliveryAccountId: delivery.deliveryAccountId, deliveryId: id });
     return updated;
@@ -1107,6 +1274,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     const delivery = await repository.getDelivery(id);
     if (!delivery) throw app.httpErrors.notFound("Delivery not found");
     const provider = registry.getDeliveryProvider(delivery.deliveryProviderId);
+    await assertDeliveryProviderSupports(provider, "revokeLink", "revoke links");
     await provider.revoke(delivery.deliveryAccountId, delivery.providerDeliveryId ?? delivery.id);
     const updated = await repository.updateDelivery(id, { status: "revoked", revokedAt: new Date().toISOString() });
     deliveryUrlCache.delete(id);
@@ -1114,11 +1282,72 @@ export async function buildApp(options: BuildAppOptions = {}) {
     return updated;
   });
 
+  app.post("/api/deliveries/:id/revoke-batch", async (request) => {
+    const { id } = idParams.parse(request.params);
+    const delivery = await repository.getDelivery(id);
+    if (!delivery) throw app.httpErrors.notFound("Delivery not found");
+    if (!delivery.batchId) throw app.httpErrors.badRequest("This delivery was not created in a bulk batch, so it has no related batch links to revoke.");
+    assertDestructiveConfirmation(request.body, confirmationPhrase("REVOKE BATCH LINKS", delivery.batchId));
+
+    const batchDeliveries = await listAllBatchDeliveries(delivery.batchId);
+    const targets = batchDeliveries.filter((candidate) => ["active", "viewed", "limit_reached"].includes(candidate.status));
+    const providers = new Map<string, DeliveryProvider>();
+    for (const target of targets) {
+      const provider = registry.getDeliveryProvider(target.deliveryProviderId);
+      await assertDeliveryProviderSupports(provider, "revokeLink", "contain batch links");
+      providers.set(target.id, provider);
+    }
+
+    const revokedAt = new Date().toISOString();
+    const failed: Array<{ deliveryId: string; error: string }> = [];
+    let revokedCount = 0;
+    for (const target of targets) {
+      try {
+        await providers.get(target.id)!.revoke(target.deliveryAccountId, target.providerDeliveryId ?? target.id);
+        await repository.updateDelivery(target.id, { status: "revoked", revokedAt });
+        deliveryUrlCache.delete(target.id);
+        revokedCount += 1;
+        await audit("delivery.batch_containment_revoke", "success", {
+          sourceAccountId: target.sourceAccountId,
+          deliveryAccountId: target.deliveryAccountId,
+          deliveryId: target.id,
+          safeDetails: `batch=${delivery.batchId}`
+        });
+      } catch (error) {
+        const safeMessage = safeErrorMessage(error);
+        failed.push({ deliveryId: target.id, error: safeMessage });
+        await audit("delivery.batch_containment_revoke", "failure", {
+          sourceAccountId: target.sourceAccountId,
+          deliveryAccountId: target.deliveryAccountId,
+          deliveryId: target.id,
+          safeDetails: `batch=${delivery.batchId};${safeMessage}`
+        });
+      }
+    }
+    await audit("delivery.batch_containment", failed.length ? "failure" : "success", {
+      sourceAccountId: delivery.sourceAccountId,
+      deliveryAccountId: delivery.deliveryAccountId,
+      deliveryId: id,
+      safeDetails: `batch=${delivery.batchId};revoked=${revokedCount};failed=${failed.length}`
+    });
+    return {
+      batchId: delivery.batchId,
+      revokedCount,
+      inactiveCount: batchDeliveries.length - targets.length,
+      failed
+    };
+  });
+
   app.addHook("onClose", async () => {
     clearInterval(autoLockTimer);
+    terminalSessionHandoffs.clear();
     for (const account of await repository.listAccounts()) {
-      rememberAccountProfile(account);
-      await registry.getCredentialProvider(account.providerId).lock(account.id).catch(() => undefined);
+      try {
+        rememberAccountProfile(account);
+        await registry.getCredentialProvider(account.providerId).lock(account.id);
+      } catch {
+        // A rejected profile must never be passed to a provider during shutdown.
+      }
     }
     sessions.lockAll();
   });
@@ -1222,6 +1451,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   async function revokeDeliveryBeforeReplacement(delivery: DeliveryRecord): Promise<void> {
     if (["revoked", "expired", "failed", "cancelled"].includes(delivery.status)) return;
     const provider = registry.getDeliveryProvider(delivery.deliveryProviderId);
+    await assertDeliveryProviderSupports(provider, "revokeLink", "replace links by revoking the previous delivery");
     await provider.revoke(delivery.deliveryAccountId, delivery.providerDeliveryId ?? delivery.id);
     await repository.updateDelivery(delivery.id, { status: "revoked", revokedAt: new Date().toISOString() });
     deliveryUrlCache.delete(delivery.id);
@@ -1318,7 +1548,23 @@ export async function buildApp(options: BuildAppOptions = {}) {
   }
 
   function rememberAccountProfile(account: Pick<AccountRecord, "id" | "profileDirectory">): void {
-    accountProfileDirectories.set(account.id, account.profileDirectory);
+    const expectedProfileDirectory = managedProfileDirectory(profileRoot, account.id);
+    if (!pathsEqual(account.profileDirectory, expectedProfileDirectory)) {
+      throw new Error("Stored provider profile directory is not managed by WardSen. Reconnect this account to create an isolated profile.");
+    }
+    assertManagedProfileDirectoryTarget(profileRoot, expectedProfileDirectory);
+    accountProfileDirectories.set(account.id, expectedProfileDirectory);
+  }
+
+  function managedProfileDirectoryForAccount(accountId: string): string | undefined {
+    const profileDirectory = accountProfileDirectories.get(accountId);
+    if (!profileDirectory) return undefined;
+    const expectedProfileDirectory = managedProfileDirectory(profileRoot, accountId);
+    if (!pathsEqual(profileDirectory, expectedProfileDirectory)) {
+      throw new Error("Stored provider profile directory is not managed by WardSen. Reconnect this account to create an isolated profile.");
+    }
+    assertManagedProfileDirectoryTarget(profileRoot, expectedProfileDirectory);
+    return expectedProfileDirectory;
   }
 
   async function reconcileStuckDeliveries(): Promise<void> {
@@ -1345,17 +1591,22 @@ export async function buildApp(options: BuildAppOptions = {}) {
   async function recoverStuckDeliveryFromProvider(delivery: DeliveryRecord): Promise<{ recovered: boolean; safeDetails?: string } | undefined> {
     if (!delivery.operationId) return undefined;
     const provider = registry.getDeliveryProvider(delivery.deliveryProviderId);
+    const capabilities = await provider.getCapabilities();
+    if (!capabilities.statusLookup) return undefined;
     if (!provider.findDeliveryByOperationId) return undefined;
     try {
       const status = await provider.findDeliveryByOperationId(delivery.deliveryAccountId, delivery.operationId);
       if (!status) return undefined;
+      const checkedAt = new Date().toISOString();
+      const firstViewedAt = delivery.firstViewedAt ?? (deliveryAccessObserved(status.status, status.accessCount) ? checkedAt : undefined);
       await repository.updateDelivery(delivery.id, {
         providerDeliveryId: status.deliveryId,
         status: status.status,
         accessCount: status.accessCount,
         expiresAt: status.expiresAt?.toISOString() ?? delivery.expiresAt,
         revokedAt: status.revokedAt?.toISOString() ?? delivery.revokedAt,
-        lastCheckedAt: new Date().toISOString()
+        ...(firstViewedAt ? { firstViewedAt } : {}),
+        lastCheckedAt: checkedAt
       });
       await audit("delivery.reconcile", "success", {
         deliveryAccountId: delivery.deliveryAccountId,
@@ -1366,6 +1617,13 @@ export async function buildApp(options: BuildAppOptions = {}) {
     } catch (error) {
       return { recovered: false, safeDetails: `provider_lookup_failed=${safeErrorMessage(error)}` };
     }
+  }
+}
+
+async function assertDeliveryProviderSupports(provider: DeliveryProvider, capability: keyof Awaited<ReturnType<DeliveryProvider["getCapabilities"]>>, action: string): Promise<void> {
+  const capabilities = await provider.getCapabilities();
+  if (!capabilities[capability]) {
+    throw new Error(`${provider.displayName} cannot ${action} through WardSen because this provider does not expose that capability.`);
   }
 }
 
@@ -1460,6 +1718,10 @@ const hardDeleteSchema = z.object({
 });
 const destructiveConfirmationSchema = z.object({
   confirm: z.string()
+});
+const retentionPruneSchema = destructiveConfirmationSchema.extend({
+  auditLogBefore: z.string().datetime().optional(),
+  employeeAuthBefore: z.string().datetime().optional()
 });
 const operationIdSchema = z.string()
   .trim()
@@ -1615,6 +1877,7 @@ const bulkDeliverySchema = deliverySchema.omit({ recipient: true }).extend({
 const LARGE_BATCH_RECIPIENT_THRESHOLD = 25;
 const EMPLOYEE_SIGN_IN_CODE_TTL_MS = 15 * 60 * 1000;
 const EMPLOYEE_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
+const RETENTION_PRUNE_CONFIRMATION = "PRUNE RETENTION";
 const employeeCode = customAlphabet("23456789ABCDEFGHJKLMNPQRSTUVWXYZ", 10);
 
 async function findAccount(repository: WardSenRepository, id: string): Promise<AccountRecord> {
@@ -1699,6 +1962,10 @@ function assertDeliveryAccountMatchesProvider(deliveryProviderId: string, delive
   }
 }
 
+function isManualHandoffProvider(deliveryProviderId: string): boolean {
+  return builtInProviderManifests.find((manifest) => manifest.id === deliveryProviderId)?.delivery?.secureLinkCreation === "manual";
+}
+
 function riskTierWithinPolicy(riskTier: CredentialCatalogEntry["riskTier"], maxRiskTier: CredentialCatalogEntry["riskTier"]): boolean {
   const order: Record<CredentialCatalogEntry["riskTier"], number> = { low: 1, medium: 2, high: 3, critical: 4 };
   return order[riskTier] <= order[maxRiskTier];
@@ -1714,7 +1981,7 @@ async function assertDeliveryProviderReady(deliveryProvider: DeliveryProvider, a
     const detail = safeErrorMessage(error);
     const label = account.label || account.username || account.id;
     if (deliveryProvider.id === "bitwarden-send") {
-      throw new Error(`Bitwarden Send account "${label}" is not ready. Go to Vaults > Account Access, select "${label}", use Terminal login if Bitwarden asks for first login or verification, then select Unlock from terminal session before creating a secure link. Detail: ${detail}`);
+      throw new Error(`Bitwarden Send account "${label}" is not ready. Go to Vaults > Account Access, select "${label}", use Terminal login / unlock if Bitwarden asks for first login or verification, then wait for WardSen to show the account as unlocked before creating a secure link. Detail: ${detail}`);
     }
     throw new Error(`Delivery account "${label}" is not ready. Unlock or reconnect this delivery account before creating a secure link. Detail: ${detail}`);
   }
@@ -1736,7 +2003,46 @@ function managedProfileDirectory(profileRoot: string, accountId: string): string
   return resolved;
 }
 
-function confirmationPhrase(action: "DELETE ACCOUNT" | "DELETE PERSON" | "REVOKE DELIVERY" | "CANCEL BATCH" | "REPLACE REQUEST" | "BREAK GLASS", id: string): string {
+function assertManagedProfileDirectoryTarget(profileRoot: string, profileDirectory: string): void {
+  const resolvedProfileRoot = path.resolve(profileRoot);
+  const resolvedProfileDirectory = path.resolve(profileDirectory);
+  const relative = path.relative(resolvedProfileRoot, resolvedProfileDirectory);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error("Managed provider profile directory must stay inside the WardSen profile root.");
+  }
+
+  let directoryStats: fs.Stats;
+  try {
+    directoryStats = fs.lstatSync(resolvedProfileDirectory);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+
+  if (directoryStats.isSymbolicLink()) {
+    throw new Error("Managed provider profile directory must not be a symlink or reparse point.");
+  }
+  if (!directoryStats.isDirectory()) {
+    throw new Error("Managed provider profile path must be a directory.");
+  }
+
+  const canonicalRoot = fs.realpathSync.native(resolvedProfileRoot);
+  const canonicalDirectory = fs.realpathSync.native(resolvedProfileDirectory);
+  const expectedCanonicalDirectory = path.resolve(canonicalRoot, relative);
+  if (!pathsEqual(canonicalDirectory, expectedCanonicalDirectory)) {
+    throw new Error("Managed provider profile directory must not be a symlink or reparse point.");
+  }
+}
+
+function pathsEqual(left: string, right: string): boolean {
+  const normalizedLeft = path.resolve(left);
+  const normalizedRight = path.resolve(right);
+  return process.platform === "win32"
+    ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase()
+    : normalizedLeft === normalizedRight;
+}
+
+function confirmationPhrase(action: "DELETE ACCOUNT" | "DELETE PERSON" | "REVOKE DELIVERY" | "REVOKE BATCH LINKS" | "CANCEL BATCH" | "REPLACE REQUEST" | "BREAK GLASS", id: string): string {
   return `${action} ${id}`;
 }
 
@@ -1744,6 +2050,16 @@ function assertDestructiveConfirmation(body: unknown, expected: string): void {
   const parsed = destructiveConfirmationSchema.safeParse(body);
   if (!parsed.success || parsed.data.confirm !== expected) {
     throw new Error(`Destructive action requires confirmation phrase: ${expected}`);
+  }
+}
+
+function assertRetentionCutoff(label: string, cutoffIso: string): void {
+  const cutoffMs = Date.parse(cutoffIso);
+  if (!Number.isFinite(cutoffMs)) {
+    throw new Error(`${label} retention cutoff must be an ISO timestamp.`);
+  }
+  if (cutoffMs > Date.now() + 1000) {
+    throw new Error(`${label} retention cutoff cannot be in the future.`);
   }
 }
 
@@ -1774,4 +2090,8 @@ function deliveryOperationFingerprint(policySnapshot: DeliveryPolicySnapshot): s
 
 function isReturnableDelivery(delivery: DeliveryRecord): boolean {
   return delivery.status === "active" || delivery.status === "viewed" || delivery.status === "limit_reached";
+}
+
+function deliveryAccessObserved(status?: DeliveryRecord["status"], accessCount?: number): boolean {
+  return (accessCount ?? 0) > 0 || status === "viewed" || status === "limit_reached";
 }

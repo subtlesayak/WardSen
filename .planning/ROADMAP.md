@@ -2,7 +2,7 @@
 
 ## Milestone 1: Production-Quality Open-Source Desktop Foundation
 
-Status: implementation complete through Phase 29.
+Status: implementation complete through Phase 30.
 
 ### Completed Phases
 
@@ -261,3 +261,25 @@ Before publishing another release, WardSen needed clearer public wording that us
 - Provider policy states provider names are nominative compatibility references only.
 - Release checklist requires trademark/provider wording review before publishing.
 - Release notes disclose the independent compatibility position.
+
+## Completed Phase 30: Profile Directory Anti-Link Isolation
+
+Status: complete
+
+### Problem
+
+Managed account IDs prevented direct path traversal, but a legacy or altered account record could still point a provider profile at an untrusted path. An existing symlink or Windows reparse point at the managed account directory could also redirect a provider CLI outside WardSen's profile root.
+
+### Scope
+
+- Verify every stored account profile path still equals its deterministic WardSen-managed directory before invoking a provider.
+- Reject symbolic links, Windows junctions and other canonical-path redirects for an existing managed profile directory.
+- Ensure shutdown treats an invalid profile as locked without passing it to a provider command.
+- Add regression coverage for altered stored metadata and linked profile targets.
+
+### Acceptance Criteria
+
+- Provider operations reject accounts whose stored profile path no longer matches the WardSen-managed path.
+- A symlink or Windows junction at an account profile directory is rejected before the provider CLI is run.
+- WardSen closes cleanly after detecting an invalid profile directory.
+- `npm run check`, `npm test` and `npm run build` pass.

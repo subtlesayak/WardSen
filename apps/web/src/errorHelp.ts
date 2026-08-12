@@ -57,24 +57,13 @@ export function describeError(message?: string): ErrorHelp {
     };
   }
 
-  if (lower.includes("manual same-profile terminal login command") || lower.includes("manual same-profile login command") || lower.includes("invalid new device otp")) {
-    const command = extractManualLoginCommand(detail);
-    const terminalHelp = command ? describeTerminalLoginCommand(command) : undefined;
+  if (lower.includes("bitwarden terminal login must be started from wardsen")) {
     return {
       kind: "bitwardenTerminalLogin",
       title: "Bitwarden needs terminal login once",
-      detail: "Bitwarden first login runs in a real terminal so you only enter your Bitwarden password and verification code once.",
-      guidance: "Run the same-profile terminal command below, enter your Bitwarden password and verification code in Terminal or PowerShell, then return to WardSen and select Unlock. WardSen imports the short-lived terminal session and deletes the local handoff file.",
-      technicalDetail: detail,
-      terminalCommands: command && terminalHelp
-        ? [
-            {
-              label: terminalHelp.label,
-              command,
-              note: terminalHelp.note
-            }
-          ]
-        : undefined
+      detail: "Bitwarden first login runs in a real terminal so WardSen never receives your master password or verification code.",
+      guidance: "Open Vaults > Account Access, select Terminal login / unlock, then paste the copied command into Terminal or PowerShell. WardSen will update the account automatically after the one-time local handoff succeeds.",
+      technicalDetail: detail
     };
   }
 
@@ -107,7 +96,7 @@ export function describeError(message?: string): ErrorHelp {
     return {
       title: "Bitwarden Send account needs unlock",
       detail,
-      guidance: "Go to Vaults > Account Access, choose this Bitwarden account, run Terminal login if Bitwarden needs first login or verification, then select Unlock from terminal session. Return to Deliveries after the account shows unlocked."
+      guidance: "Go to Vaults > Account Access, choose this Bitwarden account, run Terminal login / unlock if Bitwarden needs first login or verification, then wait for WardSen to show the account as unlocked. Return to Deliveries after that."
     };
   }
 
@@ -145,24 +134,6 @@ export function describeError(message?: string): ErrorHelp {
 function cleanMessage(message?: string) {
   const value = message?.trim();
   return value ? value : "No additional detail was returned.";
-}
-
-function extractManualLoginCommand(detail: string): string | undefined {
-  const match = detail.match(/Manual same-profile (?:terminal )?login command:\s*([\s\S]*?)(?:\s+Original detail:|$)/);
-  return match?.[1]?.trim();
-}
-
-function describeTerminalLoginCommand(command: string): Pick<TerminalCommandHelp, "label" | "note"> {
-  if (command.includes("$env:BITWARDENCLI_APPDATA_DIR") || command.includes("Remove-Item Env:")) {
-    return {
-      label: "Windows PowerShell same-profile Bitwarden login and unlock",
-      note: "This command does not include your password, verification code or session token. Type secrets only into the PowerShell Bitwarden prompt."
-    };
-  }
-  return {
-    label: "macOS/Linux Terminal same-profile Bitwarden login and unlock",
-    note: "This command does not include your password, verification code or session token. Type secrets only into the Terminal Bitwarden prompt."
-  };
 }
 
 function providerToolHelp(lowerDetail: string): Pick<ErrorHelp, "guidance" | "actionLabel" | "actionHref" | "setupNotes" | "terminalCommands"> {

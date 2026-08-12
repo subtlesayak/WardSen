@@ -33,12 +33,14 @@ describe("SqliteWardSenRepository", () => {
       credentialName: "CMS",
       personId: person.id,
       expiresAt: new Date(Date.now() + 3600000).toISOString(),
+      firstViewedAt: "2026-08-08T18:42:00.000Z",
       status: "active"
     });
 
     expect(JSON.stringify(await repo.listDeliveries({ page: 1, pageSize: 10 }))).not.toContain("https://");
     expect((await repo.listDeliveries({ page: 1, pageSize: 10, batchId: "missing" })).total).toBe(0);
     expect(delivery.providerDeliveryId).toBe("provider-id");
+    expect((await repo.getDelivery(delivery.id))?.firstViewedAt).toBe("2026-08-08T18:42:00.000Z");
     expect(await repo.getDeliveryByOperationId("delivery-op-1")).toMatchObject({ id: delivery.id, operationFingerprint: "fingerprint-1" });
     repo.close();
   });
@@ -195,6 +197,25 @@ describe("SqliteWardSenRepository", () => {
       expect.objectContaining({ credentialName: "Deploy Root", allowedTeams: ["Ops"], allowedRoles: ["Engineer"] })
     ]));
     expect((await repo.listCredentialCatalog({ page: 1, pageSize: 10, employeeId: "employee-other", employeeTeam: "Finance", employeeRole: "Analyst" })).items).toHaveLength(0);
+    const emergencyRequest = await repo.createCredentialAccessRequest({
+      employeeId: employee.id,
+      assignedEmail: employee.assignedEmail,
+      catalogEntryId: entry.id,
+      sourceProviderId: entry.sourceProviderId,
+      sourceAccountId: entry.sourceAccountId,
+      sourceItemId: entry.sourceItemId,
+      credentialName: entry.credentialName,
+      reason: "Production incident response",
+      status: "break_glass",
+      breakGlass: true,
+      breakGlassJustification: "Production incident needs immediate credential access",
+      breakGlassConfirmedAt: "2026-08-11T00:00:00.000Z"
+    });
+    expect(await repo.getCredentialAccessRequest(emergencyRequest.id)).toMatchObject({
+      status: "break_glass",
+      breakGlass: true,
+      breakGlassJustification: "Production incident needs immediate credential access"
+    });
     expect((await repo.listCredentialAccessRequests({ page: 1, pageSize: 10, status: "denied" })).items[0]).toMatchObject({
       id: request.id,
       approver: "admin@example.com",
@@ -265,6 +286,55 @@ describe("SqliteWardSenRepository", () => {
     expect(await repo.pruneAuditLogBefore("2021-01-01T00:00:00.000Z")).toBe(1);
     const audit = await repo.listAuditLog({ page: 1, pageSize: 10 });
     expect(audit.items.map((item) => item.action)).toEqual(["new"]);
+    repo.close();
+  });
+
+  it("prunes expired employee auth artifacts by cutoff", async () => {
+    tempDir = mkdtempSync(path.join(os.tmpdir(), "wardsen-sqlite-"));
+    const databasePath = path.join(tempDir, "wardsen.sqlite");
+    const repo = new SqliteWardSenRepository(databasePath);
+    const employee = await repo.upsertEmployee({
+      id: "employee-1",
+      name: "Ravi",
+      assignedEmail: "ravi@example.com"
+    });
+    const activeCodeHash = "d".repeat(64);
+    const activeSessionHash = "a".repeat(64);
+
+    await repo.createEmployeeSignInCode({
+      id: "active-code",
+      employeeId: employee.id,
+      assignedEmail: employee.assignedEmail,
+      codeHash: activeCodeHash,
+      expiresAt: "2030-01-02T00:00:00.000Z"
+    });
+    await repo.createEmployeeSession({
+      id: "active-session",
+      employeeId: employee.id,
+      assignedEmail: employee.assignedEmail,
+      tokenHash: activeSessionHash,
+      expiresAt: "2030-01-02T00:00:00.000Z"
+    });
+
+    const db = new DatabaseSync(databasePath);
+    db.prepare(`
+      INSERT INTO employee_sign_in_codes (id, employee_id, assigned_email, code_hash, expires_at, created_at)
+      VALUES ('old-code', 'employee-1', 'ravi@example.com', ?, '2020-01-02T00:00:00.000Z', '2020-01-01T00:00:00.000Z')
+    `).run("c".repeat(64));
+    db.prepare(`
+      INSERT INTO employee_sessions (id, employee_id, assigned_email, token_hash, expires_at, created_at)
+      VALUES ('old-session', 'employee-1', 'ravi@example.com', ?, '2020-01-02T00:00:00.000Z', '2020-01-01T00:00:00.000Z')
+    `).run("s".repeat(64));
+    db.prepare(`
+      INSERT INTO employee_sessions (id, employee_id, assigned_email, token_hash, expires_at, revoked_at, created_at)
+      VALUES ('revoked-session', 'employee-1', 'ravi@example.com', ?, '2030-01-02T00:00:00.000Z', '2020-06-01T00:00:00.000Z', '2020-01-01T00:00:00.000Z')
+    `).run("r".repeat(64));
+    db.close();
+
+    expect(await repo.pruneExpiredEmployeeSignInCodes("2021-01-01T00:00:00.000Z")).toBe(1);
+    expect(await repo.pruneExpiredEmployeeSessions("2021-01-01T00:00:00.000Z")).toBe(2);
+    expect(await repo.getEmployeeSignInCodeByHash(employee.id, activeCodeHash)).toMatchObject({ id: "active-code" });
+    expect(await repo.getEmployeeSessionByTokenHash(activeSessionHash)).toMatchObject({ id: "active-session" });
     repo.close();
   });
 });

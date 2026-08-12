@@ -3,7 +3,7 @@ use std::{
     io::Read,
     io::Write,
     net::{SocketAddr, TcpStream},
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::Mutex,
     time::Duration,
@@ -396,21 +396,23 @@ fn resolve_bundled_node(app: &tauri::App) -> Option<PathBuf> {
 }
 
 fn resolve_data_dir(app: &tauri::App) -> io::Result<PathBuf> {
-    let mut candidates = Vec::new();
-
-    #[cfg(windows)]
-    {
-        if let Some(local_app_data) = env::var_os("LOCALAPPDATA").map(PathBuf::from) {
-            candidates.push(local_app_data.join("WardSen").join("data"));
+    let candidates = data_dir_candidates(app);
+    let mut existing_data_dir: Option<(PathBuf, u64)> = None;
+    for candidate in &candidates {
+        if let Some(size) = data_root_database_size(candidate) {
+            if existing_data_dir
+                .as_ref()
+                .map(|(_, best_size)| size > *best_size)
+                .unwrap_or(true)
+            {
+                existing_data_dir = Some((candidate.clone(), size));
+            }
         }
     }
 
-    if let Ok(path) = app.path().app_data_dir() {
-        candidates.push(path.join("wardsen-data"));
-    }
-    if let Ok(exe_path) = env::current_exe() {
-        if let Some(exe_dir) = exe_path.parent() {
-            candidates.push(exe_dir.join(".wardsen-data"));
+    if let Some((existing, _)) = existing_data_dir {
+        if ensure_writable_dir(&existing).is_ok() {
+            return Ok(existing);
         }
     }
 
@@ -431,12 +433,80 @@ fn resolve_data_dir(app: &tauri::App) -> io::Result<PathBuf> {
     ))
 }
 
-fn ensure_writable_dir(path: &PathBuf) -> io::Result<()> {
+fn data_dir_candidates(app: &tauri::App) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+
+    #[cfg(windows)]
+    {
+        if let Some(local_app_data) = env::var_os("LOCALAPPDATA").map(PathBuf::from) {
+            push_data_dir_candidate(
+                &mut candidates,
+                local_app_data.join("WardSen").join("data"),
+            );
+            push_data_dir_candidate(
+                &mut candidates,
+                local_app_data
+                    .join("dev.wardsen.desktop")
+                    .join("wardsen-data"),
+            );
+        }
+        if let Some(app_data) = env::var_os("APPDATA").map(PathBuf::from) {
+            push_data_dir_candidate(&mut candidates, app_data.join("WardSen").join("data"));
+            push_data_dir_candidate(
+                &mut candidates,
+                app_data.join("dev.wardsen.desktop").join("wardsen-data"),
+            );
+        }
+    }
+
+    if let Ok(path) = app.path().app_data_dir() {
+        push_data_dir_candidate(&mut candidates, path.join("wardsen-data"));
+    }
+    if let Ok(exe_path) = env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            push_data_dir_candidate(&mut candidates, exe_dir.join(".wardsen-data"));
+        }
+    }
+
+    candidates
+}
+
+fn push_data_dir_candidate(candidates: &mut Vec<PathBuf>, candidate: PathBuf) {
+    if candidates
+        .iter()
+        .any(|existing| same_filesystem_path(existing, &candidate))
+    {
+        return;
+    }
+    candidates.push(candidate);
+}
+
+fn data_root_database_size(path: &Path) -> Option<u64> {
+    fs::metadata(path.join("wardsen.sqlite"))
+        .ok()
+        .filter(|metadata| metadata.is_file())
+        .map(|metadata| metadata.len())
+}
+
+fn ensure_writable_dir(path: &Path) -> io::Result<()> {
     fs::create_dir_all(path)?;
     let probe_path = path.join(".wardsen-write-test");
     fs::write(&probe_path, b"ok")?;
     let _ = fs::remove_file(probe_path);
     Ok(())
+}
+
+fn same_filesystem_path(left: &Path, right: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        return left.display().to_string().to_lowercase()
+            == right.display().to_string().to_lowercase();
+    }
+
+    #[cfg(not(windows))]
+    {
+        left == right
+    }
 }
 
 fn find_first_existing_path(candidates: Vec<PathBuf>) -> Option<PathBuf> {

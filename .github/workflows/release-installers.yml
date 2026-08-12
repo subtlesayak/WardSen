@@ -36,7 +36,9 @@ jobs:
     name: Build ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     permissions:
+      attestations: write
       contents: read
+      id-token: write
     strategy:
       fail-fast: false
       matrix:
@@ -50,6 +52,11 @@ jobs:
               apps/desktop/src-tauri/target/release/bundle/msi/*.msi
               apps/desktop/src-tauri/target/release/bundle/SHA256SUMS-*.txt
               apps/desktop/src-tauri/target/release/bundle/RELEASE-MANIFEST-*.json
+              apps/desktop/src-tauri/target/release/bundle/WARDSEN-SBOM-*.json
+              apps/desktop/src-tauri/target/release/bundle/PACKAGED-SMOKE-*.json
+              apps/desktop/src-tauri/target/release/bundle/SIGNING-EVIDENCE-*.json
+              apps/desktop/src-tauri/target/release/bundle/ATTESTATION-SUBJECTS-*.txt
+              apps/desktop/src-tauri/target/release/bundle/PROVENANCE-EVIDENCE-*.json
           - name: macos-arm64
             os: macos-14
             build_args: "--target aarch64-apple-darwin"
@@ -59,6 +66,11 @@ jobs:
               apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
               apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/SHA256SUMS-*.txt
               apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/RELEASE-MANIFEST-*.json
+              apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/WARDSEN-SBOM-*.json
+              apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/PACKAGED-SMOKE-*.json
+              apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/SIGNING-EVIDENCE-*.json
+              apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/ATTESTATION-SUBJECTS-*.txt
+              apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/PROVENANCE-EVIDENCE-*.json
 
     steps:
       - name: Checkout
@@ -173,6 +185,9 @@ jobs:
           WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
           WINDOWS_TIMESTAMP_URL: ${{ secrets.WINDOWS_TIMESTAMP_URL }}
+          WARDSEN_PUBLIC_RELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.publish == true && inputs.prerelease == false && 'true' || 'false' }}
+          WARDSEN_SIGNING_EVIDENCE_NAME: SIGNING-EVIDENCE-${{ matrix.name }}.json
+          WARDSEN_SIGNING_PLATFORM: ${{ matrix.name }}
         run: |
           if (-not $env:WINDOWS_CERTIFICATE_BASE64) {
             Write-Host "WINDOWS_CERTIFICATE_BASE64 is not configured; leaving Windows artifacts unsigned."
@@ -188,6 +203,9 @@ jobs:
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           MACOS_SIGNING_ENABLED: ${{ vars.MACOS_SIGNING_ENABLED }}
+          WARDSEN_PUBLIC_RELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.publish == true && inputs.prerelease == false && 'true' || 'false' }}
+          WARDSEN_SIGNING_EVIDENCE_NAME: SIGNING-EVIDENCE-${{ matrix.name }}.json
+          WARDSEN_SIGNING_PLATFORM: ${{ matrix.name }}
         run: |
           if [ "$MACOS_SIGNING_ENABLED" != "true" ]; then
             echo "MACOS_SIGNING_ENABLED is not true; leaving macOS artifacts unsigned."
@@ -203,10 +221,53 @@ jobs:
         if: runner.os == 'macOS'
         run: ./installers/macos/smoke-macos-dmg.sh "${{ matrix.bundle_root }}"
 
+      - name: Smoke packaged server bundle
+        env:
+          WARDSEN_PACKAGED_SMOKE_OUTPUT_DIR: ${{ matrix.bundle_root }}
+          WARDSEN_PACKAGED_SMOKE_NAME: PACKAGED-SMOKE-${{ matrix.name }}.json
+        run: npm run smoke:packaged
+
+      - name: Generate SBOM
+        env:
+          WARDSEN_BUNDLE_ROOT: ${{ matrix.bundle_root }}
+          WARDSEN_SBOM_NAME: WARDSEN-SBOM-${{ matrix.name }}.json
+        run: npm run release:sbom
+
+      - name: Prepare provenance subjects
+        env:
+          WARDSEN_BUNDLE_ROOT: ${{ matrix.bundle_root }}
+          WARDSEN_PROVENANCE_SUBJECTS_NAME: ATTESTATION-SUBJECTS-${{ matrix.name }}.txt
+        run: npm run release:provenance-subjects
+
+      - name: Attest installers and SBOM
+        id: provenance
+        if: github.event.repository.visibility == 'public'
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d
+        with:
+          subject-checksums: ${{ matrix.bundle_root }}/ATTESTATION-SUBJECTS-${{ matrix.name }}.txt
+
+      - name: Write provenance evidence
+        if: github.event.repository.visibility == 'public'
+        env:
+          WARDSEN_BUNDLE_ROOT: ${{ matrix.bundle_root }}
+          WARDSEN_PROVENANCE_PLATFORM: ${{ matrix.name }}
+          WARDSEN_PROVENANCE_SUBJECTS_NAME: ATTESTATION-SUBJECTS-${{ matrix.name }}.txt
+          WARDSEN_PROVENANCE_EVIDENCE_NAME: PROVENANCE-EVIDENCE-${{ matrix.name }}.json
+          WARDSEN_PROVENANCE_ATTESTATION_ID: ${{ steps.provenance.outputs.attestation-id }}
+          WARDSEN_PROVENANCE_ATTESTATION_URL: ${{ steps.provenance.outputs.attestation-url }}
+        run: npm run release:write-provenance-evidence
+
       - name: Generate checksums
         env:
           WARDSEN_BUNDLE_ROOT: ${{ matrix.bundle_root }}
         run: npm run release:checksums
+
+      - name: Verify release evidence
+        env:
+          WARDSEN_BUNDLE_ROOT: ${{ matrix.bundle_root }}
+          WARDSEN_PUBLIC_RELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.publish == true && inputs.prerelease == false && 'true' || 'false' }}
+          WARDSEN_PROVENANCE_REQUIRED: ${{ github.event.repository.visibility == 'public' && 'true' || 'false' }}
+        run: npm run release:verify-evidence
 
       - name: Rename checksum file
         shell: pwsh

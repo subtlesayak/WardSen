@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import os from "node:os";
+import fs from "node:fs";
 import path from "node:path";
 import { AccountSessionManager } from "@wardsen/core";
 import type {
@@ -19,6 +20,7 @@ import type {
 } from "@wardsen/core";
 import { InMemoryWardSenRepository } from "@wardsen/database";
 import { buildApp } from "../apps/server/src/app";
+import { EntePasteManualDeliveryProvider } from "../packages/delivery-ente-paste/src";
 
 describe("WardSen API", () => {
   afterEach(() => {
@@ -146,9 +148,29 @@ describe("WardSen API", () => {
     expect(body.plannedProviders).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "onepassword", maturity: "planned", enabledByDefault: false }),
       expect.objectContaining({ id: "proton-pass", maturity: "planned", enabledByDefault: false }),
-      expect.objectContaining({ id: "keeper", maturity: "planned", enabledByDefault: false })
+      expect.objectContaining({ id: "keeper", maturity: "planned", enabledByDefault: false }),
+      expect.objectContaining({ id: "password-pusher", maturity: "planned", enabledByDefault: false })
     ]));
-    expect(body.deliveryProviders.some((provider: { id: string }) => provider.id === "bitwarden-send")).toBe(true);
+    expect(body.deliveryProviders).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "bitwarden-send", maturity: "active", enabledByDefault: true }),
+      expect.objectContaining({
+        id: "ente-paste",
+        maturity: "experimental",
+        enabledByDefault: true,
+        delivery: expect.objectContaining({
+          integrationSurface: "web_only",
+          secureLinkCreation: "manual",
+          revoke: "unsupported",
+          statusLookup: "unsupported"
+        }),
+        capabilities: expect.objectContaining({
+          externalLinks: true,
+          viewOnce: true,
+          revokeLink: false,
+          statusLookup: false
+        })
+      })
+    ]));
     await app.close();
   });
 
@@ -230,6 +252,49 @@ describe("WardSen API", () => {
     await app.close();
   });
 
+  it("rejects stored profile paths and linked profile directories before provider commands run", async () => {
+    const workingDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "wardsen-profile-isolation-"));
+    const profileRoot = path.join(workingDirectory, "profiles");
+    const outsideDirectory = path.join(workingDirectory, "outside");
+    const headers = { host: "127.0.0.1:4777", origin: "http://127.0.0.1:4777" };
+    const repository = new InMemoryWardSenRepository();
+    const app = await buildApp({ profileRoot, repository });
+
+    try {
+      const created = await app.inject({
+        method: "POST",
+        url: "/api/accounts",
+        headers,
+        payload: { id: "ops", providerId: "bitwarden", label: "Operations" }
+      });
+      expect(created.statusCode).toBe(200);
+
+      const account = created.json();
+      await repository.upsertAccount({
+        ...account,
+        profileDirectory: outsideDirectory
+      });
+      const storedPath = await app.inject({ method: "GET", url: "/api/accounts/ops/status", headers });
+      expect(storedPath.statusCode).toBe(400);
+      expect(storedPath.json().error).toContain("not managed by WardSen");
+
+      await repository.upsertAccount({
+        ...account,
+        profileDirectory: path.join(profileRoot, "ops")
+      });
+      fs.mkdirSync(profileRoot, { recursive: true });
+      fs.mkdirSync(outsideDirectory, { recursive: true });
+      fs.symlinkSync(outsideDirectory, path.join(profileRoot, "ops"), process.platform === "win32" ? "junction" : "dir");
+
+      const linkedPath = await app.inject({ method: "GET", url: "/api/accounts/ops/status", headers });
+      expect(linkedPath.statusCode).toBe(400);
+      expect(linkedPath.json().error).toContain("symlink or reparse point");
+    } finally {
+      await app.close();
+      fs.rmSync(workingDirectory, { recursive: true, force: true });
+    }
+  });
+
   it("rejects provider changes after account creation to preserve profile isolation", async () => {
     const app = await buildApp();
     const headers = { host: "127.0.0.1:4777", origin: "http://127.0.0.1:4777" };
@@ -268,6 +333,73 @@ describe("WardSen API", () => {
 
     expect(accounts.json()[0]).toMatchObject({ id: "source", status: "unlocked" });
     expect(accounts.json()[0].lastActivity).toBeTruthy();
+    await app.close();
+  });
+
+  it("uses a one-time authenticated, memory-only terminal session handoff", async () => {
+    const sessions = new AccountSessionManager();
+    const provider = new TerminalHandoffCredentialProvider(sessions);
+    const app = await buildApp({
+      apiToken: "desktop-token",
+      registerBuiltInProviders: false,
+      sessions,
+      credentialProviders: [provider]
+    });
+    const desktopHeaders = {
+      host: "127.0.0.1:4777",
+      origin: "http://127.0.0.1:4777",
+      "x-wardsen-api-token": "desktop-token"
+    };
+    await app.inject({
+      method: "POST",
+      url: "/api/accounts",
+      headers: desktopHeaders,
+      payload: { id: "bitwarden-account", providerId: "bitwarden", label: "Work" }
+    });
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/accounts/bitwarden-account/terminal-handoff",
+      headers: desktopHeaders,
+      payload: { username: "work@example.test" }
+    });
+    expect(created.statusCode).toBe(200);
+    expect(created.json()).toEqual(expect.objectContaining({ command: expect.any(String), expiresAt: expect.any(String) }));
+    expect(provider.handoffs).toHaveLength(1);
+
+    const desktopTokenOnly = await app.inject({
+      method: "POST",
+      url: "/api/accounts/bitwarden-account/terminal-handoff/claim",
+      headers: { ...desktopHeaders, "content-type": "text/plain; charset=utf-8" },
+      payload: "terminal-session-raw"
+    });
+    expect(desktopTokenOnly.statusCode).toBe(401);
+
+    const claim = await app.inject({
+      method: "POST",
+      url: "/api/accounts/bitwarden-account/terminal-handoff/claim",
+      headers: {
+        host: "127.0.0.1:4777",
+        "content-type": "text/plain; charset=utf-8",
+        "x-wardsen-terminal-handoff": provider.handoffs[0]!.token
+      },
+      payload: "terminal-session-raw"
+    });
+    expect(claim.statusCode).toBe(200);
+    expect(provider.acceptedTokens).toEqual(["terminal-session-raw"]);
+    expect(sessions.getSessionToken("bitwarden-account", "bitwarden")).toBe("terminal-session-raw");
+
+    const replay = await app.inject({
+      method: "POST",
+      url: "/api/accounts/bitwarden-account/terminal-handoff/claim",
+      headers: { ...desktopHeaders, "content-type": "text/plain; charset=utf-8" },
+      payload: "terminal-session-raw"
+    });
+    expect(replay.statusCode).toBe(401);
+
+    const audit = await app.inject({ method: "GET", url: "/api/audit-log", headers: desktopHeaders });
+    expect(JSON.stringify(audit.json())).not.toContain("terminal-session-raw");
+    expect(JSON.stringify(audit.json())).not.toContain(provider.handoffs[0]!.token);
     await app.close();
   });
 
@@ -577,6 +709,63 @@ describe("WardSen API", () => {
     });
     expect(unauthorizedRequest.statusCode).toBe(400);
     expect(unauthorizedRequest.json().error).toBe("Employee is not allowed to request this credential catalog entry.");
+
+    const breakGlassWithoutConfirmation = await app.inject({
+      method: "POST",
+      url: "/api/credential-requests",
+      headers,
+      payload: {
+        employeeId: "employee-1",
+        assignedEmail: "ravi@example.com",
+        catalogEntryId: "catalog-1",
+        reason: "Production incident response",
+        breakGlass: true,
+        breakGlassJustification: "Production incident needs immediate credential access"
+      }
+    });
+    expect(breakGlassWithoutConfirmation.statusCode).toBe(400);
+    expect(breakGlassWithoutConfirmation.json().error).toBe("Destructive action requires confirmation phrase: BREAK GLASS catalog-1");
+
+    const breakGlassWithoutRiskConfirmation = await app.inject({
+      method: "POST",
+      url: "/api/credential-requests",
+      headers,
+      payload: {
+        employeeId: "employee-1",
+        assignedEmail: "ravi@example.com",
+        catalogEntryId: "catalog-1",
+        reason: "Production incident response",
+        breakGlass: true,
+        breakGlassJustification: "Production incident needs immediate credential access",
+        confirm: "BREAK GLASS catalog-1"
+      }
+    });
+    expect(breakGlassWithoutRiskConfirmation.statusCode).toBe(400);
+    expect(breakGlassWithoutRiskConfirmation.json().error).toContain("Break-glass credential requests require confirmation");
+
+    const breakGlassRequest = await app.inject({
+      method: "POST",
+      url: "/api/credential-requests",
+      headers,
+      payload: {
+        employeeId: "employee-1",
+        assignedEmail: "ravi@example.com",
+        catalogEntryId: "catalog-1",
+        reason: "Production incident response",
+        breakGlass: true,
+        breakGlassJustification: "Production incident needs immediate credential access",
+        confirmRiskSummary: true,
+        confirm: "BREAK GLASS catalog-1"
+      }
+    });
+    expect(breakGlassRequest.statusCode).toBe(200);
+    expect(breakGlassRequest.json()).toMatchObject({
+      status: "break_glass",
+      breakGlass: true,
+      breakGlassJustification: "Production incident needs immediate credential access",
+      assignedEmail: "ravi@example.com"
+    });
+    expect(breakGlassRequest.json().breakGlassConfirmedAt).toEqual(expect.any(String));
 
     const teamPolicyRequest = await app.inject({
       method: "POST",
@@ -903,6 +1092,42 @@ describe("WardSen API", () => {
     });
     expect(deniedRequest.statusCode).toBe(400);
 
+    const portalBreakGlassWithoutConfirmation = await app.inject({
+      method: "POST",
+      url: "/api/employee-portal/credential-requests",
+      headers: employeeHeaders,
+      payload: {
+        catalogEntryId: "catalog-1",
+        reason: "Production incident response",
+        breakGlass: true,
+        breakGlassJustification: "Production incident needs immediate credential access"
+      }
+    });
+    expect(portalBreakGlassWithoutConfirmation.statusCode).toBe(400);
+    expect(portalBreakGlassWithoutConfirmation.json().error).toBe("Destructive action requires confirmation phrase: BREAK GLASS catalog-1");
+
+    const portalBreakGlassRequest = await app.inject({
+      method: "POST",
+      url: "/api/employee-portal/credential-requests",
+      headers: employeeHeaders,
+      payload: {
+        catalogEntryId: "catalog-1",
+        reason: "Production incident response",
+        breakGlass: true,
+        breakGlassJustification: "Production incident needs immediate credential access",
+        confirmRiskSummary: true,
+        confirm: "BREAK GLASS catalog-1"
+      }
+    });
+    expect(portalBreakGlassRequest.statusCode).toBe(200);
+    expect(portalBreakGlassRequest.json()).toMatchObject({
+      employeeId: "employee-1",
+      assignedEmail: "ravi@example.com",
+      status: "break_glass",
+      breakGlass: true
+    });
+    expect(portalBreakGlassRequest.json().breakGlassConfirmedAt).toEqual(expect.any(String));
+
     const accessRequest = await app.inject({
       method: "POST",
       url: "/api/employee-portal/credential-requests",
@@ -928,7 +1153,8 @@ describe("WardSen API", () => {
       headers: employeeHeaders
     });
     expect(ownRequests.statusCode).toBe(200);
-    expect(ownRequests.json().items[0]).toMatchObject({ id: accessRequest.json().id, assignedEmail: "ravi@example.com" });
+    const listedAccessRequest = ownRequests.json().items.find((item: { id: string }) => item.id === accessRequest.json().id);
+    expect(listedAccessRequest).toMatchObject({ id: accessRequest.json().id, assignedEmail: "ravi@example.com" });
 
     const logout = await app.inject({
       method: "POST",
@@ -1018,6 +1244,179 @@ describe("WardSen API", () => {
     await app.close();
   });
 
+  it("creates Ente Paste manual handoffs without exposing provider lifecycle actions", async () => {
+    const clipboard: string[] = [];
+    const app = await buildApp({
+      registerBuiltInProviders: false,
+      credentialProviders: [new MockCredentialProvider()],
+      deliveryProviders: [new EntePasteManualDeliveryProvider({ writeClipboard: async (text) => { clipboard.push(text); } })]
+    });
+    const headers = { host: "127.0.0.1:4777", origin: "http://127.0.0.1:4777" };
+    await app.inject({ method: "POST", url: "/api/accounts", headers, payload: { id: "source", providerId: "mock-source", label: "Mock source" } });
+    await app.inject({ method: "POST", url: "/api/accounts", headers, payload: { id: "delivery", providerId: "mock-source", label: "Manual delivery account" } });
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/deliveries",
+      headers,
+      payload: {
+        sourceProviderId: "mock-source",
+        sourceAccountId: "source",
+        sourceItemId: "cms",
+        deliveryProviderId: "ente-paste",
+        deliveryAccountId: "delivery",
+        expiresAt: new Date(Date.now() + 72 * 3600000).toISOString(),
+        viewOnce: true
+      }
+    });
+
+    expect(created.statusCode).toBe(200);
+    expect(created.json()).toMatchObject({
+      deliveryProviderId: "ente-paste",
+      status: "handoff_pending",
+      viewLimit: 1,
+      oneTimeDeliveryUrl: "https://paste.ente.com/"
+    });
+    expect(created.json().providerDeliveryId).toMatch(/^ente-manual-/);
+    expect(JSON.stringify(created.json())).not.toContain("Password123");
+    expect(clipboard).toEqual([expect.stringContaining("Password: Password123")]);
+
+    const cleared = await app.inject({ method: "POST", url: "/api/delivery-providers/ente-paste/clear-handoff-clipboard", headers, payload: {} });
+    expect(cleared.statusCode).toBe(200);
+    expect(cleared.json()).toEqual({ providerId: "ente-paste", cleared: true });
+    expect(clipboard.at(-1)).toBe("");
+
+    const refresh = await app.inject({ method: "POST", url: `/api/deliveries/${created.json().id}/refresh`, headers });
+    expect(refresh.statusCode).toBe(400);
+    expect(refresh.json().error).toContain("cannot refresh status through WardSen");
+
+    const revoke = await app.inject({
+      method: "DELETE",
+      url: `/api/deliveries/${created.json().id}`,
+      headers,
+      payload: { confirm: `REVOKE DELIVERY ${created.json().id}` }
+    });
+    expect(revoke.statusCode).toBe(400);
+    expect(revoke.json().error).toContain("cannot revoke links through WardSen");
+
+    const bulk = await app.inject({
+      method: "POST",
+      url: "/api/deliveries/bulk",
+      headers,
+      payload: {
+        sourceProviderId: "mock-source",
+        sourceAccountId: "source",
+        sourceItemId: "cms",
+        deliveryProviderId: "ente-paste",
+        deliveryAccountId: "delivery",
+        recipients: [{ id: "person-1", name: "Mira" }],
+        expiresAt: new Date(Date.now() + 3600000).toISOString(),
+        confirmRiskSummary: true
+      }
+    });
+    expect(bulk.statusCode).toBe(400);
+    expect(bulk.json().error).toContain("single-delivery only");
+    expect(clipboard).toHaveLength(2);
+    await app.close();
+  });
+
+  it("requires confirmation before pruning retained employee auth artifacts", async () => {
+    const repository = new InMemoryWardSenRepository();
+    const app = await buildApp({ repository });
+    const headers = { host: "127.0.0.1:4777", origin: "http://127.0.0.1:4777" };
+    const employee = await repository.upsertEmployee({
+      id: "employee-1",
+      name: "Ravi",
+      assignedEmail: "ravi@example.com"
+    });
+    const oldCodeHash = "c".repeat(64);
+    const activeCodeHash = "d".repeat(64);
+    const oldSessionHash = "s".repeat(64);
+    const revokedSessionHash = "r".repeat(64);
+    const activeSessionHash = "a".repeat(64);
+
+    await repository.createEmployeeSignInCode({
+      id: "old-code",
+      employeeId: employee.id,
+      assignedEmail: employee.assignedEmail,
+      codeHash: oldCodeHash,
+      expiresAt: "2020-01-02T00:00:00.000Z"
+    });
+    await repository.createEmployeeSignInCode({
+      id: "active-code",
+      employeeId: employee.id,
+      assignedEmail: employee.assignedEmail,
+      codeHash: activeCodeHash,
+      expiresAt: "2030-01-02T00:00:00.000Z"
+    });
+    await repository.createEmployeeSession({
+      id: "old-session",
+      employeeId: employee.id,
+      assignedEmail: employee.assignedEmail,
+      tokenHash: oldSessionHash,
+      expiresAt: "2020-01-02T00:00:00.000Z"
+    });
+    await repository.createEmployeeSession({
+      id: "revoked-session",
+      employeeId: employee.id,
+      assignedEmail: employee.assignedEmail,
+      tokenHash: revokedSessionHash,
+      expiresAt: "2030-01-02T00:00:00.000Z",
+      revokedAt: "2020-06-01T00:00:00.000Z"
+    });
+    await repository.createEmployeeSession({
+      id: "active-session",
+      employeeId: employee.id,
+      assignedEmail: employee.assignedEmail,
+      tokenHash: activeSessionHash,
+      expiresAt: "2030-01-02T00:00:00.000Z"
+    });
+
+    const withoutConfirmation = await app.inject({
+      method: "POST",
+      url: "/api/retention/prune",
+      headers,
+      payload: { employeeAuthBefore: "2021-01-01T00:00:00.000Z" }
+    });
+    expect(withoutConfirmation.statusCode).toBe(400);
+    expect(withoutConfirmation.json().error).toBe("Destructive action requires confirmation phrase: PRUNE RETENTION");
+
+    const futureCutoff = await app.inject({
+      method: "POST",
+      url: "/api/retention/prune",
+      headers,
+      payload: { employeeAuthBefore: "2999-01-01T00:00:00.000Z", confirm: "PRUNE RETENTION" }
+    });
+    expect(futureCutoff.statusCode).toBe(400);
+    expect(futureCutoff.json().error).toBe("Employee auth retention cutoff cannot be in the future.");
+
+    const pruned = await app.inject({
+      method: "POST",
+      url: "/api/retention/prune",
+      headers,
+      payload: { employeeAuthBefore: "2021-01-01T00:00:00.000Z", confirm: "PRUNE RETENTION" }
+    });
+    expect(pruned.statusCode).toBe(200);
+    expect(pruned.json()).toEqual({
+      pruned: {
+        auditLog: 0,
+        employeeSignInCodes: 1,
+        employeeSessions: 2,
+        total: 3
+      }
+    });
+    expect(await repository.getEmployeeSignInCodeByHash(employee.id, oldCodeHash)).toBeUndefined();
+    expect(await repository.getEmployeeSignInCodeByHash(employee.id, activeCodeHash)).toMatchObject({ id: "active-code" });
+    expect(await repository.getEmployeeSessionByTokenHash(oldSessionHash)).toBeUndefined();
+    expect(await repository.getEmployeeSessionByTokenHash(revokedSessionHash)).toBeUndefined();
+    expect(await repository.getEmployeeSessionByTokenHash(activeSessionHash)).toMatchObject({ id: "active-session" });
+    const audit = await app.inject({ method: "GET", url: "/api/audit-log?page=1&pageSize=10", headers });
+    expect(audit.json().items).toEqual(expect.arrayContaining([expect.objectContaining({ action: "retention.prune", outcome: "success" })]));
+    expect(JSON.stringify(audit.json())).not.toContain(oldCodeHash);
+    expect(JSON.stringify(audit.json())).not.toContain(oldSessionHash);
+    await app.close();
+  });
+
   it("runs a complete credential delivery workflow through injected providers", async () => {
     const deliveryProvider = new MockDeliveryProvider();
     const sessions = new AccountSessionManager();
@@ -1082,6 +1481,9 @@ describe("WardSen API", () => {
     const refreshed = (await app.inject({ method: "POST", url: `/api/deliveries/${deliveryId}/refresh`, headers })).json();
     expect(refreshed.accessCount).toBe(1);
     expect(refreshed.lastCheckedAt).toBeTruthy();
+    expect(refreshed.firstViewedAt).toBeTruthy();
+    const refreshedAgain = (await app.inject({ method: "POST", url: `/api/deliveries/${deliveryId}/refresh`, headers })).json();
+    expect(refreshedAgain.firstViewedAt).toBe(refreshed.firstViewedAt);
     expect((await app.inject({ method: "POST", url: `/api/deliveries/${deliveryId}/retry`, headers })).json().oneTimeDeliveryUrl).toMatch(/^https:\/\/mock.local\/send\//);
     expect((await app.inject({ method: "DELETE", url: `/api/deliveries/${deliveryId}`, headers, payload: { confirm: `REVOKE DELIVERY ${deliveryId}` } })).json().status).toBe("revoked");
     await app.close();
@@ -1238,7 +1640,7 @@ describe("WardSen API", () => {
 
     expect(response.statusCode).toBe(400);
     expect(response.json().error).toContain('Bitwarden Send account "red" is not ready');
-    expect(response.json().error).toContain("Unlock from terminal session");
+    expect(response.json().error).toContain("wait for WardSen to show the account as unlocked");
     expect(response.json().error).toContain("You are not logged in");
     expect(deliveryProvider.createCalls).toBe(0);
     await app.close();
@@ -1519,9 +1921,10 @@ describe("WardSen API", () => {
   });
 
   it("creates individual bulk deliveries with persisted batch counts", async () => {
+    const deliveryProvider = new MockDeliveryProvider();
     const app = await buildApp({
       credentialProviders: [new MockCredentialProvider()],
-      deliveryProviders: [new MockDeliveryProvider()]
+      deliveryProviders: [deliveryProvider]
     });
     const headers = { host: "127.0.0.1:4777", origin: "http://127.0.0.1:4777" };
     await app.inject({ method: "POST", url: "/api/accounts", headers, payload: { id: "source", providerId: "mock-source", label: "Mock source" } });
@@ -1561,6 +1964,22 @@ describe("WardSen API", () => {
     const batchDeliveries = await app.inject({ method: "GET", url: `/api/deliveries?batchId=${bulk.json().batchId}`, headers: { host: "127.0.0.1:4777" } });
     expect(batchDeliveries.json().items).toHaveLength(2);
     expect(batchDeliveries.json().items.every((delivery: { batchId: string }) => delivery.batchId === bulk.json().batchId)).toBe(true);
+    const firstDeliveryId = batchDeliveries.json().items[0].id;
+    const missingConfirmation = await app.inject({ method: "POST", url: `/api/deliveries/${firstDeliveryId}/revoke-batch`, headers, payload: {} });
+    expect(missingConfirmation.statusCode).toBe(400);
+    expect(missingConfirmation.json().error).toBe(`Destructive action requires confirmation phrase: REVOKE BATCH LINKS ${bulk.json().batchId}`);
+    const containment = await app.inject({
+      method: "POST",
+      url: `/api/deliveries/${firstDeliveryId}/revoke-batch`,
+      headers,
+      payload: { confirm: `REVOKE BATCH LINKS ${bulk.json().batchId}` }
+    });
+    expect(containment.statusCode).toBe(200);
+    expect(containment.json()).toMatchObject({ batchId: bulk.json().batchId, revokedCount: 2, inactiveCount: 0, failed: [] });
+    expect(deliveryProvider.revoked).toHaveLength(2);
+    expect((await app.inject({ method: "GET", url: `/api/deliveries?batchId=${bulk.json().batchId}`, headers })).json().items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ status: "revoked" })
+    ]));
     await app.close();
   });
 
@@ -1723,6 +2142,25 @@ class MockBitwardenCredentialProvider extends MockCredentialProvider {
   readonly displayName: string = "Bitwarden";
 }
 
+class TerminalHandoffCredentialProvider extends MockBitwardenCredentialProvider {
+  readonly handoffs: Array<{ claimUrl: string; token: string }> = [];
+  readonly acceptedTokens: string[] = [];
+
+  constructor(private readonly sessions: AccountSessionManager) {
+    super();
+  }
+
+  createTerminalSessionHandoffCommand(_accountId: string, _input: ProviderLoginInput, handoff: { claimUrl: string; token: string }): string {
+    this.handoffs.push(handoff);
+    return `terminal-handoff ${handoff.claimUrl}`;
+  }
+
+  acceptTerminalSessionHandoff(accountId: string, sessionToken: string): void {
+    this.acceptedTokens.push(sessionToken);
+    this.sessions.markUnlocked(accountId, this.id, sessionToken);
+  }
+}
+
 class FailingSearchCredentialProvider extends MockCredentialProvider {
   readonly id = "failing-search";
   readonly displayName = "Failing Search";
@@ -1747,7 +2185,8 @@ class MockDeliveryProvider implements DeliveryProvider {
       accessPassword: false,
       hideText: false,
       revokeLink: true,
-      accessCount: true
+      accessCount: true,
+      statusLookup: true
     };
   }
   async testConnection(_accountId: string): Promise<ConnectionResult> {
