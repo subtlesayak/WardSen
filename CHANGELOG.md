@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-rc.58 - 2026-08-13
+
+- Improved desktop-launched Bitwarden terminal handoff windows so Windows PowerShell and macOS Terminal explain what WardSen is doing before the Bitwarden prompt appears.
+- Kept terminal windows open after the handoff command finishes so users can read Bitwarden, setup, or handoff errors before returning to WardSen.
+- Added Rust unit coverage and Tauri config assertions for the visible terminal handoff wrappers.
+
 ## 0.1.0-rc.57 - 2026-08-13
 
 - Added desktop-launched Bitwarden terminal handoff: WardSen now opens PowerShell on Windows or Terminal on macOS from an opaque one-time launch reference, with manual copy kept as fallback.

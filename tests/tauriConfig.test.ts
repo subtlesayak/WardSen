@@ -38,6 +38,9 @@ describe("Tauri packaging config", () => {
     expect(rustLauncher).toContain("open_terminal_session");
     expect(rustLauncher).toContain("fetch_terminal_handoff_command");
     expect(rustLauncher).not.toContain("open_terminal_session(command: String)");
+    expect(rustLauncher).toContain("WardSen is starting Bitwarden login");
+    expect(rustLauncher).toContain("exec /bin/zsh -l");
+    expect(rustLauncher).toContain("This PowerShell window stays open");
     expect(rustLauncher).toContain("select_available_local_port");
     expect(rustLauncher).toContain("WARDSEN_PORT\", config.port.to_string()");
     expect(rustLauncher).toContain("restart_server_process");

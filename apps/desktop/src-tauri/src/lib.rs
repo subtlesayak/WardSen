@@ -348,7 +348,8 @@ fn launch_windows_powershell(command: &str) -> io::Result<()> {
     use std::os::windows::process::CommandExt;
 
     const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
-    let encoded_command = encode_powershell_command(command);
+    let visible_command = windows_terminal_command(command);
+    let encoded_command = encode_powershell_command(&visible_command);
     Command::new("powershell.exe")
         .args([
             "-NoLogo",
@@ -367,18 +368,27 @@ fn launch_windows_powershell(command: &str) -> io::Result<()> {
         .map(|_| ())
 }
 
+#[cfg(any(windows, test))]
+fn windows_terminal_command(command: &str) -> String {
+    format!(
+        "Write-Host ''; Write-Host 'WardSen is starting Bitwarden login. Enter your password only if Bitwarden prompts.'; Write-Host ''; try {{ & {{ {command} }} }} catch {{ Write-Host ''; Write-Host 'WardSen terminal handoff stopped. Review the Bitwarden or setup message above, then retry from WardSen.' -ForegroundColor Yellow }} finally {{ Write-Host ''; Write-Host 'This PowerShell window stays open so you can read the Bitwarden or setup result above.' }}"
+    )
+}
+
 #[cfg(target_os = "macos")]
 fn launch_macos_terminal(command: &str) -> io::Result<()> {
     let script = r#"on run argv
+    set handoffCommand to item 1 of argv
     tell application "Terminal"
         activate
-        do script (item 1 of argv)
+        do script handoffCommand
     end tell
 end run"#;
+    let visible_command = macos_terminal_command(command);
     let status = Command::new("osascript")
         .arg("-e")
         .arg(script)
-        .arg(command)
+        .arg(visible_command)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -391,6 +401,13 @@ end run"#;
             "macOS Terminal did not accept the login command",
         ))
     }
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn macos_terminal_command(command: &str) -> String {
+    format!(
+        "printf '\\nWardSen is starting Bitwarden login. Enter your password only if Bitwarden prompts.\\n\\n'; {command}; printf '\\nThis terminal stays open so you can read the Bitwarden or setup result above.\\n'; exec /bin/zsh -l"
+    )
 }
 
 #[cfg(windows)]
@@ -424,6 +441,29 @@ fn base64_encode(bytes: &[u8]) -> String {
         });
     }
     encoded
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{macos_terminal_command, windows_terminal_command};
+
+    #[test]
+    fn macos_terminal_handoff_keeps_the_window_open_after_running() {
+        let command = macos_terminal_command("export BITWARDENCLI_APPDATA_DIR='/tmp/wardsen'; bw unlock --raw");
+
+        assert!(command.contains("WardSen is starting Bitwarden login"));
+        assert!(command.contains("bw unlock --raw"));
+        assert!(command.contains("exec /bin/zsh -l"));
+    }
+
+    #[test]
+    fn windows_terminal_handoff_keeps_the_window_open_after_running() {
+        let command = windows_terminal_command("$env:BITWARDENCLI_APPDATA_DIR='C:\\WardSen'; bw unlock --raw");
+
+        assert!(command.contains("WardSen is starting Bitwarden login"));
+        assert!(command.contains("bw unlock --raw"));
+        assert!(command.contains("This PowerShell window stays open"));
+    }
 }
 
 fn select_available_local_port() -> io::Result<u16> {
