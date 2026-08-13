@@ -493,6 +493,19 @@ describe("WardSen API", () => {
     await app.close();
   });
 
+  it("limits all local requests before authorization", async () => {
+    const app = await buildApp({ apiToken: "desktop-token" });
+    const authorizedHeaders = { host: "127.0.0.1:4777", "x-wardsen-api-token": "desktop-token" };
+
+    for (let request = 0; request < 120; request += 1) {
+      expect((await app.inject({ method: "GET", url: "/api/health", headers: authorizedHeaders })).statusCode).toBe(200);
+    }
+
+    const limited = await app.inject({ method: "GET", url: "/api/health", headers: { host: "127.0.0.1:4777" } });
+    expect(limited.statusCode).toBe(429);
+    await app.close();
+  });
+
   it("enforces assigned-email credential requests and lets admins approve to delivery", async () => {
     const deliveryProvider = new MockDeliveryProvider();
     const app = await buildApp({

@@ -6,6 +6,7 @@ import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import sensible from "@fastify/sensible";
 import { customAlphabet, nanoid } from "nanoid";
+import { RateLimiterMemory } from "rate-limiter-flexible";
 import { z } from "zod";
 import {
   AccountSessionManager,
@@ -55,32 +56,7 @@ interface TerminalSessionHandoffRecord {
 }
 
 const TERMINAL_SESSION_HANDOFF_TTL_MS = 5 * 60 * 1000;
-
-function rateLimitGroupForRequest(request: FastifyRequest): string {
-  const path = request.url.split("?", 1)[0];
-  if (request.method !== "POST") return "general";
-  if (/^\/api\/accounts\/[^/]+\/terminal-handoff\/claim$/.test(path)) return "terminal-handoff-claim";
-  if (/^\/api\/accounts\/[^/]+\/login$/.test(path)) return "account-login";
-  if (/^\/api\/accounts\/[^/]+\/terminal-handoff$/.test(path)) return "terminal-handoff";
-  if (/^\/api\/employees\/[^/]+\/sign-in-code$/.test(path)) return "employee-sign-in-code";
-  if (path === "/api/employee-sessions") return "employee-session";
-  return "general";
-}
-
-function rateLimitMaxForRequest(request: FastifyRequest): number {
-  switch (rateLimitGroupForRequest(request)) {
-    case "terminal-handoff-claim": return 8;
-    case "employee-sign-in-code": return 10;
-    case "account-login":
-    case "terminal-handoff":
-    case "employee-session": return 5;
-    default: return 120;
-  }
-}
-
-function rateLimitKeyForRequest(request: FastifyRequest): string {
-  return `${request.ip}:${rateLimitGroupForRequest(request)}`;
-}
+const RATE_LIMIT_WINDOW = "1 minute";
 
 export async function buildApp(options: BuildAppOptions = {}) {
   const app = Fastify({
@@ -106,6 +82,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   const deliveryOperationTails = new Map<string, Promise<void>>();
   const deliveryUrlCache = new Map<string, string>();
   const terminalSessionHandoffs = new Map<string, TerminalSessionHandoffRecord>();
+  const requestRateLimiter = new RateLimiterMemory({ points: 120, duration: 60 });
   const autoLockIntervalMs = Math.max(1_000, options.autoLockIntervalMs ?? 5_000);
   const autoLockTimer = setInterval(() => {
     void enforceAutoLock();
@@ -149,12 +126,9 @@ export async function buildApp(options: BuildAppOptions = {}) {
       }
     }
   });
-  // Register before authorization and provider work; sensitive paths receive lower caps.
+  // Fastify owns the route-specific limits below; the memory limiter guards every request first.
   await app.register(rateLimit, {
-    global: true,
-    max: rateLimitMaxForRequest,
-    timeWindow: "1 minute",
-    keyGenerator: rateLimitKeyForRequest
+    global: false
   });
 
   function pruneTerminalSessionHandoffs(now = Date.now()): void {
@@ -179,6 +153,14 @@ export async function buildApp(options: BuildAppOptions = {}) {
       return undefined;
     }
   }
+
+  app.addHook("onRequest", async (request, reply) => {
+    try {
+      await requestRateLimiter.consume(request.ip);
+    } catch {
+      return reply.code(429).send({ error: "Rate limit exceeded. Try again in one minute." });
+    }
+  });
 
   app.addHook("onRequest", async (request, reply) => {
     if (!isLocalRequest(request)) {
@@ -333,7 +315,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     return { ok: true };
   });
 
-  app.post("/api/accounts/:id/login", async (request) => {
+  app.post("/api/accounts/:id/login", { config: { rateLimit: { max: 5, timeWindow: RATE_LIMIT_WINDOW } } }, async (request) => {
     const { id } = idParams.parse(request.params);
     const body = loginSchema.parse(request.body);
     const account = await findAccount(repository, id);
@@ -344,7 +326,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     return { ok: true };
   });
 
-  app.post("/api/accounts/:id/terminal-handoff", async (request) => {
+  app.post("/api/accounts/:id/terminal-handoff", { config: { rateLimit: { max: 5, timeWindow: RATE_LIMIT_WINDOW } } }, async (request) => {
     const { id } = idParams.parse(request.params);
     const body = loginSchema.parse(request.body);
     const account = await findAccount(repository, id);
@@ -373,7 +355,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     }
   });
 
-  app.post("/api/accounts/:id/terminal-handoff/claim", async (request) => {
+  app.post("/api/accounts/:id/terminal-handoff/claim", { config: { rateLimit: { max: 8, timeWindow: RATE_LIMIT_WINDOW } } }, async (request) => {
     const { id } = idParams.parse(request.params);
     const handoff = terminalHandoffForClaimRequest(request);
     if (!handoff) {
@@ -398,7 +380,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     return { ok: true };
   });
 
-  app.post("/api/accounts/:id/unlock", async (request) => {
+  app.post("/api/accounts/:id/unlock", { config: { rateLimit: { max: 5, timeWindow: RATE_LIMIT_WINDOW } } }, async (request) => {
     const { id } = idParams.parse(request.params);
     const body = unlockSchema.parse(request.body);
     const account = await findAccount(repository, id);
@@ -627,7 +609,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     return employee;
   });
 
-  app.post("/api/employees/:id/sign-in-code", async (request) => {
+  app.post("/api/employees/:id/sign-in-code", { config: { rateLimit: { max: 10, timeWindow: RATE_LIMIT_WINDOW } } }, async (request) => {
     const { id } = idParams.parse(request.params);
     const body = issueEmployeeSignInCodeSchema.parse(request.body ?? {});
     const employee = await repository.getEmployee(id);
@@ -661,7 +643,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     };
   });
 
-  app.post("/api/employee-sessions", async (request) => {
+  app.post("/api/employee-sessions", { config: { rateLimit: { max: 5, timeWindow: RATE_LIMIT_WINDOW } } }, async (request) => {
     const body = employeeSessionSchema.parse(request.body);
     const employee = await repository.getEmployeeByAssignedEmail(body.assignedEmail);
     const invalidMessage = "Invalid or expired employee sign-in code.";
