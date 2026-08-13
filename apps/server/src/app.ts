@@ -56,6 +56,32 @@ interface TerminalSessionHandoffRecord {
 
 const TERMINAL_SESSION_HANDOFF_TTL_MS = 5 * 60 * 1000;
 
+function rateLimitGroupForRequest(request: FastifyRequest): string {
+  const path = request.url.split("?", 1)[0];
+  if (request.method !== "POST") return "general";
+  if (/^\/api\/accounts\/[^/]+\/terminal-handoff\/claim$/.test(path)) return "terminal-handoff-claim";
+  if (/^\/api\/accounts\/[^/]+\/login$/.test(path)) return "account-login";
+  if (/^\/api\/accounts\/[^/]+\/terminal-handoff$/.test(path)) return "terminal-handoff";
+  if (/^\/api\/employees\/[^/]+\/sign-in-code$/.test(path)) return "employee-sign-in-code";
+  if (path === "/api/employee-sessions") return "employee-session";
+  return "general";
+}
+
+function rateLimitMaxForRequest(request: FastifyRequest): number {
+  switch (rateLimitGroupForRequest(request)) {
+    case "terminal-handoff-claim": return 8;
+    case "employee-sign-in-code": return 10;
+    case "account-login":
+    case "terminal-handoff":
+    case "employee-session": return 5;
+    default: return 120;
+  }
+}
+
+function rateLimitKeyForRequest(request: FastifyRequest): string {
+  return `${request.ip}:${rateLimitGroupForRequest(request)}`;
+}
+
 export async function buildApp(options: BuildAppOptions = {}) {
   const app = Fastify({
     logger: {
@@ -123,8 +149,9 @@ export async function buildApp(options: BuildAppOptions = {}) {
       }
     }
   });
-  // Rate-limit every local route, with lower limits configured on sensitive endpoints below.
-  await app.register(rateLimit, { max: 120, timeWindow: "1 minute" });
+  // Run before local authorization and provider work; sensitive paths get lower caps below.
+  await app.register(rateLimit, { global: false });
+  app.addHook("onRequest", app.rateLimit({ max: rateLimitMaxForRequest, timeWindow: "1 minute", keyGenerator: rateLimitKeyForRequest }));
 
   function pruneTerminalSessionHandoffs(now = Date.now()): void {
     for (const [token, handoff] of terminalSessionHandoffs) {
@@ -302,7 +329,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     return { ok: true };
   });
 
-  app.post("/api/accounts/:id/login", { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } }, async (request) => {
+  app.post("/api/accounts/:id/login", async (request) => {
     const { id } = idParams.parse(request.params);
     const body = loginSchema.parse(request.body);
     const account = await findAccount(repository, id);
@@ -313,7 +340,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     return { ok: true };
   });
 
-  app.post("/api/accounts/:id/terminal-handoff", { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } }, async (request) => {
+  app.post("/api/accounts/:id/terminal-handoff", async (request) => {
     const { id } = idParams.parse(request.params);
     const body = loginSchema.parse(request.body);
     const account = await findAccount(repository, id);
@@ -342,7 +369,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     }
   });
 
-  app.post("/api/accounts/:id/terminal-handoff/claim", { config: { rateLimit: { max: 8, timeWindow: "1 minute" } } }, async (request) => {
+  app.post("/api/accounts/:id/terminal-handoff/claim", async (request) => {
     const { id } = idParams.parse(request.params);
     const handoff = terminalHandoffForClaimRequest(request);
     if (!handoff) {
@@ -596,7 +623,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     return employee;
   });
 
-  app.post("/api/employees/:id/sign-in-code", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (request) => {
+  app.post("/api/employees/:id/sign-in-code", async (request) => {
     const { id } = idParams.parse(request.params);
     const body = issueEmployeeSignInCodeSchema.parse(request.body ?? {});
     const employee = await repository.getEmployee(id);
@@ -630,7 +657,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     };
   });
 
-  app.post("/api/employee-sessions", { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } }, async (request) => {
+  app.post("/api/employee-sessions", async (request) => {
     const body = employeeSessionSchema.parse(request.body);
     const employee = await repository.getEmployeeByAssignedEmail(body.assignedEmail);
     const invalidMessage = "Invalid or expired employee sign-in code.";
