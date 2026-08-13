@@ -193,6 +193,7 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
   color: #31564a;
   background: #dff3ec;
   box-shadow: 0 8px 22px rgba(33, 57, 49, 0.08);
+  overflow-wrap: anywhere;
 }
 .notice.error {
   position: sticky;
@@ -417,7 +418,7 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
   width: 100%;
 }
 .accountAccessGrid {
-  grid-template-columns: minmax(240px, 1fr) minmax(260px, 1fr) minmax(240px, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
   column-gap: 16px;
   row-gap: 14px;
 }
@@ -533,6 +534,8 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
 .vaultRow .actions {
   justify-content: flex-end;
   margin-left: 0;
+  flex-wrap: nowrap;
+  min-width: max-content;
 }
 .row.person { display: flex; flex-wrap: wrap; }
 .row > div:first-child { flex: 1 1 220px; min-width: 0; }
@@ -790,6 +793,16 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
   .brand strong { font-size: 17px; }
   .nav { padding: 0 10px; }
   .grid.split { grid-template-columns: 1fr; }
+  .vaultRow {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+  }
+  .vaultRow > :not(.actions) { grid-column: 1; }
+  .vaultRow .actions {
+    grid-column: 2;
+    grid-row: 1 / span 4;
+    align-self: center;
+  }
 }
 
 @media (max-width: 640px) {

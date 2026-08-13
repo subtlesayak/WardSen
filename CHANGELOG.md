@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0-rc.57 - 2026-08-13
+
+- Added desktop-launched Bitwarden terminal handoff: WardSen now opens PowerShell on Windows or Terminal on macOS from an opaque one-time launch reference, with manual copy kept as fallback.
+- Kept Bitwarden passwords and session tokens out of the app by fetching terminal commands through the trusted local desktop session and validating the command shape before opening a shell.
+- Added generated employee delivery access codes for request fulfillment and replacement links when the selected delivery provider can enforce an access password.
+- Added delivery metadata and audit tracking for access-code issuance and first observed access to code-protected deliveries.
+- Improved responsive vault/account access layout and ensured body-less mutating API calls send an empty JSON object.
+
 ## 0.1.0-rc.56 - 2026-08-13
 
 - Added open-source contribution rules for WardSen's local-first secret boundary, provider work, UI language, database/audit changes and release checks.

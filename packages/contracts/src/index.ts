@@ -49,7 +49,10 @@ export const deliveryRecordSchema = z.object({
   status: deliveryStatusValueSchema.or(z.string().min(1)),
   revokedAt: z.string().min(1).optional(),
   firstViewedAt: z.string().min(1).optional(),
-  lastCheckedAt: z.string().min(1).optional()
+  lastCheckedAt: z.string().min(1).optional(),
+  deliveryAccessCodeRequired: z.boolean().optional(),
+  deliveryAccessCodeIssuedAt: z.string().min(1).optional(),
+  deliveryAccessCodeObservedAt: z.string().min(1).optional()
 });
 
 export const createdDeliveryRecordSchema = deliveryRecordSchema.extend({
@@ -90,6 +93,7 @@ export const batchDeliveryRevokeResultSchema = z.object({
 
 export const terminalSessionHandoffResponseSchema = z.object({
   command: z.string().min(1),
+  launchId: z.string().min(1),
   expiresAt: z.string().datetime()
 });
 

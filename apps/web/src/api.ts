@@ -24,6 +24,7 @@ export async function apiSend<T = unknown>(path: string, init: RequestInit = {})
   const response = await fetchLocal(url, {
     ...init,
     method: init.method ?? "POST",
+    body: init.body ?? "{}",
     headers: await apiHeaders({ "content-type": "application/json", ...(init.headers ?? {}) })
   });
   if (!response.ok) throw new Error(await errorText(response));
@@ -55,9 +56,19 @@ export function canRestartLocalService(): boolean {
   return isTauriOrigin();
 }
 
+export function canLaunchTerminalSession(): boolean {
+  return isTauriOrigin();
+}
+
 export async function restartLocalService(): Promise<void> {
   if (!canRestartLocalService()) return;
   await invoke("restart_local_service");
+}
+
+export async function openTerminalSession(accountId: string, launchId: string): Promise<void> {
+  if (!accountId.trim() || !launchId.trim()) throw new Error("WardSen did not receive a terminal launch reference.");
+  if (!canLaunchTerminalSession()) throw new Error("Automatic terminal launch is available only from the WardSen desktop app.");
+  await invoke("open_terminal_session", { accountId, launchId });
 }
 
 export async function getLocalServiceStatus(): Promise<LocalServiceStatus | undefined> {

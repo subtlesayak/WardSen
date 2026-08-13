@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { apiGet, apiSend, apiUrl, canRestartLocalService, copyExternalUrl, copyTextToClipboard, getLocalServiceStatus, openExternalUrl, openMailDraft, restartLocalService } from "../apps/web/src/api";
+import { apiGet, apiSend, apiUrl, canLaunchTerminalSession, canRestartLocalService, copyExternalUrl, copyTextToClipboard, getLocalServiceStatus, openExternalUrl, openMailDraft, openTerminalSession, restartLocalService } from "../apps/web/src/api";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async () => undefined)
@@ -39,8 +39,18 @@ describe("web API helpers", () => {
     await apiSend("/api/accounts", { body: JSON.stringify({ label: "Ops" }) });
     expect(fetchMock).toHaveBeenCalledWith("/api/accounts", expect.objectContaining({
       method: "POST",
+      body: JSON.stringify({ label: "Ops" }),
       headers: expect.objectContaining({ "content-type": "application/json" })
     }));
+  });
+
+  it("sends an empty JSON object for actions without an input body", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await apiSend("/api/accounts/work/lock");
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/accounts/work/lock", expect.objectContaining({ body: "{}" }));
   });
 
   it("returns parsed JSON from mutating requests", async () => {
@@ -88,6 +98,17 @@ describe("web API helpers", () => {
     await restartLocalService();
 
     expect(invoke).toHaveBeenCalledWith("restart_local_service");
+  });
+
+  it("opens a terminal session from an opaque server-issued launch reference", async () => {
+    vi.stubGlobal("window", {
+      location: { protocol: "tauri:", hostname: "localhost" }
+    });
+
+    expect(canLaunchTerminalSession()).toBe(true);
+    await openTerminalSession("work", "launch-123");
+
+    expect(invoke).toHaveBeenCalledWith("open_terminal_session", { accountId: "work", launchId: "launch-123" });
   });
 
   it("does not try to restart the local service from the browser build", async () => {

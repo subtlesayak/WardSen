@@ -34,7 +34,7 @@ For dedicated recipient links, say **"Asha's link was viewed"**, not **"Asha vie
 
 ## Release status
 
-`v0.1.0-rc.56` is the current security-review release candidate. A trusted public installer release still requires Windows code signing and Apple Developer ID signing plus macOS notarization.
+`v0.1.0-rc.57` is the current security-review release candidate. A trusted public installer release still requires Windows code signing and Apple Developer ID signing plus macOS notarization.
 
 | Area | Current position |
 | --- | --- |
@@ -94,7 +94,7 @@ WardSen does not bundle Bitwarden's command-line tool. Install it once on the op
    If macOS reports `EACCES`, do not use `sudo`. Follow [npm's user-owned prefix guide](https://docs.npmjs.com/resolving-eacces-permissions-errors-when-installing-packages-globally/), then open a new Terminal and run `bw --version` again.
 
 4. Fully quit WardSen, reopen it, then go to **Vaults**. Add a Bitwarden account with a label and email, keeping the ten-minute auto-lock unless your policy requires less.
-5. Select that account in **Account Access**, choose **Terminal login / unlock**, paste the copied command into Terminal or PowerShell, and enter the Bitwarden password only at Bitwarden's own prompt. Return to WardSen after the command confirms the local session handoff; the account should change to **Unlocked** automatically.
+5. Select that account in **Account Access** and choose **Terminal login / unlock**. The packaged WardSen desktop app opens Terminal on macOS or PowerShell on Windows and starts the short-lived handoff command. Enter the Bitwarden password only at Bitwarden's own prompt. If terminal launch is unavailable, use **Copy terminal command** and run it manually. Return to WardSen after the command confirms the local session handoff; the account should change to **Unlocked** automatically.
 
 For a new password-manager account, create and secure the Bitwarden account first through Bitwarden's official app or website, then use the steps above to connect WardSen. Never paste a Bitwarden password, session key, recovery code, or API token into WardSen, email, chat, or a support ticket.
 

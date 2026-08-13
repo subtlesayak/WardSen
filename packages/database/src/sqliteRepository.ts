@@ -542,9 +542,10 @@ export class SqliteWardSenRepository implements WardSenRepository {
       INSERT INTO deliveries (
         id, operation_id, operation_fingerprint, policy_snapshot, provider_delivery_id, source_provider_id, source_account_id, source_item_id, delivery_provider_id,
         delivery_account_id, credential_name, person_id, batch_id, delivery_method, created_at, expires_at,
-        view_limit, access_count, status, revoked_at, first_viewed_at, last_checked_at
+        view_limit, access_count, status, revoked_at, first_viewed_at, last_checked_at,
+        delivery_access_code_required, delivery_access_code_issued_at, delivery_access_code_observed_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       record.operationId ?? null,
@@ -567,7 +568,10 @@ export class SqliteWardSenRepository implements WardSenRepository {
       record.status,
       record.revokedAt ?? null,
       record.firstViewedAt ?? null,
-      record.lastCheckedAt ?? null
+      record.lastCheckedAt ?? null,
+      record.deliveryAccessCodeRequired ? 1 : 0,
+      record.deliveryAccessCodeIssuedAt ?? null,
+      record.deliveryAccessCodeObservedAt ?? null
     );
     return { ...record, id, createdAt };
   }
@@ -602,7 +606,8 @@ export class SqliteWardSenRepository implements WardSenRepository {
     const updated = { ...deliveryFromRow(existing), ...patch };
     this.db.prepare(`
       UPDATE deliveries SET
-        operation_id = ?, operation_fingerprint = ?, policy_snapshot = ?, provider_delivery_id = ?, expires_at = ?, access_count = ?, status = ?, revoked_at = ?, first_viewed_at = ?, last_checked_at = ?
+        operation_id = ?, operation_fingerprint = ?, policy_snapshot = ?, provider_delivery_id = ?, expires_at = ?, access_count = ?, status = ?, revoked_at = ?, first_viewed_at = ?, last_checked_at = ?,
+        delivery_access_code_required = ?, delivery_access_code_issued_at = ?, delivery_access_code_observed_at = ?
       WHERE id = ?
     `).run(
       updated.operationId ?? null,
@@ -615,6 +620,9 @@ export class SqliteWardSenRepository implements WardSenRepository {
       updated.revokedAt ?? null,
       updated.firstViewedAt ?? null,
       updated.lastCheckedAt ?? null,
+      updated.deliveryAccessCodeRequired ? 1 : 0,
+      updated.deliveryAccessCodeIssuedAt ?? null,
+      updated.deliveryAccessCodeObservedAt ?? null,
       id
     );
     return updated;
@@ -892,6 +900,9 @@ interface DeliveryRow {
   revoked_at: string | null;
   first_viewed_at: string | null;
   last_checked_at: string | null;
+  delivery_access_code_required: number;
+  delivery_access_code_issued_at: string | null;
+  delivery_access_code_observed_at: string | null;
 }
 
 interface BatchRow {
@@ -1067,7 +1078,10 @@ function deliveryFromRow(row: unknown): DeliveryRecord {
     status: item.status,
     revokedAt: item.revoked_at ?? undefined,
     firstViewedAt: item.first_viewed_at ?? undefined,
-    lastCheckedAt: item.last_checked_at ?? undefined
+    lastCheckedAt: item.last_checked_at ?? undefined,
+    deliveryAccessCodeRequired: item.delivery_access_code_required === 1,
+    deliveryAccessCodeIssuedAt: item.delivery_access_code_issued_at ?? undefined,
+    deliveryAccessCodeObservedAt: item.delivery_access_code_observed_at ?? undefined
   };
 }
 

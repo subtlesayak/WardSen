@@ -54,6 +54,8 @@ interface TerminalSessionHandoffRecord {
   accountId: string;
   providerId: string;
   expiresAt: number;
+  launchId: string;
+  command?: string;
 }
 
 const TERMINAL_SESSION_HANDOFF_TTL_MS = 5 * 60 * 1000;
@@ -363,20 +365,33 @@ export async function buildApp(options: BuildAppOptions = {}) {
     if (!host) throw app.httpErrors.badRequest("WardSen could not determine the local service address for terminal login.");
     pruneTerminalSessionHandoffs();
     const token = nanoid(48);
+    const launchId = nanoid(32);
     const expiresAt = new Date(Date.now() + TERMINAL_SESSION_HANDOFF_TTL_MS);
-    terminalSessionHandoffs.set(token, { accountId: id, providerId: provider.id, expiresAt: expiresAt.getTime() });
+    const handoff = { accountId: id, providerId: provider.id, expiresAt: expiresAt.getTime(), launchId };
+    terminalSessionHandoffs.set(token, handoff);
     try {
       const command = provider.createTerminalSessionHandoffCommand(id, body, {
         claimUrl: `http://${host}/api/accounts/${encodeURIComponent(id)}/terminal-handoff/claim`,
         token
       });
+      terminalSessionHandoffs.set(token, { ...handoff, command });
       await audit("account.terminal_handoff.create", "success", { sourceAccountId: id, safeDetails: `expires=${expiresAt.toISOString()}` });
-      return { command, expiresAt: expiresAt.toISOString() };
+      return { command, launchId, expiresAt: expiresAt.toISOString() };
     } catch (error) {
       terminalSessionHandoffs.delete(token);
       await audit("account.terminal_handoff.create", "failure", { sourceAccountId: id, safeDetails: safeErrorMessage(error) });
       throw error;
     }
+  });
+
+  app.get("/api/accounts/:id/terminal-handoff/:launchId/command", async (request, reply) => {
+    const { id, launchId } = terminalHandoffLaunchParams.parse(request.params);
+    pruneTerminalSessionHandoffs();
+    const handoff = [...terminalSessionHandoffs.values()].find((record) => record.accountId === id && record.launchId === launchId);
+    if (!handoff?.command) {
+      throw app.httpErrors.unauthorized("WardSen terminal launch is missing, expired or invalid. Start Terminal login / unlock again from WardSen.");
+    }
+    return reply.type("text/plain; charset=utf-8").send(handoff.command);
   });
 
   app.post("/api/accounts/:id/terminal-handoff/claim", { config: { rateLimit: { max: 8, timeWindow: RATE_LIMIT_WINDOW } } }, async (request) => {
@@ -884,21 +899,13 @@ export async function buildApp(options: BuildAppOptions = {}) {
     if (!employee || !employee.active || employee.assignedEmail !== accessRequest.assignedEmail) {
       throw new Error("Credential request employee identity is no longer active or no longer matches the assigned email.");
     }
-    const delivery = await createOneDelivery({
+    const deliveryResult = await createEmployeeRequestDelivery({
       operationId: operationIdFromRequest(request.headers["x-wardsen-idempotency-key"], body.operationId) ?? `request-${id}`,
-      sourceProviderId: accessRequest.sourceProviderId,
-      sourceAccountId: accessRequest.sourceAccountId,
-      sourceItemId: accessRequest.sourceItemId,
-      deliveryProviderId: body.deliveryProviderId,
-      deliveryAccountId: body.deliveryAccountId,
-      recipient: { id: employee.id, name: employee.name, email: accessRequest.assignedEmail },
-      expiresAt: body.expiresAt,
-      viewLimit: body.viewLimit,
-      viewOnce: body.viewOnce,
-      accessPassword: body.accessPassword,
-      hideText: body.hideText,
-      deliveryMethod: "email"
+      accessRequest,
+      employee,
+      approval: body
     });
+    const { delivery } = deliveryResult;
     const updated = await repository.updateCredentialAccessRequest(id, {
       status: "fulfilled",
       decidedAt: new Date().toISOString(),
@@ -914,7 +921,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
       deliveryId: delivery.id,
       safeDetails: `request=${id};employee=${employee.id}`
     });
-    return { request: updated, delivery };
+    return { request: updated, delivery, deliveryAccessCode: deliveryResult.deliveryAccessCode };
   });
 
   app.post("/api/credential-requests/:id/replacement-link", async (request) => {
@@ -937,21 +944,13 @@ export async function buildApp(options: BuildAppOptions = {}) {
       throw new Error("Credential request delivery could not be found for replacement.");
     }
     await revokeDeliveryBeforeReplacement(previousDelivery);
-    const delivery = await createOneDelivery({
+    const deliveryResult = await createEmployeeRequestDelivery({
       operationId: operationIdFromRequest(request.headers["x-wardsen-idempotency-key"], body.operationId) ?? `request-replacement-${id}-${nanoid()}`,
-      sourceProviderId: accessRequest.sourceProviderId,
-      sourceAccountId: accessRequest.sourceAccountId,
-      sourceItemId: accessRequest.sourceItemId,
-      deliveryProviderId: body.deliveryProviderId,
-      deliveryAccountId: body.deliveryAccountId,
-      recipient: { id: employee.id, name: employee.name, email: accessRequest.assignedEmail },
-      expiresAt: body.expiresAt,
-      viewLimit: body.viewLimit,
-      viewOnce: body.viewOnce,
-      accessPassword: body.accessPassword,
-      hideText: body.hideText,
-      deliveryMethod: "email"
+      accessRequest,
+      employee,
+      approval: body
     });
+    const { delivery } = deliveryResult;
     const replacedAt = new Date().toISOString();
     const updated = await repository.updateCredentialAccessRequest(id, {
       status: "fulfilled",
@@ -971,7 +970,12 @@ export async function buildApp(options: BuildAppOptions = {}) {
       deliveryId: delivery.id,
       safeDetails: `request=${id};employee=${employee.id};previous=${previousDelivery.id}`
     });
-    return { request: updated, previousDelivery: await repository.getDelivery(previousDelivery.id), delivery };
+    return {
+      request: updated,
+      previousDelivery: await repository.getDelivery(previousDelivery.id),
+      delivery,
+      deliveryAccessCode: deliveryResult.deliveryAccessCode
+    };
   });
 
   app.post("/api/deliveries", async (request) => {
@@ -1109,12 +1113,62 @@ export async function buildApp(options: BuildAppOptions = {}) {
     return { pruned: { ...pruned, total } };
   });
 
-  async function createOneDelivery(body: z.infer<typeof deliverySchema> & { batchId?: string }) {
+  async function createEmployeeRequestDelivery(input: {
+    operationId: string;
+    accessRequest: CredentialAccessRequestRecord;
+    employee: EmployeeRecord;
+    approval: z.infer<typeof credentialAccessApprovalSchema>;
+  }) {
+    const { operationId, accessRequest, employee, approval } = input;
+    let deliveryAccessCode: string | undefined;
+    let deliveryAccessCodeIssuedAt: string | undefined;
+    if (approval.issueDeliveryAccessCode) {
+      if (approval.accessPassword) {
+        throw new Error("Choose either a generated employee delivery code or a manual provider access password, not both.");
+      }
+      const provider = registry.getDeliveryProvider(approval.deliveryProviderId);
+      const capabilities = await provider.getCapabilities();
+      if (!capabilities.accessPassword) {
+        throw new Error(`${provider.displayName} cannot enforce a WardSen delivery access code. Choose Bitwarden Send or Onetime Secret, or create the delivery without this code.`);
+      }
+      deliveryAccessCode = employeeDeliveryCode();
+      deliveryAccessCodeIssuedAt = new Date().toISOString();
+    }
+
+    const delivery = await createOneDelivery({
+      operationId,
+      sourceProviderId: accessRequest.sourceProviderId,
+      sourceAccountId: accessRequest.sourceAccountId,
+      sourceItemId: accessRequest.sourceItemId,
+      deliveryProviderId: approval.deliveryProviderId,
+      deliveryAccountId: approval.deliveryAccountId,
+      recipient: { id: employee.id, name: employee.name, email: accessRequest.assignedEmail },
+      expiresAt: approval.expiresAt,
+      viewLimit: approval.viewLimit,
+      viewOnce: approval.viewOnce,
+      accessPassword: deliveryAccessCode ?? approval.accessPassword,
+      hideText: approval.hideText,
+      deliveryMethod: "email",
+      deliveryAccessCodeIssuedAt
+    });
+    const issued = Boolean(deliveryAccessCode && deliveryAccessCodeIssuedAt === delivery.deliveryAccessCodeIssuedAt);
+    if (issued) {
+      await audit("delivery.access_code.issue", "success", {
+        sourceAccountId: accessRequest.sourceAccountId,
+        deliveryAccountId: approval.deliveryAccountId,
+        deliveryId: delivery.id,
+        safeDetails: `request=${accessRequest.id};employee=${employee.id};expires=${delivery.expiresAt}`
+      });
+    }
+    return { delivery, deliveryAccessCode: issued ? deliveryAccessCode : undefined };
+  }
+
+  async function createOneDelivery(body: z.infer<typeof deliverySchema> & { batchId?: string; deliveryAccessCodeIssuedAt?: string }) {
     const operationId = body.operationId ?? nanoid();
     return withDeliveryOperation(operationId, () => createOneDeliveryLocked(body, operationId));
   }
 
-  async function createOneDeliveryLocked(body: z.infer<typeof deliverySchema> & { batchId?: string }, operationId: string) {
+  async function createOneDeliveryLocked(body: z.infer<typeof deliverySchema> & { batchId?: string; deliveryAccessCodeIssuedAt?: string }, operationId: string) {
     const viewLimit = parseViewLimit(body.viewLimit);
     const expiresAt = new Date(body.expiresAt);
     const policySnapshot = deliveryPolicySnapshot(body, expiresAt, viewLimit);
@@ -1157,7 +1211,9 @@ export async function buildApp(options: BuildAppOptions = {}) {
       deliveryMethod: body.deliveryMethod,
       expiresAt: expiresAt.toISOString(),
       viewLimit,
-      status: "creating"
+      status: "creating",
+      deliveryAccessCodeRequired: Boolean(body.deliveryAccessCodeIssuedAt),
+      deliveryAccessCodeIssuedAt: body.deliveryAccessCodeIssuedAt
     });
     let result: Awaited<ReturnType<DeliveryProvider["createDelivery"]>> | undefined;
     try {
@@ -1273,15 +1329,25 @@ export async function buildApp(options: BuildAppOptions = {}) {
     const status = await provider.getStatus(delivery.deliveryAccountId, delivery.providerDeliveryId ?? delivery.id);
     const checkedAt = new Date().toISOString();
     const firstViewedAt = delivery.firstViewedAt ?? (deliveryAccessObserved(status.status, status.accessCount) ? checkedAt : undefined);
+    const deliveryAccessCodeObservedAt = delivery.deliveryAccessCodeObservedAt
+      ?? (delivery.deliveryAccessCodeRequired && deliveryAccessObserved(status.status, status.accessCount) ? checkedAt : undefined);
     const updated = await repository.updateDelivery(id, {
       status: status.status,
       accessCount: status.accessCount,
       expiresAt: status.expiresAt?.toISOString() ?? delivery.expiresAt,
       revokedAt: status.revokedAt?.toISOString() ?? delivery.revokedAt,
       ...(firstViewedAt ? { firstViewedAt } : {}),
+      ...(deliveryAccessCodeObservedAt ? { deliveryAccessCodeObservedAt } : {}),
       lastCheckedAt: checkedAt
     });
     await audit("delivery.refresh", "success", { deliveryAccountId: delivery.deliveryAccountId, deliveryId: id });
+    if (!delivery.deliveryAccessCodeObservedAt && deliveryAccessCodeObservedAt) {
+      await audit("delivery.access_code.observed", "success", {
+        deliveryAccountId: delivery.deliveryAccountId,
+        deliveryId: id,
+        safeDetails: `observed=${deliveryAccessCodeObservedAt}`
+      });
+    }
     return updated;
   });
 
@@ -1637,6 +1703,8 @@ export async function buildApp(options: BuildAppOptions = {}) {
       if (!status) return undefined;
       const checkedAt = new Date().toISOString();
       const firstViewedAt = delivery.firstViewedAt ?? (deliveryAccessObserved(status.status, status.accessCount) ? checkedAt : undefined);
+      const deliveryAccessCodeObservedAt = delivery.deliveryAccessCodeObservedAt
+        ?? (delivery.deliveryAccessCodeRequired && deliveryAccessObserved(status.status, status.accessCount) ? checkedAt : undefined);
       await repository.updateDelivery(delivery.id, {
         providerDeliveryId: status.deliveryId,
         status: status.status,
@@ -1644,6 +1712,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
         expiresAt: status.expiresAt?.toISOString() ?? delivery.expiresAt,
         revokedAt: status.revokedAt?.toISOString() ?? delivery.revokedAt,
         ...(firstViewedAt ? { firstViewedAt } : {}),
+        ...(deliveryAccessCodeObservedAt ? { deliveryAccessCodeObservedAt } : {}),
         lastCheckedAt: checkedAt
       });
       await audit("delivery.reconcile", "success", {
@@ -1651,6 +1720,13 @@ export async function buildApp(options: BuildAppOptions = {}) {
         deliveryId: delivery.id,
         safeDetails: `recovered_operation=${delivery.operationId}`
       });
+      if (!delivery.deliveryAccessCodeObservedAt && deliveryAccessCodeObservedAt) {
+        await audit("delivery.access_code.observed", "success", {
+          deliveryAccountId: delivery.deliveryAccountId,
+          deliveryId: delivery.id,
+          safeDetails: `observed=${deliveryAccessCodeObservedAt};reconciled=true`
+        });
+      }
       return { recovered: true };
     } catch (error) {
       return { recovered: false, safeDetails: `provider_lookup_failed=${safeErrorMessage(error)}` };
@@ -1713,6 +1789,7 @@ const paginationSchema = z.object({
 });
 
 const idParams = z.object({ id: z.string().min(1) });
+const terminalHandoffLaunchParams = idParams.extend({ launchId: z.string().min(1).max(128) });
 const BULK_EMPLOYEE_PROVISION_CONFIRMATION = "PROVISION EMPLOYEES FROM PEOPLE";
 const accountSchema = z.object({
   id: z.string().optional(),
@@ -1883,6 +1960,7 @@ const credentialAccessApprovalSchema = credentialAccessDecisionSchema.extend({
   viewOnce: z.boolean().optional(),
   accessPassword: z.string().optional(),
   hideText: z.boolean().optional(),
+  issueDeliveryAccessCode: z.boolean().optional(),
   confirmRiskSummary: z.boolean().optional()
 });
 const credentialAccessReplacementSchema = credentialAccessApprovalSchema.extend({
@@ -1917,6 +1995,7 @@ const EMPLOYEE_SIGN_IN_CODE_TTL_MS = 15 * 60 * 1000;
 const EMPLOYEE_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 const RETENTION_PRUNE_CONFIRMATION = "PRUNE RETENTION";
 const employeeCode = customAlphabet("23456789ABCDEFGHJKLMNPQRSTUVWXYZ", 10);
+const employeeDeliveryCodeValue = customAlphabet("23456789ABCDEFGHJKLMNPQRSTUVWXYZ", 16);
 
 async function findAccount(repository: WardSenRepository, id: string): Promise<AccountRecord> {
   const account = (await repository.listAccounts()).find((candidate) => candidate.id === id);
@@ -1940,6 +2019,11 @@ function normalizeEmployeeCode(value: string): string {
 
 function employeeSecretHash(kind: "code" | "session", scope: string, value: string): string {
   return createHash("sha256").update(`wardsen-employee-${kind}-v1:${scope}:${value}`).digest("hex");
+}
+
+function employeeDeliveryCode(): string {
+  const value = employeeDeliveryCodeValue();
+  return `WDS-${value.slice(0, 4)}-${value.slice(4, 8)}-${value.slice(8, 12)}-${value.slice(12)}`;
 }
 
 function buildEmployeeSignInEmailDraft(input: {

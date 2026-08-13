@@ -68,6 +68,25 @@ fn local_service_status(
     service_status(&process, &config).map_err(|error| error.to_string())
 }
 
+#[tauri::command]
+fn open_terminal_session(
+    account_id: String,
+    launch_id: String,
+    config: tauri::State<ServerLaunchConfig>,
+    token: tauri::State<ApiToken>,
+) -> Result<(), String> {
+    validate_terminal_launch_id(&account_id)?;
+    validate_terminal_launch_id(&launch_id)?;
+    let command = fetch_terminal_handoff_command(&config, &token.0, &account_id, &launch_id)
+        .map_err(|_| "WardSen could not retrieve the one-time terminal login command. Start Terminal login / unlock again.".to_string())?;
+    validate_terminal_handoff_command(&command)?;
+    launch_terminal_session(&command).map_err(|error| {
+        format!(
+            "WardSen could not open a terminal for Bitwarden login: {error}. Copy the terminal command and run it manually."
+        )
+    })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -76,7 +95,8 @@ pub fn run() {
             get_api_token,
             get_local_service_url,
             restart_local_service,
-            local_service_status
+            local_service_status,
+            open_terminal_session
         ])
         .setup(|app| {
             let server_path = resolve_server_bundle(app);
@@ -238,6 +258,172 @@ fn service_status(
 fn is_port_open(port: u16) -> bool {
     let address = SocketAddr::from(([127, 0, 0, 1], port));
     TcpStream::connect_timeout(&address, Duration::from_millis(250)).is_ok()
+}
+
+fn validate_terminal_launch_id(value: &str) -> Result<(), String> {
+    if value.is_empty()
+        || value.len() > 128
+        || !value.bytes().all(|character| character.is_ascii_alphanumeric() || character == b'_' || character == b'-')
+    {
+        return Err("WardSen rejected an invalid terminal launch request.".to_string());
+    }
+    Ok(())
+}
+
+fn fetch_terminal_handoff_command(
+    config: &ServerLaunchConfig,
+    api_token: &str,
+    account_id: &str,
+    launch_id: &str,
+) -> io::Result<String> {
+    let address = SocketAddr::from(([127, 0, 0, 1], config.port));
+    let mut stream = TcpStream::connect_timeout(&address, Duration::from_secs(2))?;
+    stream.set_read_timeout(Some(Duration::from_secs(2)))?;
+    stream.set_write_timeout(Some(Duration::from_secs(2)))?;
+    let path = format!("/api/accounts/{account_id}/terminal-handoff/{launch_id}/command");
+    let request = format!(
+        "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nX-WardSen-API-Token: {api_token}\r\nConnection: close\r\n\r\n",
+        config.port
+    );
+    stream.write_all(request.as_bytes())?;
+    let mut response = Vec::new();
+    stream.read_to_end(&mut response)?;
+    let header_end = response
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "local service response was malformed"))?;
+    let headers = std::str::from_utf8(&response[..header_end])
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "local service response headers were invalid"))?;
+    if !headers.starts_with("HTTP/1.1 200 ") {
+        return Err(io::Error::new(io::ErrorKind::PermissionDenied, "local service did not authorize the terminal launch"));
+    }
+    let command = String::from_utf8(response[(header_end + 4)..].to_vec())
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "local service terminal command was invalid"))?;
+    if command.len() > 16_384 {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "local service terminal command was too large"));
+    }
+    Ok(command)
+}
+
+fn validate_terminal_handoff_command(command: &str) -> Result<(), String> {
+    let value = command.trim();
+    if value.is_empty() || value.len() > 16_384 || value.contains('\0') {
+        return Err("WardSen rejected an invalid terminal login command.".to_string());
+    }
+    let expected_prefix = value.starts_with("$env:BITWARDENCLI_APPDATA_DIR=")
+        || value.starts_with("export BITWARDENCLI_APPDATA_DIR=");
+    let expected_handoff = value.contains("X-WardSen-Terminal-Handoff")
+        && value.contains("/terminal-handoff/claim")
+        && value.contains("bwCommand")
+        && value.contains("WardSen received the Bitwarden session");
+    if !expected_prefix || !expected_handoff {
+        return Err("WardSen only opens its own short-lived Bitwarden terminal handoff commands.".to_string());
+    }
+    Ok(())
+}
+
+fn launch_terminal_session(command: &str) -> io::Result<()> {
+    #[cfg(windows)]
+    {
+        return launch_windows_powershell(command);
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        return launch_macos_terminal(command);
+    }
+
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        let _ = command;
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "automatic terminal launch is currently available on Windows and macOS only",
+        ))
+    }
+}
+
+#[cfg(windows)]
+fn launch_windows_powershell(command: &str) -> io::Result<()> {
+    use std::os::windows::process::CommandExt;
+
+    const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
+    let encoded_command = encode_powershell_command(command);
+    Command::new("powershell.exe")
+        .args([
+            "-NoLogo",
+            "-NoProfile",
+            "-NoExit",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-EncodedCommand",
+            &encoded_command,
+        ])
+        .creation_flags(CREATE_NEW_CONSOLE)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map(|_| ())
+}
+
+#[cfg(target_os = "macos")]
+fn launch_macos_terminal(command: &str) -> io::Result<()> {
+    let script = r#"on run argv
+    tell application "Terminal"
+        activate
+        do script (item 1 of argv)
+    end tell
+end run"#;
+    let status = Command::new("osascript")
+        .arg("-e")
+        .arg(script)
+        .arg(command)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::Other,
+            "macOS Terminal did not accept the login command",
+        ))
+    }
+}
+
+#[cfg(windows)]
+fn encode_powershell_command(command: &str) -> String {
+    let mut utf16_le = Vec::with_capacity(command.len() * 2);
+    for unit in command.encode_utf16() {
+        utf16_le.extend_from_slice(&unit.to_le_bytes());
+    }
+    base64_encode(&utf16_le)
+}
+
+#[cfg(windows)]
+fn base64_encode(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut encoded = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let first = chunk[0];
+        let second = *chunk.get(1).unwrap_or(&0);
+        let third = *chunk.get(2).unwrap_or(&0);
+        encoded.push(ALPHABET[(first >> 2) as usize] as char);
+        encoded.push(ALPHABET[(((first & 0x03) << 4) | (second >> 4)) as usize] as char);
+        encoded.push(if chunk.len() > 1 {
+            ALPHABET[(((second & 0x0f) << 2) | (third >> 6)) as usize] as char
+        } else {
+            '='
+        });
+        encoded.push(if chunk.len() > 2 {
+            ALPHABET[(third & 0x3f) as usize] as char
+        } else {
+            '='
+        });
+    }
+    encoded
 }
 
 fn select_available_local_port() -> io::Result<u16> {

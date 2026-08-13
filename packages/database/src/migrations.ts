@@ -395,5 +395,15 @@ END;
 ALTER TABLE deliveries ADD COLUMN first_viewed_at TEXT;
 CREATE INDEX IF NOT EXISTS idx_deliveries_first_viewed_at ON deliveries(first_viewed_at);
 `
+  },
+  {
+    id: "014_delivery_access_code_audit",
+    sql: `
+ALTER TABLE deliveries ADD COLUMN delivery_access_code_required INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE deliveries ADD COLUMN delivery_access_code_issued_at TEXT;
+ALTER TABLE deliveries ADD COLUMN delivery_access_code_observed_at TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_deliveries_access_code_observed_at ON deliveries(delivery_access_code_observed_at);
+`
   }
 ];

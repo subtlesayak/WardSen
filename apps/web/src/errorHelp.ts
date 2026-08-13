@@ -62,7 +62,7 @@ export function describeError(message?: string): ErrorHelp {
       kind: "bitwardenTerminalLogin",
       title: "Bitwarden needs terminal login once",
       detail: "Bitwarden first login runs in a real terminal so WardSen never receives your master password or verification code.",
-      guidance: "Open Vaults > Account Access, select Terminal login / unlock, then paste the copied command into Terminal or PowerShell. WardSen will update the account automatically after the one-time local handoff succeeds.",
+      guidance: "Open Vaults > Account Access and select Terminal login / unlock. The desktop app opens Terminal or PowerShell automatically; use Copy terminal command only when that launch is unavailable. WardSen updates the account automatically after the one-time local handoff succeeds.",
       technicalDetail: detail
     };
   }

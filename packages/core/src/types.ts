@@ -318,6 +318,10 @@ export interface DeliveryRecord {
   revokedAt?: string;
   firstViewedAt?: string;
   lastCheckedAt?: string;
+  deliveryAccessCodeRequired?: boolean;
+  deliveryAccessCodeIssuedAt?: string;
+  /** The first provider status refresh that observed access to a code-protected delivery. */
+  deliveryAccessCodeObservedAt?: string;
 }
 
 export interface DeliveryBatchRecord {

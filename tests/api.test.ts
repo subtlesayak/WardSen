@@ -414,8 +414,16 @@ describe("WardSen API", () => {
       payload: { username: "work@example.test" }
     });
     expect(created.statusCode).toBe(200);
-    expect(created.json()).toEqual(expect.objectContaining({ command: expect.any(String), expiresAt: expect.any(String) }));
+    expect(created.json()).toEqual(expect.objectContaining({ command: expect.any(String), launchId: expect.any(String), expiresAt: expect.any(String) }));
     expect(provider.handoffs).toHaveLength(1);
+
+    const launch = await app.inject({
+      method: "GET",
+      url: `/api/accounts/bitwarden-account/terminal-handoff/${created.json().launchId}/command`,
+      headers: { host: "127.0.0.1:4777", "x-wardsen-api-token": "desktop-token" }
+    });
+    expect(launch.statusCode).toBe(200);
+    expect(launch.body).toBe(created.json().command);
 
     const desktopTokenOnly = await app.inject({
       method: "POST",
@@ -453,6 +461,7 @@ describe("WardSen API", () => {
     const audit = await app.inject({ method: "GET", url: "/api/audit-log", headers: desktopHeaders });
     expect(JSON.stringify(audit.json())).not.toContain("terminal-session-raw");
     expect(JSON.stringify(audit.json())).not.toContain(provider.handoffs[0]!.token);
+    expect(JSON.stringify(audit.json())).not.toContain(created.json().command);
     await app.close();
   });
 

@@ -15,13 +15,14 @@ import {
   Send,
   Settings,
   ShieldCheck,
+  Terminal,
   Trash2,
   UsersRound,
   Vault,
   X
 } from "lucide-react";
 import { parseBatchDeliveryRevokeResult, parseBulkDeliveryResult, parseCreatedDeliveryRecord, parseCredentialAccessRequestList, parseCredentialCatalogList, parseDeliveryList, parseDeliveryRecord, parseEmployeeList, parseTerminalSessionHandoffResponse, type BulkDeliveryItemResultContract, type BulkDeliveryResultContract, type CreatedDeliveryRecordContract, type DeliveryRecordContract } from "@wardsen/contracts";
-import { apiDownload, apiGet, apiSend, canRestartLocalService, copyExternalUrl, copyTextToClipboard, getLocalServiceStatus, openExternalUrl, openMailDraft, restartLocalService, type LocalServiceStatus } from "./api";
+import { apiDownload, apiGet, apiSend, canLaunchTerminalSession, canRestartLocalService, copyExternalUrl, copyTextToClipboard, getLocalServiceStatus, openExternalUrl, openMailDraft, openTerminalSession, restartLocalService, type LocalServiceStatus } from "./api";
 import { describeError } from "./errorHelp";
 import { DeliveryAuditPanel } from "./deliveryAuditPanel";
 import { BatchDeliveryTable, BatchTable } from "./deliveryBatchTables";
@@ -449,7 +450,7 @@ function Vaults({ api, confirmDestructiveAction }: { api: ReturnType<typeof useW
     sso: false
   });
   const [verificationNeeded, setVerificationNeeded] = useState(false);
-  const [terminalHandoff, setTerminalHandoff] = useState<{ accountId: string; command: string; expiresAt: string }>();
+  const [terminalHandoff, setTerminalHandoff] = useState<{ accountId: string; command: string; launchId: string; expiresAt: string }>();
   const verificationCodeRef = useRef<HTMLInputElement>(null);
   const [message, setMessage] = useState<{ status: "idle" | "loading" | "ready" | "error"; text?: string }>({ status: "idle" });
   const [clockMs, setClockMs] = useState(() => Date.now());
@@ -568,12 +569,37 @@ function Vaults({ api, confirmDestructiveAction }: { api: ReturnType<typeof useW
       }));
       setVerificationNeeded(false);
       setTerminalHandoff({ accountId: account.id, ...response });
+      if (canLaunchTerminalSession()) {
+        try {
+          await openTerminalSession(account.id, response.launchId);
+          setMessage({ status: "ready", text: "Terminal opened for Bitwarden login. Type the Bitwarden password only in its prompt. WardSen will update this account automatically." });
+          return;
+        } catch (error) {
+          try {
+            await copyTextToClipboard(response.command);
+            setMessage({ status: "error", text: `WardSen could not open Terminal. The command was copied so you can run it manually. Detail: ${error instanceof Error ? error.message : String(error)}` });
+          } catch {
+            setMessage({ status: "error", text: `WardSen could not open Terminal. Copy the command below and run it manually. Detail: ${error instanceof Error ? error.message : String(error)}` });
+          }
+          return;
+        }
+      }
       try {
         await copyTextToClipboard(response.command);
         setMessage({ status: "ready", text: "Terminal command copied. Paste and run it in Terminal or PowerShell, then type the Bitwarden password only in the Bitwarden prompt. WardSen will update this account automatically." });
       } catch {
         setMessage({ status: "ready", text: "Terminal command is ready below. Copy, paste and run it in Terminal or PowerShell, then type the Bitwarden password only in the Bitwarden prompt." });
       }
+    } catch (error) {
+      setMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  async function openBitwardenTerminalAgain(handoff: NonNullable<typeof terminalHandoff>) {
+    setMessage({ status: "loading", text: "Opening Terminal for Bitwarden login..." });
+    try {
+      await openTerminalSession(handoff.accountId, handoff.launchId);
+      setMessage({ status: "ready", text: "Terminal opened for Bitwarden login. Type the Bitwarden password only in its prompt." });
     } catch (error) {
       setMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
     }
@@ -646,13 +672,14 @@ function Vaults({ api, confirmDestructiveAction }: { api: ReturnType<typeof useW
         {selectedAccountIsBitwarden ? (
           <div className="notice compact wide">
             <strong>Bitwarden unlock flow</strong>
-            <span>Select <strong>Terminal login / unlock</strong>, paste the copied command into PowerShell or Terminal, and type the Bitwarden password only in Bitwarden's terminal prompt. WardSen unlocks automatically when the one-time handoff succeeds.</span>
+            <span>Select <strong>Terminal login / unlock</strong>. WardSen opens PowerShell or Terminal in the desktop app; type the Bitwarden password only in Bitwarden's terminal prompt. WardSen unlocks automatically when the one-time handoff succeeds.</span>
           </div>
         ) : null}
         {terminalHandoff && terminalHandoff.accountId === selectedAccount?.id ? (
           <div className="notice compact wide terminalHandoffNotice" role="status" aria-live="polite">
             <strong>Terminal command ready</strong>
             <span>Expires {formatDate(terminalHandoff.expiresAt)}. The command contains a one-time local handoff authorization, not your Bitwarden password or session token.</span>
+            {canLaunchTerminalSession() ? <button type="button" className="secondary" onClick={() => void openBitwardenTerminalAgain(terminalHandoff)}><Terminal size={16} aria-hidden="true" /> Open Terminal again</button> : null}
             <CopyFeedbackButton value={terminalHandoff.command} label="Copy terminal command" copiedLabel="Terminal command copied" />
           </div>
         ) : null}
@@ -663,7 +690,7 @@ function Vaults({ api, confirmDestructiveAction }: { api: ReturnType<typeof useW
           {api.accounts.map((account) => <option key={account.id} value={account.id}>{account.label}</option>)}
         </select></label>
         <label>{selectedAccountIsBitwarden ? "Bitwarden master password" : "Password"}<input value={selectedAccountIsBitwarden ? "" : accessForm.password} readOnly={selectedAccountIsBitwarden} onChange={(event) => setAccessForm((current) => ({ ...current, password: event.target.value }))} placeholder={selectedAccountIsBitwarden ? "Enter only in the Bitwarden Terminal prompt" : "Master password or database password"} type="password" />
-          {selectedAccountIsBitwarden ? <small className="fieldInstruction">WardSen never accepts this password. The copied command runs Bitwarden visibly and its own prompt accepts the password in Terminal or PowerShell.</small> : null}
+          {selectedAccountIsBitwarden ? <small className="fieldInstruction">WardSen never accepts this password. The desktop app opens Bitwarden visibly and its own prompt accepts the password in Terminal or PowerShell.</small> : null}
         </label>
         {selectedAccountIsBitwarden && verificationNeeded ? (
           <label className={verificationNeeded ? "attentionField" : undefined}>Verification code
