@@ -49,6 +49,37 @@ Download the Windows MSI or macOS Apple Silicon DMG from [GitHub Releases](https
 - Enter Bitwarden passwords, approval codes, authenticator codes, and session tokens only into the visible official CLI prompt. Never put them in WardSen, chat, or a support ticket.
 - Fully quit and reopen WardSen after any Bitwarden CLI installation or update.
 
+### Prepare a People CSV with an AI Agent
+
+WardSen can import contact records in **People** from a CSV. If your organization permits an approved AI agent to help clean a spreadsheet, provide only the minimum contact fields needed for import. Do not upload passwords, recovery codes, API keys, TOTP seeds, session tokens, employee IDs, addresses, personal notes, or other sensitive HR information.
+
+Ask the agent to return CSV only, using this exact header:
+
+```csv
+name,phone,email,group,role,notes,active
+```
+
+Paste this prompt into the approved agent, then replace the bracketed text with a minimized source table:
+
+```text
+Convert the following employee contact list into RFC 4180-compatible CSV for WardSen.
+Return CSV only, with this exact header and column order:
+name,phone,email,group,role,notes,active
+
+Rules:
+- Keep only contact and work-organization information already in the source.
+- Use true or false for active; use true when the source does not say the person is inactive.
+- Leave unavailable optional cells empty.
+- Escape commas, quotation marks, and line breaks correctly for CSV.
+- Do not invent data.
+- Omit passwords, recovery codes, API keys, TOTP seeds, session tokens, employee IDs, home addresses, and sensitive HR notes.
+
+Source table:
+[PASTE MINIMIZED CONTACT DATA HERE]
+```
+
+Review the generated CSV before importing it in **People**. People records are contacts only. Employee sign-in identities and their assigned email addresses are intentionally created and managed separately in **Requests**, so importing a People CSV never grants anyone access to credentials.
+
 ### Bitwarden CLI
 
 WardSen uses Bitwarden through the official [`bw` CLI](https://bitwarden.com/help/cli/). On macOS, install Node.js LTS from [nodejs.org](https://nodejs.org/en/download), then run:
