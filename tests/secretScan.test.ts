@@ -36,4 +36,16 @@ describe("secret non-persistence scan", () => {
       stdio: "pipe"
     })).toThrow();
   });
+
+  it("treats WardSen canary prefixes as leaked secrets", () => {
+    const tempDir = mkdtempSync(path.join(os.tmpdir(), "wardsen-secret-scan-"));
+    tempDirs.push(tempDir);
+    writeFileSync(path.join(tempDir, "audit.jsonl"), JSON.stringify({ detail: "WARD-SEN-CANARY-9Q7K-DO-NOT-PERSIST" }), "utf8");
+
+    expect(() => execFileSync(process.execPath, ["scripts/secret-non-persistence-scan.mjs"], {
+      cwd: process.cwd(),
+      env: { ...process.env, WARDSEN_SECRET_SCAN_ROOTS: tempDir },
+      stdio: "pipe"
+    })).toThrow();
+  });
 });

@@ -31,7 +31,7 @@ When each intended recipient receives a dedicated provider link, WardSen can rep
 
 ## Status
 
-`v0.1.0-rc.55` is the current security-review release candidate. It remains unsigned; a trusted public installer release is still pending code signing and macOS notarization.
+`v0.1.0-rc.56` is the current security-review release candidate. It remains unsigned; a trusted public installer release is still pending code signing and macOS notarization.
 
 - **Scope:** Local-first credential dispatch, short-lived provider links, delivery audit signals, and employee request access.
 - **Security:** Destructive actions require exact server-enforced confirmation; credential plaintext remains on the localhost backend.
@@ -39,6 +39,7 @@ When each intended recipient receives a dedicated provider link, WardSen can rep
 - **Provider setup:** Bitwarden requires the official `bw` CLI. On macOS, install Node.js LTS if needed, install `@bitwarden/cli`, verify `bw --version`, then reopen WardSen.
 - **Vault sessions:** New accounts auto-lock after ten minutes of inactivity. Unlocked vault rows show the remaining time; existing accounts keep their individually configured timeout.
 - **Request protection:** Login, unlock, terminal handoff, employee code, and local API routes have layered rate limits to reduce brute-force and UI-loop abuse.
+- **Secret handling:** Contributor guidance, ADRs, and release scans now use an explicit WardSen canary rule to catch accidental credential persistence outside the backend/provider path.
 
 See the [current release notes](docs/release-notes/v0.1.0.md), [getting-started steps](#get-started), [security design](docs/security-design.md), and [installer signing guide](docs/installer-signing.md) for detail.
 

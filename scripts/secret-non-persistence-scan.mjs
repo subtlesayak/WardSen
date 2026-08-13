@@ -10,6 +10,7 @@ const defaultRoots = [
   "apps/web/dist"
 ];
 const defaultSecretProbes = [
+  "WARD-SEN-CANARY-",
   "credential-password",
   "real-password",
   "super-secret",
@@ -32,7 +33,7 @@ for (const scanRoot of scanRoots) {
 if (findings.length > 0) {
   console.error("Secret non-persistence scan failed:");
   for (const finding of findings) {
-    console.error(`- ${finding.relativePath}: matched ${finding.probe}`);
+    console.error(`- ${finding.relativePath}: matched ${labelProbe(finding.probe)}`);
   }
   process.exit(1);
 }
@@ -66,4 +67,8 @@ function envList(name) {
     .split(/[;\n]/)
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function labelProbe(probe) {
+  return probe.endsWith("-") ? `${probe}*` : probe;
 }

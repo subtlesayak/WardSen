@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0-rc.56 - 2026-08-13
+
+- Added open-source contribution rules for WardSen's local-first secret boundary, provider work, UI language, database/audit changes and release checks.
+- Restored the full Apache-2.0 license text and added a project `NOTICE` file for clearer redistribution hygiene.
+- Added ADR 0002 to record that credential secrets, provider sessions, delivery access passwords and secure URLs must not persist outside the provider/backend path.
+- Extended `security:scan-secrets` with a WardSen canary prefix and regression coverage so release scans fail if synthetic credential material appears in generated artifacts.
+
 ## 0.1.0-rc.55 - 2026-08-13
 
 - Added layered local API rate limits, including stricter limits for vault login, unlock, terminal handoff, terminal-handoff claim, and employee sign-in code endpoints.
