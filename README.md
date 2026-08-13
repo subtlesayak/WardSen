@@ -23,13 +23,14 @@ WardSen is an independent open-source project and is not affiliated with, endors
 
 ## Status
 
-`v0.1.0-rc.54` is the current security-review release candidate. It remains unsigned; a trusted public installer release is still pending code signing and macOS notarization.
+`v0.1.0-rc.55` is the current security-review release candidate. It remains unsigned; a trusted public installer release is still pending code signing and macOS notarization.
 
 - **Scope:** Local-first credential dispatch, short-lived provider links, delivery audit signals, and employee request access.
 - **Security:** Destructive actions require exact server-enforced confirmation; credential plaintext remains on the localhost backend.
 - **Installers:** Windows MSI and macOS Apple Silicon DMG are unsigned review artifacts. A signed and notarized macOS build is required for normal use; do not bypass Gatekeeper.
 - **Provider setup:** Bitwarden requires the official `bw` CLI. On macOS, install Node.js LTS if needed, install `@bitwarden/cli`, verify `bw --version`, then reopen WardSen.
 - **Vault sessions:** New accounts auto-lock after five minutes of inactivity. Unlocked vault rows show the remaining time; existing accounts keep their individually configured timeout.
+- **Request protection:** Login, unlock, terminal handoff, employee code, and local API routes have layered rate limits to reduce brute-force and UI-loop abuse.
 
 See the [current release notes](docs/release-notes/v0.1.0.md), [getting-started steps](#get-started), [security design](docs/security-design.md), and [installer signing guide](docs/installer-signing.md) for detail.
 

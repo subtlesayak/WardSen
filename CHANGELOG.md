@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.0-rc.55 - 2026-08-13
+
+- Added layered local API rate limits, including stricter limits for vault login, unlock, terminal handoff, terminal-handoff claim, and employee sign-in code endpoints.
+- Hardened Ente Paste manual handoff so it copies only title, username and password, excludes URLs, TOTP secrets and notes, and uses opaque operation-based delivery IDs instead of credential-derived fingerprints.
+- Improved People and Employee identity editing in the desktop UI while keeping employee assigned email immutable after creation.
+- Renamed delivery-history copy actions from provider ID to delivery ID for clearer operator wording.
+- Updated Fastify, Vite React plugin, tsx, React type packages, and release attestation action pins.
+- Documented the remaining Rust/Tauri advisory compatibility blocker instead of suppressing Cargo resolver warnings.
+
 ## 0.1.0-rc.54 - 2026-08-12
 
 - Reissued the verified `rc.53` session, auto-lock, vault-control and provider-capability updates with a CI-appropriate timeout for the locale date-format assertion used by delivery-audit coverage.
