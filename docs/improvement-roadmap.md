@@ -24,13 +24,13 @@ WardSen should stabilize the existing local credential retrieval to provider-hos
 
 ## Phase Progress
 
-Current percentages are implementation estimates as of 2026-08-12.
+Current percentages are implementation estimates as of 2026-08-13.
 
 | Phase | Area | Progress | Remaining headline |
 | --- | --- | ---: | --- |
 | 0 | Freeze Scope | 100% | Maintain release notes as scope changes |
 | 1 | Secret Minimization | 100% | Keep scans in release workflow |
-| 2 | Bitwarden Send Correctness | 98% | Run the opt-in real-provider create/status/revoke check |
+| 2 | Bitwarden Send Correctness | 100% | Verified on macOS with the opt-in disposable Send lifecycle test |
 | 3 | Bulk Handoff Recovery | 100% | Maintain UI smoke coverage |
 | 4 | Account and Profile Isolation | 100% | Completed with managed-path and anti-link checks |
 | 5 | Auto-Lock and Session Safety | 100% | Completed with memory-only authenticated terminal handoff |
@@ -85,6 +85,12 @@ Deliverables:
 - Distinguish `active`, `viewed`, `limit_reached`, `expired`, and `revoked`.
 - Add fake CLI tests for command arguments, redaction, malformed output, and revoke.
 - Run the opt-in real Bitwarden CLI contract test from a disposable account. Set `WARDSEN_BITWARDEN_LIVE_TEST=true`, supply the account's current session through `WARDSEN_BITWARDEN_LIVE_SESSION`, and optionally set `WARDSEN_BITWARDEN_LIVE_PROFILE_DIR` for the isolated CLI profile. The test creates a disposable 15-minute, one-access Send, checks status, and revokes it in cleanup. It does not run in normal CI.
+
+Implementation completion:
+
+- Verified on macOS on 2026-08-13 with Bitwarden CLI `2026.6.0`.
+- The opt-in live contract test created, read and revoked one disposable, one-access Send from an isolated CLI profile; `1` test passed.
+- The isolated profile was logged out afterwards and temporary session/profile environment variables were cleared. No credential or session-token value was recorded in WardSen, test output or this roadmap.
 
 Exit criteria:
 
