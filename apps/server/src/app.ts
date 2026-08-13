@@ -149,9 +149,13 @@ export async function buildApp(options: BuildAppOptions = {}) {
       }
     }
   });
-  // Run before local authorization and provider work; sensitive paths get lower caps below.
-  await app.register(rateLimit, { global: false });
-  app.addHook("onRequest", app.rateLimit({ max: rateLimitMaxForRequest, timeWindow: "1 minute", keyGenerator: rateLimitKeyForRequest }));
+  // Register before authorization and provider work; sensitive paths receive lower caps.
+  await app.register(rateLimit, {
+    global: true,
+    max: rateLimitMaxForRequest,
+    timeWindow: "1 minute",
+    keyGenerator: rateLimitKeyForRequest
+  });
 
   function pruneTerminalSessionHandoffs(now = Date.now()): void {
     for (const [token, handoff] of terminalSessionHandoffs) {

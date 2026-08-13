@@ -478,7 +478,8 @@ describe("WardSen API", () => {
   });
 
   it("rate limits repeated provider login attempts", async () => {
-    const app = await buildApp({ credentialProviders: [new MockCredentialProvider()] });
+    const provider = new MockCredentialProvider();
+    const app = await buildApp({ credentialProviders: [provider] });
     const headers = { host: "127.0.0.1:4777", origin: "http://127.0.0.1:4777" };
     await app.inject({ method: "POST", url: "/api/accounts", headers, payload: { id: "login-account", providerId: "mock-source", label: "Login account" } });
 
@@ -488,6 +489,7 @@ describe("WardSen API", () => {
     }
     const limited = await app.inject({ method: "POST", url: "/api/accounts/login-account/login", headers, payload: {} });
     expect(limited.statusCode).toBe(429);
+    expect(provider.loginCalls).toHaveLength(5);
     await app.close();
   });
 
@@ -2166,13 +2168,16 @@ describe("WardSen API", () => {
 class MockCredentialProvider implements CredentialProvider {
   readonly id: string = "mock-source";
   readonly displayName: string = "Mock Source";
+  readonly loginCalls: Array<{ accountId: string; input: ProviderLoginInput }> = [];
   async getCapabilities(): Promise<CredentialProviderCapabilities> {
     return { searchItems: true, multipleAccounts: true, customServers: false, localVaults: false, synchronization: false, locking: false };
   }
   async testConnection(_accountId: string): Promise<ConnectionResult> {
     return { ok: true, status: "unlocked" };
   }
-  async login(_accountId: string, _input: ProviderLoginInput): Promise<void> {}
+  async login(accountId: string, input: ProviderLoginInput): Promise<void> {
+    this.loginCalls.push({ accountId, input });
+  }
   async unlock(_accountId: string, _input: ProviderUnlockInput): Promise<void> {}
   async lock(_accountId: string): Promise<void> {}
   async logout(_accountId: string): Promise<void> {}
