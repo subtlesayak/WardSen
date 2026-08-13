@@ -13,6 +13,14 @@ WardSen is not a password manager. It retrieves credentials from supported passw
 
 WardSen is an independent open-source project and is not affiliated with, endorsed by or sponsored by Bitwarden, 1Password, Proton, KeePassXC, Keeper or their respective companies.
 
+## About WardSen
+
+WardSen is a local-first credential dispatch workspace for IT, operations, and security teams that need to provide time-bound access from a selected vault credential. It uses supported password-manager tools on the operator's device, creates provider-managed, short-lived delivery links where supported, and retains only the delivery metadata needed for audit, revocation, or replacement.
+
+The password manager remains the source of truth. WardSen keeps credential plaintext in the local provider-and-localhost delivery path rather than its frontend or metadata database; it isolates provider sessions, auto-locks vault access, and requires exact confirmation for destructive work.
+
+When each intended recipient receives a dedicated provider link, WardSen can report that the assigned link was accessed. It does not establish who opened it or which device they used unless the provider supplies verified telemetry. WardSen does not replace a password manager or add hidden recipient tracking.
+
 ## What It Does
 
 - Retrieves credentials from Bitwarden or KeePassXC through their official local CLIs.
