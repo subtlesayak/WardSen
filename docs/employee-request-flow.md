@@ -29,9 +29,9 @@ WardSen supports employee credential requests as a metadata-first approval flow.
 
 The current local desktop workflow separates the admin Requests view from the request-only Employee Portal route (`?view=employee`). The employee portal contains assigned-email sign-in, catalog metadata, request submission, status history and sign-out only. The employee sign-in code is shown to the local admin and can be copied into a pre-addressed mail draft. WardSen stores only code hashes and session-token hashes. Expired code hashes and expired or revoked session-token hashes can be removed through the confirmed retention-prune API. The `mailto:` draft opens with recipient and subject only; the code is copied separately so it is not placed into an external URL.
 
-People and Employees are related but not identical. People are contact records for delivery; Employees are permissioned request identities. Linking an Employee to a Person reuses the contact email as the assigned email source, but a Person does not gain request-portal access until an admin creates the Employee identity.
+People and Employees are separate records in the normal WardSen workflow. People are contact records for delivery; Employees are permissioned request identities with their own assigned email. Editing either record never changes the other. A Person does not gain request-portal access until an admin creates a separate Employee identity.
 
-Admins can provision several linked Employee identities from selected People in one action. WardSen requires the exact confirmation phrase `PROVISION EMPLOYEES FROM PEOPLE`, skips People without email or with already-provisioned assigned emails, and records only created/skipped counts in audit metadata.
+Older API integrations may still supply a `personId` or use the bulk-from-People endpoint, but the current desktop UI intentionally does not expose either flow. New Employee identities are created directly in Requests with their assigned email.
 
 Catalog access rules can name exact employees, teams or roles. WardSen evaluates those rules on the server before showing requestable metadata or accepting a credential request. Empty catalog policy rules are rejected.
 
@@ -50,8 +50,8 @@ Future work can replace draft-based code delivery with SMTP, magic-link email or
 - Do not prune employee auth artifacts without the server-confirmed phrase `PRUNE RETENTION` and an explicit cutoff.
 - Do not expose raw passwords in employee catalog or request endpoints.
 - Do not let employees type arbitrary delivery addresses at request time.
-- Do not treat a Person contact as an employee unless an admin explicitly creates or links an Employee identity.
-- Do not bulk-provision Employee identities from People without an exact admin confirmation.
+- Do not treat a Person contact as an employee unless an admin explicitly creates a separate Employee identity.
+- Do not let a Person record grant employee request access or change an Employee's assigned-email identity.
 - Do not let employees request catalog entries outside their allowed employee id.
 - Do not rely on UI filtering alone for team/role catalog access; the server must enforce the policy rule match.
 - Do not let auto-approval policy create delivery links without a separate admin confirmation.

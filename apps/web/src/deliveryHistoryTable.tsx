@@ -21,7 +21,7 @@ export function DeliveryHistoryTable({ deliveries, people, canRefresh, canRevoke
   const visibleDeliveries = deliveries.filter((delivery) => statusFilter === "all" || delivery.status === statusFilter);
   const statuses = [...new Set(deliveries.map((delivery) => delivery.status))].sort();
 
-  async function copyProviderId(delivery: DeliveryRecordContract) {
+  async function copyDeliveryId(delivery: DeliveryRecordContract) {
     try {
       await copyTextToClipboard(delivery.providerDeliveryId ?? delivery.id);
       setCopyState({ deliveryId: delivery.id, status: "copied" });
@@ -65,12 +65,12 @@ export function DeliveryHistoryTable({ deliveries, people, canRefresh, canRevoke
               <span>{delivery.accessCount ?? 0}{delivery.viewLimit ? ` / ${delivery.viewLimit}` : ""}</span>
               <StatusPill value={titleStatus(delivery.status)} />
               <div className="actions">
-                <button type="button" aria-label={copyStatus === "copied" ? `Provider ID copied for ${delivery.credentialName}` : `Copy provider ID for ${delivery.credentialName}`} title={copyStatus === "copied" ? "Provider ID copied" : "Copy provider ID"} className={copyStatus === "copied" ? "copySuccess" : undefined} onClick={() => void copyProviderId(delivery)}><CopyIcon size={15} aria-hidden="true" /></button>
+                <button type="button" aria-label={copyStatus === "copied" ? `Delivery ID copied for ${delivery.credentialName}` : `Copy delivery ID for ${delivery.credentialName}`} title={copyStatus === "copied" ? "Delivery ID copied" : "Copy delivery ID"} className={copyStatus === "copied" ? "copySuccess" : undefined} onClick={() => void copyDeliveryId(delivery)}><CopyIcon size={15} aria-hidden="true" /></button>
                 <button type="button" aria-label={`Create email draft for ${delivery.credentialName}`} title="Create email draft" disabled={delivery.deliveryMethod !== "email"} onClick={() => void createEmailDraft(delivery)}><Mail size={15} aria-hidden="true" /></button>
                 <button type="button" aria-label={`Refresh ${delivery.credentialName}`} title="Refresh" disabled={!canRefresh(delivery)} onClick={() => onAction(delivery, "refresh")}><RefreshCcw size={15} aria-hidden="true" /></button>
                 <button type="button" aria-label={`Retry ${delivery.credentialName}`} title="Retry" onClick={() => onAction(delivery, "retry")}><RotateCcw size={15} aria-hidden="true" /></button>
                 <button type="button" aria-label={`Revoke ${delivery.credentialName}`} title="Revoke" disabled={delivery.status === "revoked" || !canRevoke(delivery)} onClick={() => onAction(delivery, "revoke")}><Trash2 size={15} aria-hidden="true" /></button>
-                {copyStatus === "copied" ? <small className="historyCopyStatus" role="status" aria-live="polite">Provider ID copied.</small> : null}
+                {copyStatus === "copied" ? <small className="historyCopyStatus" role="status" aria-live="polite">Delivery ID copied.</small> : null}
                 {copyStatus === "error" ? <small className="historyCopyError" role="alert">Copy was blocked. Try again.</small> : null}
               </div>
             </div>

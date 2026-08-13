@@ -176,7 +176,7 @@ class ConformantDeliveryProvider implements DeliveryProvider {
 
 class ManualEnteDeliveryProvider extends ConformantDeliveryProvider {
   readonly id = "ente-paste";
-  readonly displayName = "Ente Paste (manual)";
+  readonly displayName = "Ente Paste (experimental manual)";
   async getCapabilities(): Promise<DeliveryProviderCapabilities> {
     return {
       externalLinks: true,

@@ -141,16 +141,15 @@ describe("CLI runner", () => {
   it.runIf(process.platform !== "win32")("terminates POSIX child process groups on timeout", async () => {
     const tempDir = mkdtempSync(path.join(os.tmpdir(), "wardsen-cli-tree-"));
     const marker = path.join(tempDir, "grandchild-lived.txt");
-    const childCode = `setTimeout(() => require("node:fs").writeFileSync(${JSON.stringify(marker)}, "still alive"), 700)`;
+    const childScript = path.join(tempDir, "child.cjs");
+    const parentScript = path.join(tempDir, "parent.cjs");
+    writeFileSync(childScript, "setTimeout(() => require('node:fs').writeFileSync(process.env.WARDSEN_CLI_TEST_MARKER, 'still alive'), 700);\n");
+    writeFileSync(parentScript, "const { spawn } = require('node:child_process'); spawn(process.execPath, [process.argv[2]], { stdio: 'ignore', env: process.env }); setTimeout(() => {}, 2000);\n");
     try {
       await expect(runCliCommand({
         executable: process.execPath,
-        args: ["-e", `
-          const { spawn } = require("node:child_process");
-          const childCode = ${JSON.stringify(childCode)};
-          spawn(process.execPath, ["-e", childCode], { stdio: "ignore" });
-          setTimeout(() => {}, 2000);
-        `],
+        args: [parentScript, childScript],
+        env: { WARDSEN_CLI_TEST_MARKER: marker },
         timeoutMs: 50
       })).rejects.toThrow("timed out after");
 

@@ -284,8 +284,7 @@ Deliverables:
 Current MVP status:
 
 - Implemented employee identity records with normalized, admin-controlled assigned email addresses.
-- Implemented optional Person-to-Employee linking with server validation that the linked contact email matches the assigned employee email.
-- Implemented exact-confirmation bulk provisioning from selected People into linked Employee identities.
+- Kept People delivery contacts and Employee request identities separate in the desktop workflow; edits never synchronize between the two directories. Legacy API linking remains available for older integrations only.
 - Implemented requestable catalog metadata and per-employee catalog filtering.
 - Implemented employee request creation, admin approval/denial and approval-to-delivery handoff.
 - Implemented server tests for assigned-email enforcement, metadata-only catalog responses, approval confirmation and out-of-scope catalog request rejection.
@@ -385,6 +384,7 @@ Current status:
 - Updated release workflows to upload `SIGNING-EVIDENCE-<platform>.json` and run release evidence verification before artifact upload.
 - Implemented hash-bound `INSTALL-LIFECYCLE-EVIDENCE-*.json` generation and optional fail-closed verification. It rejects lifecycle evidence that does not match the final manifest installer path, SHA-256 and size.
 - Remaining: configure real Windows and Apple signing credentials, produce signed/notarized installers on target release machines, run the disposable-machine lifecycle harnesses and verify the published provenance records.
+- The open Dependabot `glib` advisory is transitive through `tauri 2.11.5` -> `gtk 0.18.2`, which requires `glib ^0.18`. `cargo update -p glib --precise 0.20.0` correctly rejects that incompatible range and `cargo update -p tauri` finds no compatible update. Keep the alert open until Tauri publishes a compatible dependency update; do not force the lockfile.
 
 Exit criteria:
 
@@ -409,7 +409,7 @@ Current status:
 - Exposed planned delivery candidates through `/api/providers` with readiness metadata while keeping them out of functional account and delivery-provider selectors.
 - Added a Settings candidate table so admins can see Ente Paste, Password Pusher, Yopass, Onetime Secret and 1Password item sharing as blocked candidates without overclaiming support.
 - Added conformance tests that require active delivery providers to declare supported lifecycle metadata and candidate delivery providers to list blockers.
-- Implemented Ente Paste as an experimental manual handoff provider: WardSen copies credential text to the local clipboard, returns the Ente Paste page as a handoff action, stores `handoff_pending` metadata only, disables bulk sends, and disables refresh/revoke/viewer telemetry that Ente Paste does not expose through public docs.
+- Implemented Ente Paste as an experimental manual handoff provider: WardSen copies only title, username and password to the local clipboard, excludes URLs, TOTP secrets and notes, uses an opaque operation-based delivery id, returns the Ente Paste page as a handoff action, stores `handoff_pending` metadata only, disables bulk sends, and disables refresh/revoke/viewer telemetry that Ente Paste does not expose through public docs.
 - Implemented an explicit, server-backed local clipboard-clear action for Ente handoffs after the operator has created the browser-side paste. The audit record contains only the provider identifier.
 - Remaining: automated Ente Paste creation/status/revoke must wait for an official API or CLI contract; other provider adapters still need provider-specific tests, packaged UI evidence and lifecycle mapping before promotion.
 

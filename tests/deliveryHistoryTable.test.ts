@@ -14,7 +14,7 @@ describe("delivery history table boundary", () => {
   it("keeps API actions and destructive confirmation in the parent while providing copy feedback", () => {
     expect(historySource).toContain("onAction(delivery, \"revoke\")");
     expect(historySource).toContain("copyTextToClipboard");
-    expect(historySource).toContain("Provider ID copied.");
+    expect(historySource).toContain("Delivery ID copied.");
     expect(historySource).toContain("openMailDraft");
     expect(mainSource).toContain("REVOKE DELIVERY ${delivery.id}");
     expect(mainSource).toContain("parseDeliveryRecord(await apiSend<unknown>");

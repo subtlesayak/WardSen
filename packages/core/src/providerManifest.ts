@@ -68,13 +68,13 @@ export const builtInProviderManifests: ProviderManifest[] = [
   },
   {
     id: "ente-paste",
-    displayName: "Ente Paste (manual)",
+    displayName: "Ente Paste (experimental manual)",
     kind: "delivery",
     maturity: "experimental",
     packageName: "@wardsen/delivery-ente-paste",
     documentationUrl: "https://paste.ente.com/",
     enabledByDefault: true,
-    notes: "Experimental manual handoff provider. WardSen copies the formatted credential to the local clipboard, offers an explicit local clipboard-clear action, returns an Ente Paste open action for the operator, and records a handoff-pending delivery. Public Ente Paste docs do not expose sender-visible status, revoke, access count, IP, device or user-agent telemetry.",
+    notes: "Experimental manual handoff provider. WardSen copies only the credential title, username and password to the local clipboard, offers an explicit local clipboard-clear action, returns an Ente Paste open action for the operator, and records a handoff-pending delivery. URLs, TOTP secrets and notes are excluded. Public Ente Paste docs do not expose sender-visible status, revoke, access count, IP, device or user-agent telemetry.",
     delivery: {
       integrationSurface: "web_only",
       secureLinkCreation: "manual",

@@ -37,7 +37,7 @@ describe("web UI regression guards", () => {
     expect(webSource).toContain("aria-current={active === id ? \"page\" : undefined}");
     expect(webSource).toContain("role=\"status\" aria-live=\"polite\"");
     expect(webSource).toContain("aria-label=\"Credential search query\"");
-    expect(deliveryHistorySource).toContain("aria-label={copyStatus === \"copied\" ? `Provider ID copied for ${delivery.credentialName}` : `Copy provider ID for ${delivery.credentialName}`}");
+    expect(deliveryHistorySource).toContain("aria-label={copyStatus === \"copied\" ? `Delivery ID copied for ${delivery.credentialName}` : `Copy delivery ID for ${delivery.credentialName}`}");
     expect(batchTablesSource).toContain("aria-label={`Cancel batch ${batch.id}`}");
     expect(webSource).toContain("aria-pressed={form.mode === \"shared\"}");
     expect(styles).toMatch(/:focus-visible[\s\S]*outline:\s*3px solid #0f6bff;/);
@@ -117,24 +117,26 @@ describe("web UI regression guards", () => {
     expect(webSource).toContain("Paste the WardSen delivery link copied to your clipboard");
     expect(webSource).toContain("window.open(\"https://wa.me/\"");
     expect(webSource).toContain("Link copied; WhatsApp opened");
-    expect(webSource).toContain("Link copied to clipboard.");
+    expect(webSource).toContain("Copied to clipboard.");
     expect(webSource).toContain("copySuccess");
     expect(webSource).not.toContain("https://wa.me/?text=");
     expect(webSource).not.toContain("Secure link for ${label}: ${delivery.oneTimeDeliveryUrl}");
   });
 
-  it("keeps employee credential requests bound to admin-provisioned email identity", () => {
-    expect(webSource).toContain("title=\"Admin Employee Identity\"");
-    expect(webSource).toContain("Link person");
-    expect(webSource).toContain("employeePersonId");
-    expect(webSource).toContain("personId: employeeForm.personId || undefined");
-    expect(webSource).toContain("function selectEmployeePerson");
-    expect(webSource).toContain("title=\"Bulk Employee Provisioning\"");
-    expect(webSource).toContain("/api/employees/bulk-from-people");
-    expect(webSource).toContain("PROVISION EMPLOYEES FROM PEOPLE");
-    expect(webSource).toContain("This grants Employee Portal request access");
-    expect(webSource).toContain("function provisionEmployeesFromPeople");
-    expect(webSource).toContain("checkboxLine");
+  it("keeps employee identities separate from People while allowing editable request records", () => {
+    expect(webSource).toContain('title={editingEmployeeId ? "Edit Employee Identity" : "Add Employee Identity"}');
+    expect(webSource).toContain('title="Employee Identities"');
+    expect(webSource).toContain("function editEmployee");
+    expect(webSource).toContain("Copy email");
+    expect(webSource).toContain("Create a new employee identity to change it.");
+    expect(webSource).not.toContain("employeePersonId");
+    expect(webSource).not.toContain("function selectEmployeePerson");
+    expect(webSource).not.toContain("function provisionEmployeesFromPeople");
+    expect(webSource).not.toContain("PROVISION EMPLOYEES FROM PEOPLE");
+    expect(webSource).toContain('title={editingPersonId ? "Edit Person" : "Add Person"}');
+    expect(webSource).toContain("function editPerson");
+    expect(webSource).toContain("Update person");
+    expect(webSource).toContain("Copy shared link");
     expect(webSource).toContain("title=\"Admin Catalog Metadata\"");
     expect(webSource).toContain("Allowed teams");
     expect(webSource).toContain("Allowed roles");

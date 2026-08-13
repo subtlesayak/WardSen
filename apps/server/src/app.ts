@@ -123,6 +123,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
       }
     }
   });
+  // Rate-limit every local route, with lower limits configured on sensitive endpoints below.
   await app.register(rateLimit, { max: 120, timeWindow: "1 minute" });
 
   function pruneTerminalSessionHandoffs(now = Date.now()): void {
@@ -301,7 +302,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     return { ok: true };
   });
 
-  app.post("/api/accounts/:id/login", async (request) => {
+  app.post("/api/accounts/:id/login", { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } }, async (request) => {
     const { id } = idParams.parse(request.params);
     const body = loginSchema.parse(request.body);
     const account = await findAccount(repository, id);
@@ -312,7 +313,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     return { ok: true };
   });
 
-  app.post("/api/accounts/:id/terminal-handoff", async (request) => {
+  app.post("/api/accounts/:id/terminal-handoff", { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } }, async (request) => {
     const { id } = idParams.parse(request.params);
     const body = loginSchema.parse(request.body);
     const account = await findAccount(repository, id);
@@ -341,7 +342,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     }
   });
 
-  app.post("/api/accounts/:id/terminal-handoff/claim", async (request) => {
+  app.post("/api/accounts/:id/terminal-handoff/claim", { config: { rateLimit: { max: 8, timeWindow: "1 minute" } } }, async (request) => {
     const { id } = idParams.parse(request.params);
     const handoff = terminalHandoffForClaimRequest(request);
     if (!handoff) {
@@ -595,7 +596,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     return employee;
   });
 
-  app.post("/api/employees/:id/sign-in-code", async (request) => {
+  app.post("/api/employees/:id/sign-in-code", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (request) => {
     const { id } = idParams.parse(request.params);
     const body = issueEmployeeSignInCodeSchema.parse(request.body ?? {});
     const employee = await repository.getEmployee(id);
@@ -629,7 +630,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     };
   });
 
-  app.post("/api/employee-sessions", async (request) => {
+  app.post("/api/employee-sessions", { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } }, async (request) => {
     const body = employeeSessionSchema.parse(request.body);
     const employee = await repository.getEmployeeByAssignedEmail(body.assignedEmail);
     const invalidMessage = "Invalid or expired employee sign-in code.";

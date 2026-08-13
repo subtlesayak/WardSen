@@ -25,7 +25,7 @@ Run this checklist before publishing a public WardSen build.
 - Run `npm run smoke:packaged` after desktop packaging or confirm the release workflow uploaded `PACKAGED-SMOKE-<platform>.json` for each target platform.
 - Confirm API delivery responses include only metadata and the provider delivery URL, never source credential fields.
 - Confirm provider CLI secrets are supplied through stdin or environment variables, and configured redaction covers stdout and stderr.
-- If Ente Paste is enabled, confirm it is labelled as an experimental manual handoff, returns `handoff_pending`, disables bulk/refresh/revoke/viewer telemetry, copies credential text only through the explicit local clipboard handoff, offers the operator a clipboard-clear action after the browser paste, and does not place plaintext into React responses, logs, URLs or persisted metadata.
+- If Ente Paste is enabled, confirm it is labelled as an experimental manual handoff, returns `handoff_pending`, disables bulk/refresh/revoke/viewer telemetry, copies only title, username and password through the explicit local clipboard handoff, excludes URLs, TOTP secrets and notes, uses an opaque operation-based delivery id rather than a credential-derived fingerprint, offers the operator a clipboard-clear action after the browser paste, and does not place plaintext into React responses, logs, URLs or persisted metadata.
 - Confirm SQLite migration tests cover delivery metadata constraints, audit outcome constraints, audit retention pruning and employee auth-artifact retention pruning.
 
 ## Account Isolation
@@ -53,6 +53,7 @@ Run this checklist before publishing a public WardSen build.
 - When only one bundle backend is current, set `WARDSEN_BUNDLE_ROOT` to the exact fresh bundle folder before running `npm run release:checksums`; default checksum generation refuses mixed artifact timestamps to avoid blessing stale installers.
 - Confirm each release manifest lists the release tag, verified git SHA, build timestamp, schema version, installer artifact paths, SBOM artifact path, packaged-smoke evidence and signing evidence for public releases.
 - Review CodeQL, dependency-review and Dependabot status before tagging.
+- Do not override Cargo's resolver to suppress a transitive Rust advisory. Record the upstream compatibility blocker and wait for a compatible Tauri update when its `gtk` dependency constrains the patched crate.
 - Download provider CLIs from official package managers or verified release artifacts only.
 - Use the `Release Installers` GitHub Actions workflow for repeatable Windows and macOS builds.
 - Sign desktop release artifacts before publishing end-user installers, or clearly mark the release as unsigned/source-only.

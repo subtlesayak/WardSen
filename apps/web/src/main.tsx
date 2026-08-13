@@ -8,6 +8,7 @@ import {
   KeyRound,
   Lock,
   Mail,
+  Pencil,
   RefreshCcw,
   RotateCcw,
   Search,
@@ -73,6 +74,7 @@ interface PersonRecord {
   email?: string;
   groupName?: string;
   role?: string;
+  notes?: string;
   active: boolean;
 }
 
@@ -157,11 +159,6 @@ interface EmployeeSignInCodeResponse {
     subject: string;
     body: string;
   };
-}
-
-interface BulkEmployeeProvisionResponse {
-  created: EmployeeRecord[];
-  skipped: Array<{ personId: string; reason: string; assignedEmail?: string; employeeId?: string }>;
 }
 
 type CreatedDeliveryRecord = CreatedDeliveryRecordContract;
@@ -834,7 +831,9 @@ function Credentials({ api }: { api: ReturnType<typeof useWardSenApi> }) {
 }
 
 function People({ api }: { api: ReturnType<typeof useWardSenApi> }) {
-  const [form, setForm] = useState({ name: "", phone: "", email: "", groupName: "", role: "" });
+  const emptyPersonForm = { name: "", phone: "", email: "", groupName: "", role: "", notes: "", active: true };
+  const [form, setForm] = useState(emptyPersonForm);
+  const [editingPersonId, setEditingPersonId] = useState<string | undefined>();
   const [filters, setFilters] = useState({ search: "", groupName: "", active: "active" });
   const [csv, setCsv] = useState("");
   const [message, setMessage] = useState<{ status: "idle" | "loading" | "ready" | "error"; text?: string }>({ status: "idle" });
@@ -852,23 +851,30 @@ function People({ api }: { api: ReturnType<typeof useWardSenApi> }) {
 
   async function savePerson(event: React.FormEvent) {
     event.preventDefault();
-    setMessage({ status: "loading", text: "Saving person..." });
+    const updating = Boolean(editingPersonId);
+    setMessage({ status: "loading", text: updating ? "Updating person..." : "Saving person..." });
     try {
-      const result = await apiSend<{ person: PersonRecord; duplicates: PersonRecord[] }>("/api/people", {
-        body: JSON.stringify({
-          name: form.name,
-          phone: form.phone || undefined,
-          email: form.email || undefined,
-          groupName: form.groupName || undefined,
-          role: form.role || undefined,
-          active: true
-        })
-      });
-      setForm({ name: "", phone: "", email: "", groupName: "", role: "" });
-      setMessage({
-        status: "ready",
-        text: result.duplicates.length > 0 ? `Saved ${result.person.name}; ${result.duplicates.length} possible duplicate${result.duplicates.length === 1 ? "" : "s"} found.` : `Saved ${result.person.name}.`
-      });
+      const body = {
+        name: form.name,
+        phone: form.phone || undefined,
+        email: form.email || undefined,
+        groupName: form.groupName || undefined,
+        role: form.role || undefined,
+        notes: form.notes || undefined,
+        active: form.active
+      };
+      if (editingPersonId) {
+        const person = await apiSend<PersonRecord>(`/api/people/${editingPersonId}`, { method: "PUT", body: JSON.stringify(body) });
+        setMessage({ status: "ready", text: `Updated ${person.name}.` });
+      } else {
+        const result = await apiSend<{ person: PersonRecord; duplicates: PersonRecord[] }>("/api/people", { body: JSON.stringify(body) });
+        setMessage({
+          status: "ready",
+          text: result.duplicates.length > 0 ? `Saved ${result.person.name}; ${result.duplicates.length} possible duplicate${result.duplicates.length === 1 ? "" : "s"} found.` : `Saved ${result.person.name}.`
+        });
+      }
+      setEditingPersonId(undefined);
+      setForm(emptyPersonForm);
       await api.refresh();
     } catch (error) {
       setMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
@@ -902,18 +908,43 @@ function People({ api }: { api: ReturnType<typeof useWardSenApi> }) {
     }
   }
 
+  function editPerson(person: PersonRecord) {
+    setEditingPersonId(person.id);
+    setForm({
+      name: person.name,
+      phone: person.phone ?? "",
+      email: person.email ?? "",
+      groupName: person.groupName ?? "",
+      role: person.role ?? "",
+      notes: person.notes ?? "",
+      active: person.active
+    });
+    setMessage({ status: "ready", text: `Editing ${person.name}.` });
+  }
+
+  function cancelPersonEdit() {
+    setEditingPersonId(undefined);
+    setForm(emptyPersonForm);
+    setMessage({ status: "idle" });
+  }
+
   return (
     <div className="grid">
       {message.status === "error" && <ErrorNotice message={message.text} />}
       {message.status !== "idle" && message.status !== "error" && <div className="notice" role="status" aria-live="polite">{message.text}</div>}
       <form className="panel formGrid" onSubmit={savePerson}>
-        <PanelTitle icon={UsersRound} title="Add Person" action="Refresh" onAction={api.refresh} />
+        <PanelTitle icon={UsersRound} title={editingPersonId ? "Edit Person" : "Add Person"} action="Refresh" onAction={api.refresh} />
         <label>Name<input name="name" required value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} placeholder="Mira Patel" /></label>
         <label>Phone<input name="phone" type="tel" autoComplete="tel" value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} placeholder="+1..." /></label>
         <label>Email<input name="email" type="email" autoComplete="email" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} placeholder="mira@example.com" /></label>
         <label>Group<input name="groupName" value={form.groupName} onChange={(event) => setForm((current) => ({ ...current, groupName: event.target.value }))} placeholder="Ops" /></label>
         <label>Role<input name="role" value={form.role} onChange={(event) => setForm((current) => ({ ...current, role: event.target.value }))} placeholder="Admin" /></label>
-        <button className="primary full"><UsersRound size={16} aria-hidden="true" /> Save person</button>
+        <label className="spanAll">Notes<textarea name="personNotes" value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} placeholder="Optional contact notes" /></label>
+        {editingPersonId ? <label className="check spanAll"><input type="checkbox" checked={form.active} onChange={(event) => setForm((current) => ({ ...current, active: event.target.checked }))} /> Active person</label> : null}
+        <div className="buttonRow spanAll">
+          <button className="primary"><UsersRound size={16} aria-hidden="true" /> {editingPersonId ? "Update person" : "Save person"}</button>
+          {editingPersonId ? <button type="button" onClick={cancelPersonEdit}>Cancel edit</button> : null}
+        </div>
       </form>
       <form className="panel formGrid" onSubmit={importPeople}>
         <PanelTitle icon={Archive} title="CSV Import" action="Export" onAction={exportPeople} />
@@ -947,7 +978,8 @@ function People({ api }: { api: ReturnType<typeof useWardSenApi> }) {
                 <span>{person.role ?? "No role"}</span>
                 <Status value={person.active ? "Active" : "Inactive"} />
                 <div className="actions">
-                  <button type="button" aria-label={`Copy contact for ${person.name}`} title="Copy contact" onClick={() => navigator.clipboard?.writeText(person.email ?? person.phone ?? person.name)}><Copy size={15} aria-hidden="true" /></button>
+                  <CopyFeedbackButton value={person.email ?? person.phone ?? person.name} label="Copy" copiedLabel="Copied" copiedStatus="Contact copied to clipboard." />
+                  <button type="button" aria-label={`Edit ${person.name}`} title="Edit person" onClick={() => editPerson(person)}><Pencil size={15} aria-hidden="true" /></button>
                   {person.active ? (
                     <button type="button" aria-label={`Archive ${person.name}`} title="Archive" onClick={() => api.action(`/api/people/${person.id}`, { method: "DELETE" })}><Archive size={15} aria-hidden="true" /></button>
                   ) : (
@@ -967,8 +999,9 @@ function People({ api }: { api: ReturnType<typeof useWardSenApi> }) {
 }
 
 function RequestsView({ api }: { api: ReturnType<typeof useWardSenApi> }) {
-  const [employeeForm, setEmployeeForm] = useState({ personId: "", name: "", assignedEmail: "", team: "", role: "" });
-  const [bulkEmployeeForm, setBulkEmployeeForm] = useState<{ personIds: string[]; defaultTeam: string; defaultRole: string }>({ personIds: [], defaultTeam: "", defaultRole: "" });
+  const emptyEmployeeForm = { name: "", assignedEmail: "", team: "", role: "", active: true };
+  const [employeeForm, setEmployeeForm] = useState(emptyEmployeeForm);
+  const [editingEmployeeId, setEditingEmployeeId] = useState<string | undefined>();
   const [codeForm, setCodeForm] = useState({ employeeId: "", ttlMinutes: "15", senderEmail: "" });
   const [issuedCode, setIssuedCode] = useState<EmployeeSignInCodeResponse | undefined>();
   const [catalogForm, setCatalogForm] = useState({
@@ -1007,13 +1040,6 @@ function RequestsView({ api }: { api: ReturnType<typeof useWardSenApi> }) {
   });
   const [message, setMessage] = useState<{ status: "idle" | "loading" | "ready" | "error"; text?: string; url?: string; delivery?: CreatedDeliveryRecord }>({ status: "idle" });
   const activeEmployees = api.employees.filter((employee) => employee.active);
-  const employeePeople = api.people.filter((person) => person.active && person.email);
-  const employeeEmails = new Set(api.employees.map((employee) => employee.assignedEmail));
-  const employeePersonIds = new Set(api.employees.map((employee) => employee.personId).filter(Boolean));
-  const provisionablePeople = employeePeople.filter((person) => {
-    const email = person.email?.trim().toLowerCase();
-    return Boolean(email && !employeeEmails.has(email) && !employeePersonIds.has(person.id));
-  });
   const sourceAccountId = catalogForm.sourceAccountId || api.accounts[0]?.id || "";
   const sourceAccount = api.accounts.find((account) => account.id === sourceAccountId);
   const allowedEmployeeId = catalogForm.allowedEmployeeId;
@@ -1032,73 +1058,54 @@ function RequestsView({ api }: { api: ReturnType<typeof useWardSenApi> }) {
 
   async function saveEmployee(event: React.FormEvent) {
     event.preventDefault();
-    setMessage({ status: "loading", text: "Saving employee identity..." });
+    const updating = Boolean(editingEmployeeId);
+    setMessage({ status: "loading", text: updating ? "Updating employee identity..." : "Saving employee identity..." });
     try {
-      const employee = await apiSend<EmployeeRecord>("/api/employees", {
-        body: JSON.stringify({
-          name: employeeForm.name,
-          assignedEmail: employeeForm.assignedEmail,
-          personId: employeeForm.personId || undefined,
-          team: employeeForm.team || undefined,
-          role: employeeForm.role || undefined
+      const employee = editingEmployeeId
+        ? await apiSend<EmployeeRecord>(`/api/employees/${editingEmployeeId}`, {
+          method: "PUT",
+          body: JSON.stringify({
+            name: employeeForm.name,
+            team: employeeForm.team || undefined,
+            role: employeeForm.role || undefined,
+            active: employeeForm.active
+          })
         })
-      });
-      setEmployeeForm({ personId: "", name: "", assignedEmail: "", team: "", role: "" });
+        : await apiSend<EmployeeRecord>("/api/employees", {
+          body: JSON.stringify({
+            name: employeeForm.name,
+            assignedEmail: employeeForm.assignedEmail,
+            team: employeeForm.team || undefined,
+            role: employeeForm.role || undefined,
+            active: true
+          })
+        });
+      setEditingEmployeeId(undefined);
+      setEmployeeForm(emptyEmployeeForm);
       setRequestForm((current) => ({ ...current, employeeId: employee.id, catalogEntryId: "" }));
-      setMessage({ status: "ready", text: `Saved ${employee.name} with assigned email ${employee.assignedEmail}.` });
+      setMessage({ status: "ready", text: `${updating ? "Updated" : "Saved"} ${employee.name} with assigned email ${employee.assignedEmail}.` });
       await api.refresh();
     } catch (error) {
       setMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
     }
   }
 
-  function selectEmployeePerson(personId: string) {
-    const person = employeePeople.find((candidate) => candidate.id === personId);
-    setEmployeeForm((current) => ({
-      ...current,
-      personId,
-      name: person?.name ?? current.name,
-      assignedEmail: person?.email ?? current.assignedEmail,
-      team: person?.groupName ?? current.team,
-      role: person?.role ?? current.role
-    }));
+  function editEmployee(employee: EmployeeRecord) {
+    setEditingEmployeeId(employee.id);
+    setEmployeeForm({
+      name: employee.name,
+      assignedEmail: employee.assignedEmail,
+      team: employee.team ?? "",
+      role: employee.role ?? "",
+      active: employee.active
+    });
+    setMessage({ status: "ready", text: `Editing ${employee.name}.` });
   }
 
-  function toggleBulkEmployeePerson(personId: string, checked: boolean) {
-    setBulkEmployeeForm((current) => ({
-      ...current,
-      personIds: checked
-        ? [...new Set([...current.personIds, personId])]
-        : current.personIds.filter((id) => id !== personId)
-    }));
-  }
-
-  async function provisionEmployeesFromPeople() {
-    const personIds = bulkEmployeeForm.personIds.filter((personId) => provisionablePeople.some((person) => person.id === personId));
-    if (personIds.length === 0) {
-      setMessage({ status: "error", text: "Select at least one eligible Person with an assigned email." });
-      return;
-    }
-    if (!window.confirm(`Provision ${personIds.length} employee request identities from People?\n\nThis grants Employee Portal request access to the selected assigned emails. People without an explicit Employee identity still cannot sign in.`)) {
-      return;
-    }
-    setMessage({ status: "loading", text: `Provisioning ${personIds.length} employee identities...` });
-    try {
-      const result = await apiSend<BulkEmployeeProvisionResponse>("/api/employees/bulk-from-people", {
-        body: JSON.stringify({
-          personIds,
-          defaultTeam: bulkEmployeeForm.defaultTeam || undefined,
-          defaultRole: bulkEmployeeForm.defaultRole || undefined,
-          confirm: "PROVISION EMPLOYEES FROM PEOPLE",
-          confirmRiskSummary: true
-        })
-      });
-      setBulkEmployeeForm({ personIds: [], defaultTeam: "", defaultRole: "" });
-      setMessage({ status: "ready", text: `Provisioned ${result.created.length} employee identities; skipped ${result.skipped.length}.` });
-      await api.refresh();
-    } catch (error) {
-      setMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
-    }
+  function cancelEmployeeEdit() {
+    setEditingEmployeeId(undefined);
+    setEmployeeForm(emptyEmployeeForm);
+    setMessage({ status: "idle" });
   }
 
   async function issueEmployeeCode(event: React.FormEvent) {
@@ -1319,41 +1326,40 @@ function RequestsView({ api }: { api: ReturnType<typeof useWardSenApi> }) {
         </div>
       )}
       <form className="panel formGrid" onSubmit={saveEmployee}>
-        <PanelTitle icon={UsersRound} title="Admin Employee Identity" action="Refresh" onAction={api.refresh} />
-        <label className="spanAll">Link person<select name="employeePersonId" value={employeeForm.personId} onChange={(event) => selectEmployeePerson(event.target.value)}>
-          <option value="">No linked person</option>
-          {employeePeople.map((person) => <option key={person.id} value={person.id}>{person.name} / {person.email}</option>)}
-        </select></label>
+        <PanelTitle icon={UsersRound} title={editingEmployeeId ? "Edit Employee Identity" : "Add Employee Identity"} action="Refresh" onAction={api.refresh} />
         <label>Name<input name="employeeName" required value={employeeForm.name} onChange={(event) => setEmployeeForm((current) => ({ ...current, name: event.target.value }))} placeholder="Ravi Menon" /></label>
-        <label>Assigned email<input name="assignedEmail" required type="email" value={employeeForm.assignedEmail} onChange={(event) => setEmployeeForm((current) => ({ ...current, assignedEmail: event.target.value }))} placeholder="ravi@example.com" /></label>
+        <label>Assigned email<input name="assignedEmail" required type="email" readOnly={Boolean(editingEmployeeId)} value={employeeForm.assignedEmail} onChange={(event) => setEmployeeForm((current) => ({ ...current, assignedEmail: event.target.value }))} placeholder="ravi@example.com" />
+          {editingEmployeeId ? <small className="fieldInstruction">The assigned email is this employee's request-portal identity. Create a new employee identity to change it.</small> : null}
+        </label>
         <label>Team<input name="employeeTeam" value={employeeForm.team} onChange={(event) => setEmployeeForm((current) => ({ ...current, team: event.target.value }))} placeholder="Ops" /></label>
         <label>Role<input name="employeeRole" value={employeeForm.role} onChange={(event) => setEmployeeForm((current) => ({ ...current, role: event.target.value }))} placeholder="Engineer" /></label>
-        <button className="primary full"><UsersRound size={16} aria-hidden="true" /> Save employee</button>
-      </form>
-      <section className="panel formGrid">
-        <PanelTitle icon={UsersRound} title="Bulk Employee Provisioning" action="Refresh" onAction={api.refresh} />
-        <label>Default team<input value={bulkEmployeeForm.defaultTeam} onChange={(event) => setBulkEmployeeForm((current) => ({ ...current, defaultTeam: event.target.value }))} placeholder="Ops" /></label>
-        <label>Default role<input value={bulkEmployeeForm.defaultRole} onChange={(event) => setBulkEmployeeForm((current) => ({ ...current, defaultRole: event.target.value }))} placeholder="Member" /></label>
-        <div className="riskSummary spanAll">
-          <strong>{bulkEmployeeForm.personIds.length} selected / {provisionablePeople.length} eligible</strong>
-          <div className="buttonRow">
-            <button type="button" disabled={provisionablePeople.length === 0} onClick={() => setBulkEmployeeForm((current) => ({ ...current, personIds: provisionablePeople.map((person) => person.id) }))}>Select all eligible</button>
-            <button type="button" disabled={bulkEmployeeForm.personIds.length === 0} onClick={() => setBulkEmployeeForm((current) => ({ ...current, personIds: [] }))}>Clear</button>
-          </div>
-          {provisionablePeople.slice(0, 12).map((person) => (
-            <label key={person.id} className="checkboxLine">
-              <input
-                type="checkbox"
-                checked={bulkEmployeeForm.personIds.includes(person.id)}
-                onChange={(event) => toggleBulkEmployeePerson(person.id, event.target.checked)}
-              />
-              <span>{person.name} / {person.email}</span>
-            </label>
-          ))}
-          {provisionablePeople.length > 12 ? <span>{provisionablePeople.length - 12} more eligible People not shown in this compact panel.</span> : null}
-          {provisionablePeople.length === 0 ? <span>No eligible People with unused assigned emails.</span> : null}
+        {editingEmployeeId ? <label className="check spanAll"><input type="checkbox" checked={employeeForm.active} onChange={(event) => setEmployeeForm((current) => ({ ...current, active: event.target.checked }))} /> Active employee</label> : null}
+        <div className="buttonRow spanAll">
+          <button className="primary"><UsersRound size={16} aria-hidden="true" /> {editingEmployeeId ? "Update employee" : "Save employee"}</button>
+          {editingEmployeeId ? <button type="button" onClick={cancelEmployeeEdit}>Cancel edit</button> : null}
         </div>
-        <button type="button" className="primary full" disabled={bulkEmployeeForm.personIds.length === 0} onClick={() => void provisionEmployeesFromPeople()}><UsersRound size={16} aria-hidden="true" /> Provision selected</button>
+      </form>
+      <section className="panel">
+        <PanelTitle icon={UsersRound} title="Employee Identities" action="Refresh" onAction={api.refresh} />
+        {api.employees.length === 0 ? <EmptyState text="No employee identities yet. Add an assigned email above to enable requests." /> : (
+          <div className="rows">
+            {api.employees.map((employee) => (
+              <div className="row person" key={employee.id}>
+                <div>
+                  <strong>{employee.name}</strong>
+                  <span>{employee.assignedEmail}</span>
+                </div>
+                <span>{employee.team ?? "No team"}</span>
+                <span>{employee.role ?? "No role"}</span>
+                <Status value={employee.active ? "Active" : "Inactive"} />
+                <div className="actions">
+                  <CopyFeedbackButton value={employee.assignedEmail} label="Copy email" copiedLabel="Email copied" copiedStatus="Email copied to clipboard." />
+                  <button type="button" aria-label={`Edit ${employee.name}`} title="Edit employee" onClick={() => editEmployee(employee)}><Pencil size={15} aria-hidden="true" /></button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
       <form className="panel formGrid" onSubmit={issueEmployeeCode}>
         <PanelTitle icon={KeyRound} title="Employee Sign-In Code" action="Refresh" onAction={api.refresh} />
@@ -1462,7 +1468,7 @@ function RequestsView({ api }: { api: ReturnType<typeof useWardSenApi> }) {
         {approvalManualHandoff ? (
           <div className="riskSummary">
             <strong>Ente Paste approval handoff</strong>
-            <span>WardSen copies the credential text to the local clipboard and records handoff pending. Open Ente Paste, create the one-time link there, then send Ente's generated link to the assigned employee email.</span>
+            <span>WardSen copies only the credential title, username and password to the local clipboard, then records handoff pending. Open Ente Paste, create the one-time link there, then send Ente's generated link to the assigned employee email.</span>
             <span>WardSen cannot verify Ente views, access counts, IP/device details, or revoke Ente Paste links.</span>
           </div>
         ) : null}
@@ -1815,7 +1821,7 @@ function DeliveryComposer({ api, selectedCredential }: { api: ReturnType<typeof 
       {manualHandoff && (
         <div className="riskSummary">
           <strong>Ente Paste manual handoff</strong>
-          <span>WardSen copies the credential text to the local clipboard, shows an Open Ente Paste action, and records this as handoff pending. Paste into Ente, create the one-time link there, then send Ente's generated link to the recipient.</span>
+          <span>WardSen copies only the credential title, username and password to the local clipboard, shows an Open Ente Paste action, and records this as handoff pending. Paste into Ente, create the one-time link there, then send Ente's generated link to the recipient.</span>
           <span>WardSen cannot verify views, access counts, IP/device details, or revoke Ente Paste links.</span>
         </div>
       )}
@@ -1823,7 +1829,7 @@ function DeliveryComposer({ api, selectedCredential }: { api: ReturnType<typeof 
       {submit.status !== "idle" && submit.status !== "error" && (
         <div className="notice compact" role="status" aria-live="polite">
           {submit.message}
-          {submit.url && <DeliveryLinkAction delivery={submit.delivery} url={submit.url} label="Copy link" />}
+          {submit.url && <DeliveryLinkAction delivery={submit.delivery} url={submit.url} label={form.mode === "shared" ? "Copy shared link" : "Copy link"} />}
         </div>
       )}
       {bulkResults.length > 0 && (
@@ -1916,6 +1922,7 @@ function CopyFeedbackButton({
   value,
   label,
   copiedLabel = "Link copied",
+  copiedStatus = "Copied to clipboard.",
   onCopy,
   onCopied,
   disabled = false
@@ -1923,6 +1930,7 @@ function CopyFeedbackButton({
   value: string;
   label: string;
   copiedLabel?: string;
+  copiedStatus?: string;
   onCopy?: (value: string) => Promise<void>;
   onCopied?: () => void;
   disabled?: boolean;
@@ -1946,7 +1954,7 @@ function CopyFeedbackButton({
       <button type="button" disabled={disabled || !value} className={state === "copied" ? "copySuccess" : undefined} onClick={() => void handleCopy()}>
         <Icon size={15} aria-hidden="true" /> {state === "copied" ? copiedLabel : label}
       </button>
-      {state === "copied" ? <small className="copyFeedbackStatus" role="status" aria-live="polite">Link copied to clipboard.</small> : null}
+      {state === "copied" ? <small className="copyFeedbackStatus" role="status" aria-live="polite">{copiedStatus}</small> : null}
       {state === "error" ? <small className="copyFeedbackError" role="alert">Copy was blocked. Try again or copy the link manually.</small> : null}
     </span>
   );

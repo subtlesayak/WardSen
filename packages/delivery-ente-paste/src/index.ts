@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import type {
   ConnectionResult,
@@ -23,7 +23,7 @@ const ENTE_PASTE_URL = "https://paste.ente.com/";
 
 export class EntePasteManualDeliveryProvider implements DeliveryProvider {
   readonly id = "ente-paste";
-  readonly displayName = "Ente Paste (manual)";
+  readonly displayName = "Ente Paste (experimental manual)";
   private readonly writeClipboard: ClipboardWriter;
   private readonly now: () => Date;
 
@@ -74,7 +74,8 @@ export class EntePasteManualDeliveryProvider implements DeliveryProvider {
     await this.writeClipboard(text);
     const expiresAt = new Date(Math.min(input.expiresAt.getTime(), this.now().getTime() + ENTE_PASTE_TTL_MS));
     return {
-      deliveryId: `ente-manual-${deliveryHash(input.operationId, text)}`,
+      // Keep persisted delivery metadata independent from the credential handoff text.
+      deliveryId: `ente-manual-${input.operationId ?? randomUUID()}`,
       url: ENTE_PASTE_URL,
       expiresAt,
       viewLimit: 1,
@@ -99,14 +100,7 @@ export function formatCredentialText(credential: SensitiveCredential): string {
   const lines = [`Title: ${credential.title}`];
   if (credential.username) lines.push(`Username: ${credential.username}`);
   if (credential.password) lines.push(`Password: ${credential.password}`);
-  for (const url of credential.urls) lines.push(`URL: ${url}`);
-  if (credential.totp) lines.push(`TOTP: ${credential.totp}`);
-  if (credential.notes) lines.push("", "Notes:", credential.notes);
   return lines.join("\n");
-}
-
-function deliveryHash(operationId: string | undefined, text: string): string {
-  return createHash("sha256").update(`${operationId ?? "manual"}:${text}`).digest("hex").slice(0, 24);
 }
 
 async function writeSystemClipboard(text: string): Promise<void> {

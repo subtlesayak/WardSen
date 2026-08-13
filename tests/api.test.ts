@@ -477,6 +477,20 @@ describe("WardSen API", () => {
     await app.close();
   });
 
+  it("rate limits repeated provider login attempts", async () => {
+    const app = await buildApp({ credentialProviders: [new MockCredentialProvider()] });
+    const headers = { host: "127.0.0.1:4777", origin: "http://127.0.0.1:4777" };
+    await app.inject({ method: "POST", url: "/api/accounts", headers, payload: { id: "login-account", providerId: "mock-source", label: "Login account" } });
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const response = await app.inject({ method: "POST", url: "/api/accounts/login-account/login", headers, payload: {} });
+      expect(response.statusCode).toBe(200);
+    }
+    const limited = await app.inject({ method: "POST", url: "/api/accounts/login-account/login", headers, payload: {} });
+    expect(limited.statusCode).toBe(429);
+    await app.close();
+  });
+
   it("enforces assigned-email credential requests and lets admins approve to delivery", async () => {
     const deliveryProvider = new MockDeliveryProvider();
     const app = await buildApp({
@@ -527,6 +541,24 @@ describe("WardSen API", () => {
     });
     expect(emailChange.statusCode).toBe(400);
     expect(emailChange.json().error).toContain("assigned email is admin-controlled");
+
+    const employeeUpdate = await app.inject({
+      method: "PUT",
+      url: "/api/employees/employee-2",
+      headers,
+      payload: { name: "Nia Shah", team: "Finance Operations", role: "Reviewer" }
+    });
+    expect(employeeUpdate.statusCode).toBe(200);
+    expect(employeeUpdate.json()).toMatchObject({ id: "employee-2", name: "Nia Shah", assignedEmail: "nia@example.com", team: "Finance Operations", role: "Reviewer", active: true });
+
+    const personUpdate = await app.inject({
+      method: "PUT",
+      url: "/api/people/person-ravi",
+      headers,
+      payload: { name: "Ravi Menon", notes: "Primary request approver." }
+    });
+    expect(personUpdate.statusCode).toBe(200);
+    expect(personUpdate.json()).toMatchObject({ id: "person-ravi", notes: "Primary request approver." });
 
     await app.inject({
       method: "POST",
@@ -1297,7 +1329,10 @@ describe("WardSen API", () => {
     });
     expect(created.json().providerDeliveryId).toMatch(/^ente-manual-/);
     expect(JSON.stringify(created.json())).not.toContain("Password123");
-    expect(clipboard).toEqual([expect.stringContaining("Password: Password123")]);
+    expect(clipboard).toEqual([["Title: CMS Login", "Username: mira", "Password: Password123"].join("\n")]);
+    expect(clipboard[0]).not.toContain("https://example.com");
+    expect(clipboard[0]).not.toContain("JBSWY3DPEHPK3PXP");
+    expect(clipboard[0]).not.toContain("Internal incident instructions.");
 
     const cleared = await app.inject({ method: "POST", url: "/api/delivery-providers/ente-paste/clear-handoff-clipboard", headers, payload: {} });
     expect(cleared.statusCode).toBe(200);
@@ -2151,7 +2186,14 @@ class MockCredentialProvider implements CredentialProvider {
     return rows.slice(start, start + pagination.pageSize);
   }
   async getCredential(_accountId: string, _itemId: string): Promise<SensitiveCredential> {
-    return { title: "CMS Login", username: "mira", password: "Password123", urls: ["https://example.com"] };
+    return {
+      title: "CMS Login",
+      username: "mira",
+      password: "Password123",
+      urls: ["https://example.com"],
+      totp: "JBSWY3DPEHPK3PXP",
+      notes: "Internal incident instructions."
+    };
   }
 }
 
