@@ -62,7 +62,7 @@ describe("release engineering guardrails", () => {
     expect(workflow).toContain("npm run release:set-tauri-version");
     expect(workflow).toContain("npm run release:sbom");
     expect(workflow).toContain("npm run release:provenance-subjects");
-    expect(workflow).toContain("actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d");
+    expect(workflow).toContain("actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6");
     expect(workflow).toContain("npm run release:write-provenance-evidence");
     expect(workflow).toContain("npm run release:verify-evidence");
     expect(workflow).toContain("RELEASE-MANIFEST-*.json");
@@ -82,7 +82,7 @@ describe("release engineering guardrails", () => {
     expect(workflow).toContain("npm run release:set-tauri-version");
     expect(workflow).toContain("npm run release:sbom");
     expect(workflow).toContain("npm run release:provenance-subjects");
-    expect(workflow).toContain("actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d");
+    expect(workflow).toContain("actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6");
     expect(workflow).toContain("npm run release:write-provenance-evidence");
     expect(workflow).toContain("npm run release:verify-evidence");
     expect(workflow).toContain("WARDSEN-SBOM-macos-x64.json");
