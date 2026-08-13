@@ -41,7 +41,7 @@ Current percentages are implementation estimates as of 2026-08-13.
 | 10 | Release Engineering | 98% | Successful public GitHub provenance run |
 | 11 | Security Beta Hardening | 94% | Installed-app E2E execution on Windows and macOS |
 | 12 | Trusted Public Release | 58% | Real signing, notarization and target-machine lifecycle proof |
-| 13 | Provider Expansion | 68% | Automated Ente/API providers and packaged UI proof |
+| 13 | Provider Expansion | 88% | Opt-in live contracts and packaged UI proof for newly active adapters; Ente remains manual pending an official automation surface |
 
 ## Phase 0: Freeze Scope
 
@@ -399,19 +399,24 @@ Deliverables:
 - Add a provider manifest.
 - Add a provider conformance suite.
 - Implement one new provider at a time.
-- Evaluate Ente Paste first among secure-link candidates, followed by API-oriented or self-hosted options documented in [Delivery Provider Candidates](delivery-provider-comparison.md).
+- Evaluate Ente Paste only when an official automation surface exists; follow it with documented API-oriented or self-hosted options in [Delivery Providers](delivery-provider-comparison.md).
 - Mark new providers experimental first.
 - Promote only after packaged tests pass.
 
 Current status:
 
 - Implemented structured delivery-provider readiness metadata in the provider manifest, including integration surface, status/revoke/access-count support, viewer-identity confidence and promotion blockers.
-- Exposed planned delivery candidates through `/api/providers` with readiness metadata while keeping them out of functional account and delivery-provider selectors.
-- Added a Settings candidate table so admins can see Ente Paste, Password Pusher, Yopass, Onetime Secret and 1Password item sharing as blocked candidates without overclaiming support.
+- Exposed provider readiness metadata through `/api/providers`, including setup instructions for functional delivery adapters and promotion blockers for planned candidates.
+- Added a Settings provider panel with capability details, official documentation links and a rate-limited non-secret local configuration check for delivery providers that do not depend on a selected Bitwarden session.
 - Added conformance tests that require active delivery providers to declare supported lifecycle metadata and candidate delivery providers to list blockers.
 - Implemented Ente Paste as an experimental manual handoff provider: WardSen copies only title, username and password to the local clipboard, excludes URLs, TOTP secrets and notes, uses an opaque operation-based delivery id, returns the Ente Paste page as a handoff action, stores `handoff_pending` metadata only, disables bulk sends, and disables refresh/revoke/viewer telemetry that Ente Paste does not expose through public docs.
 - Implemented an explicit, server-backed local clipboard-clear action for Ente handoffs after the operator has created the browser-side paste. The audit record contains only the provider identifier.
-- Remaining: automated Ente Paste creation/status/revoke must wait for an official API or CLI contract; other provider adapters still need provider-specific tests, packaged UI evidence and lifecycle mapping before promotion.
+- Implemented Password Pusher through its authenticated API with projected credential fields only, whole-day expiry, status lookup and revoke. The adapter reports no unsupported access count or viewer identity.
+- Implemented Onetime Secret through its authenticated conceal/receipt/burn API with projected credential fields only, TTL, receipt-status lookup and burn/revoke. Receipt state remains link-state evidence, not recipient identity.
+- Implemented Yopass through its local CLI with projected credential fields only, one-time links, supported CLI expiry presets and an opaque WardSen delivery id. It deliberately disables WardSen status refresh and revoke because the current CLI does not expose those sender controls.
+- Added mocked provider lifecycle and secret-projection tests plus manifest conformance checks for Password Pusher, Onetime Secret and Yopass.
+- Added opt-in disposable live contract tests for Password Pusher, Onetime Secret and Yopass. Password Pusher and Onetime Secret tests create, read and revoke a generated test record; Yopass requires an explicit create acknowledgement because the current CLI has no revoke command.
+- Remaining: automated Ente Paste creation/status/revoke must wait for an official API or CLI contract. Run the opt-in contracts against operator-configured target accounts and collect packaged UI proof before treating the newly active adapters as release-proven.
 
 Exit criteria:
 

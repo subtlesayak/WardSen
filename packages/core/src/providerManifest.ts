@@ -23,6 +23,7 @@ export interface ProviderManifest {
   documentationUrl?: string;
   enabledByDefault: boolean;
   notes: string;
+  setupInstructions?: string[];
   delivery?: DeliveryProviderReadiness;
 }
 
@@ -95,72 +96,72 @@ export const builtInProviderManifests: ProviderManifest[] = [
     id: "password-pusher",
     displayName: "Password Pusher",
     kind: "delivery",
-    maturity: "planned",
-    packageName: "@wardsen/provider-scaffolds",
+    maturity: "active",
+    packageName: "@wardsen/delivery-external",
     documentationUrl: "https://docs.pwpush.com/docs/api-v1/",
-    enabledByDefault: false,
-    notes: "Candidate delivery provider only. Its documented API includes expiration and view controls; verify instance authentication, redaction, revoke behavior and access telemetry before implementation.",
+    enabledByDefault: true,
+    notes: "Authenticated Password Pusher API delivery. WardSen projects only title, username and password, uses whole-day expiry and can expire or check a push. It does not claim sender-visible access counts or viewer identity.",
+    setupInstructions: [
+      "Set WARDSEN_PASSWORD_PUSHER_API_TOKEN in the local WardSen service environment.",
+      "Optionally set WARDSEN_PASSWORD_PUSHER_BASE_URL to a trusted HTTPS Password Pusher instance; the default is https://pwpush.com.",
+      "Choose a vault account as the audit account when creating a delivery; the API token stays only in the local process environment."
+    ],
     delivery: {
       integrationSurface: "official_api",
-      secureLinkCreation: "unknown",
-      revoke: "unknown",
-      statusLookup: "unknown",
-      accessCount: "unknown",
-      viewerIdentity: "unknown",
-      promotionBlockedBy: [
-        "trusted instance policy",
-        "authentication isolation",
-        "redacted error model",
-        "provider-specific conformance tests"
-      ]
+      secureLinkCreation: "supported",
+      revoke: "supported",
+      statusLookup: "supported",
+      accessCount: "unsupported",
+      viewerIdentity: "unsupported",
+      promotionBlockedBy: []
     }
   },
   {
     id: "yopass",
     displayName: "Yopass",
     kind: "delivery",
-    maturity: "planned",
-    packageName: "@wardsen/provider-scaffolds",
+    maturity: "active",
+    packageName: "@wardsen/delivery-external",
     documentationUrl: "https://github.com/jhaals/yopass",
-    enabledByDefault: false,
-    notes: "Candidate self-hostable delivery provider only. Its official project documents browser encryption, one-time URLs, expiry and a CLI; verify deployment ownership and status/revoke semantics before implementation.",
+    enabledByDefault: true,
+    notes: "Yopass CLI delivery. The local CLI encrypts projected credential text before upload and returns a one-time link. WardSen cannot revoke, refresh or attribute that link through the current CLI contract.",
+    setupInstructions: [
+      "Install the official yopass CLI and verify yopass --version in a terminal.",
+      "Set WARDSEN_YOPASS_CLI_PATH to an absolute executable path when the desktop app cannot see the CLI.",
+      "Optionally set WARDSEN_YOPASS_API_URL and WARDSEN_YOPASS_PUBLIC_URL to operator-controlled HTTPS endpoints."
+    ],
     delivery: {
-      integrationSurface: "self_hosted_api",
-      secureLinkCreation: "unknown",
-      revoke: "unknown",
-      statusLookup: "unknown",
-      accessCount: "unknown",
-      viewerIdentity: "unknown",
-      promotionBlockedBy: [
-        "operator-controlled endpoint",
-        "status and revoke mapping",
-        "link-preview one-time access handling",
-        "provider-specific conformance tests"
-      ]
+      integrationSurface: "official_cli",
+      secureLinkCreation: "supported",
+      revoke: "unsupported",
+      statusLookup: "unsupported",
+      accessCount: "unsupported",
+      viewerIdentity: "unsupported",
+      promotionBlockedBy: []
     }
   },
   {
     id: "onetime-secret",
     displayName: "Onetime Secret",
     kind: "delivery",
-    maturity: "planned",
-    packageName: "@wardsen/provider-scaffolds",
+    maturity: "active",
+    packageName: "@wardsen/delivery-external",
     documentationUrl: "https://docs.onetimesecret.com/en/rest-api/",
-    enabledByDefault: false,
-    notes: "Candidate delivery provider only. Its official documentation describes REST API versions, TTL and burn operations; verify regional endpoint policy, sender-side status and revocation before implementation.",
+    enabledByDefault: true,
+    notes: "Authenticated Onetime Secret v2 delivery. WardSen creates a concealed one-time secret, reads receipt state and can burn the delivery. Receipt state proves link state, not the recipient's identity or device.",
+    setupInstructions: [
+      "Set WARDSEN_ONETIME_SECRET_USERNAME and WARDSEN_ONETIME_SECRET_API_TOKEN in the local WardSen service environment.",
+      "Optionally set WARDSEN_ONETIME_SECRET_BASE_URL to an allowed regional or self-hosted HTTPS endpoint; the default is https://us.onetimesecret.com.",
+      "Use a separate access password when required; WardSen sends it only to Onetime Secret and never stores it."
+    ],
     delivery: {
       integrationSurface: "official_api",
-      secureLinkCreation: "unknown",
-      revoke: "unknown",
-      statusLookup: "unknown",
-      accessCount: "unknown",
-      viewerIdentity: "unknown",
-      promotionBlockedBy: [
-        "regional endpoint policy",
-        "authentication and retention review",
-        "sender-visible status mapping",
-        "provider-specific conformance tests"
-      ]
+      secureLinkCreation: "supported",
+      revoke: "supported",
+      statusLookup: "supported",
+      accessCount: "unsupported",
+      viewerIdentity: "unsupported",
+      promotionBlockedBy: []
     }
   },
   {

@@ -566,19 +566,54 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
 .historyCopyStatus { color: #0d5f44; }
 .historyCopyError { color: #7b2f2f; }
 
-.table { display: grid; gap: 6px; overflow-x: auto; }
-.tableHead, .tableRow { grid-template-columns: 1.2fr 0.9fr 0.9fr 0.8fr 0.6fr 0.7fr 214px; min-width: 960px; }
-.tableHead.batch, .tableRow.batch { grid-template-columns: minmax(220px, 1.3fr) 0.7fr 0.7fr 0.7fr 0.8fr 1fr 136px; }
-.tableHead.batchDeliveries, .tableRow.batchDeliveries { grid-template-columns: 1.2fr 1fr 0.8fr 0.7fr 1fr 1.1fr; }
+.table { display: grid; gap: 6px; min-width: 0; max-width: 100%; overflow-x: auto; overflow-y: visible; padding-bottom: 6px; scrollbar-gutter: stable both-edges; }
+.tableHead, .tableRow { grid-template-columns: minmax(180px, 1.3fr) minmax(120px, 0.85fr) minmax(120px, 0.85fr) minmax(130px, 0.9fr) minmax(76px, 0.5fr) minmax(92px, 0.65fr) minmax(248px, 1.2fr); min-width: 1180px; }
+.tableHead.batch, .tableRow.batch { grid-template-columns: minmax(220px, 1.3fr) minmax(72px, 0.7fr) minmax(72px, 0.7fr) minmax(72px, 0.7fr) minmax(90px, 0.8fr) minmax(140px, 1fr) minmax(160px, 0.9fr); min-width: 1080px; }
+.tableHead.batchDeliveries, .tableRow.batchDeliveries { grid-template-columns: minmax(180px, 1.2fr) minmax(140px, 1fr) minmax(100px, 0.8fr) minmax(80px, 0.7fr) minmax(150px, 1fr) minmax(180px, 1.1fr); min-width: 920px; }
 .tableHead.handoff, .tableRow.handoff { grid-template-columns: 1fr 0.7fr 1fr 220px; min-width: 720px; }
 .tableHead.requests, .tableRow.requests { grid-template-columns: 1.1fr 0.9fr 1fr 1.2fr 0.7fr 172px; min-width: 1020px; }
-.tableHead.providerCandidate, .tableRow.providerCandidate { grid-template-columns: minmax(180px, 1fr) 130px minmax(130px, 0.7fr) minmax(240px, 1.2fr) minmax(280px, 1.3fr); min-width: 960px; }
+.tableHead.providerCandidate, .tableRow.providerCandidate { grid-template-columns: minmax(180px, 1fr) 110px 130px minmax(130px, 0.7fr) minmax(220px, 1.1fr) minmax(280px, 1.3fr); min-width: 1120px; }
 .tableHead { min-height: 34px; color: #70827c; font-size: 12px; text-transform: uppercase; }
 .tableRow { background: #f4f8f6; }
 .tableRow.selected {
   background: #dff3ec;
   box-shadow: inset 0 0 0 1px #75b7a1;
 }
+.table .actions { min-width: 0; }
+.table .actions button { flex: 0 0 40px; }
+
+.confirmationBackdrop {
+  position: fixed;
+  z-index: 20;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(24, 42, 35, 0.38);
+}
+.confirmationDialog {
+  display: grid;
+  gap: 14px;
+  width: min(100%, 520px);
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  padding: 22px;
+  border: 1px solid #b6c9c1;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 20px 48px rgba(24, 42, 35, 0.24);
+}
+.confirmationDialog h2, .confirmationDialog p { margin: 0; }
+.confirmationDialog label { display: grid; gap: 8px; }
+.confirmationDialog code {
+  display: block;
+  overflow-wrap: anywhere;
+  padding: 8px 10px;
+  border-radius: 4px;
+  color: #51352f;
+  background: #fff1ed;
+}
+.confirmationActions { justify-content: flex-end; margin: 0; }
 .auditGrid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
@@ -697,6 +732,8 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
 .segmented button.selected { background: #ffffff; box-shadow: 0 8px 18px rgba(33, 57, 49, 0.08); }
 .capabilityGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
 .providerTable { margin-top: 2px; }
+.providerNotes { margin: 0; color: #52665e; line-height: 1.5; }
+.providerSetup { display: grid; gap: 5px; margin: 0; padding-left: 20px; color: #52665e; line-height: 1.45; }
 .capability {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -722,6 +759,9 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
 .contents { display: contents; }
 .employeePortalLaunch { display: grid; gap: 10px; color: #52665e; line-height: 1.45; }
 .employeePortalLaunch p { margin: 0; }
+.requestGuide { display: grid; gap: 12px; }
+.requestSteps { display: grid; gap: 10px; margin: 0; padding-left: 22px; color: #52665e; line-height: 1.5; }
+.requestSteps strong { color: #1c2e28; }
 .employeePortalShell {
   min-height: 100vh;
   padding: clamp(20px, 5vw, 72px);

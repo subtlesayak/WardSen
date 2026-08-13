@@ -1,24 +1,27 @@
-# Delivery Provider Candidates
+# Delivery Providers
 
-WardSen currently has one active automated delivery adapter: Bitwarden Send through the user-installed `bw` CLI. Ente Paste is available as an experimental manual browser handoff because the public product supports one-time encrypted pastes, but current public documentation does not expose a sender API, CLI status lookup, revoke operation, access count or viewer telemetry contract for WardSen to automate.
+WardSen currently has four automated delivery adapters: Bitwarden Send through the user-installed `bw` CLI, Password Pusher through its authenticated API, Onetime Secret through its authenticated receipt API, and Yopass through its local encryption CLI. Ente Paste is intentionally limited to an experimental manual browser handoff because current public documentation does not expose the sender lifecycle contract WardSen needs to automate it.
 
-## Candidate comparison
+## Capability comparison
 
-| Provider | Useful fit | Evidence to verify before an adapter | WardSen status |
+| Provider | Useful fit | WardSen lifecycle support | WardSen status |
 | --- | --- | --- | --- |
-| [Ente Paste](https://paste.ente.com/) | Private E2EE paste, one-time view and automatic deletion after 24 hours | Official API or CLI before an automated adapter; sender-visible status, revoke behavior and access telemetry before lifecycle buttons or viewer signals | Experimental manual handoff |
-| [Password Pusher](https://docs.pwpush.com/docs/api-v1/) | Documented JSON API with expiry and view controls; useful for self-hosted or controlled deployments | Instance authentication, deployment ownership, redaction, revoke semantics and audit/access fields | Planned |
-| [Yopass](https://github.com/jhaals/yopass) | Self-hostable E2EE secret sharing with one-time URLs, expiry and an official CLI | Operator-controlled endpoint, API contract, status/revoke semantics and safe URL handling | Planned |
-| [Onetime Secret](https://docs.onetimesecret.com/en/rest-api/) | REST API, configurable TTL and burn operations | Regional endpoint policy, authentication, sender status, deletion/revoke behavior and retention terms | Planned |
-| [1Password item sharing](https://support.1password.com/share-items/) | Unique links with expiry and optional recipient restrictions | A supported API or CLI for creating and managing shares; current public guidance describes app and web workflows | Planned |
+| [Bitwarden Send](https://bitwarden.com/help/send-cli/) | Existing Bitwarden users who need per-recipient links | Create, status, access count, revoke. Access proves the assigned link was used, not who used it. | Active |
+| [Password Pusher](https://docs.pwpush.com/docs/api-v1/) | API-oriented controlled or self-hosted deployments | Create, whole-day expiry, status and revoke. No reliable access-count or viewer-identity claim. | Active; requires local API token |
+| [Onetime Secret](https://docs.onetimesecret.com/en/rest-api/) | REST delivery with TTL, optional passphrase and burn | Create, receipt status and burn/revoke. Receipt state is not human/device attribution and does not provide an exact access count. | Active; requires local API credentials |
+| [Yopass](https://github.com/jhaals/yopass) | Self-hosted or public one-time encrypted sharing through a local CLI | Create one-time links with supported expiry presets. Current CLI contract has no WardSen status check or sender-side revoke. | Active; requires local CLI |
+| [Ente Paste](https://paste.ente.com/) | Private E2EE browser paste | Operator copies projected credential text and creates a paste in the browser. No WardSen upload, status, revoke, access count or attribution. | Experimental manual handoff |
+| [1Password item sharing](https://support.1password.com/share-items/) | Teams already sharing from 1Password | Public guidance describes app/web sharing; WardSen has no verified creation or lifecycle automation surface. | Planned |
 
-## Recommendation order
+## Configuration boundary
 
-1. **Ente Paste** is the closest lightweight one-time-paste option for WardSen's local-first flow and is enabled only as a manual clipboard/browser handoff. It must not be described as an automated provider until Ente documents an API or CLI contract.
-2. **Password Pusher** is the strongest API-oriented candidate when an operator controls or trusts the deployment and needs view/expiry controls.
-3. **Yopass** is a strong self-hosting candidate when browser-side encryption, a CLI and operator ownership matter more than provider-hosted analytics.
-4. **Onetime Secret** is worth evaluating when REST and TTL/burn operations are the primary requirements.
-5. **1Password item sharing** is useful for teams already using 1Password, but it should wait until a supported automation surface is confirmed.
+WardSen’s desktop UI never receives third-party provider API tokens. Password Pusher and Onetime Secret credentials live only in the local service environment; Yopass is discovered from trusted local executable paths or an explicit local path. The selected audit account for those providers scopes WardSen metadata and audit records only.
+
+Use **Settings > Provider Capabilities** to view exact setup instructions, open provider documentation and run the non-secret local configuration check. Restart WardSen after changing the service environment so the local service inherits the new configuration.
+
+## Live verification
+
+Mocked conformance tests cover request construction, secret projection and lifecycle mapping. The opt-in `tests/externalDeliveryProviders.live.test.ts` suite can validate a configured target with generated non-production payloads: Password Pusher and Onetime Secret create, read and revoke a disposable one-access record; Yopass creates a disposable link only after the explicit `WARDSEN_YOPASS_LIVE_TEST_ALLOW_CREATE=true` acknowledgement because the current CLI has no revoke command. Provider tokens, passphrases and delivery URLs are never printed by the tests.
 
 ## Safety gate for every candidate
 
@@ -28,7 +31,7 @@ Do not promote a candidate to `active` because it can produce a URL in a browser
 - expiry, access limits, one-time behavior and revocation map to WardSen status values truthfully;
 - sender-visible access telemetry is separated from viewer identity claims;
 - provider errors are bounded and redacted;
-- account or endpoint credentials are isolated per WardSen account;
+- endpoint credentials stay only in the local service environment and never enter the UI, SQLite metadata, logs or diagnostics;
 - mocked provider tests and packaged release checks pass before normal account creation exposes the adapter.
 
 See [Provider Development](provider-development.md) and [Third-Party Provider Policy](third-party-provider-policy.md) for the promotion and naming rules.

@@ -24,7 +24,7 @@ When each intended recipient receives a dedicated provider link, WardSen can rep
 ## What It Does
 
 - Retrieves credentials from Bitwarden or KeePassXC through their official local CLIs.
-- Creates expiring Bitwarden Send links and records recipient-link access signals without claiming human or device identity.
+- Creates expiring links with Bitwarden Send, Password Pusher, Onetime Secret, or Yopass, and records only provider-supported recipient-link access signals without claiming human or device identity.
 - Supports bulk dispatch, delivery revocation, replacement links, and metadata-only audit logs.
 - Provides an employee request catalog for approved credential deliveries.
 - Offers experimental Ente Paste manual handoff without sender-visible view, revoke, or device telemetry.
@@ -35,21 +35,62 @@ When each intended recipient receives a dedicated provider link, WardSen can rep
 
 - **Scope:** Local-first credential dispatch, short-lived provider links, delivery audit signals, and employee request access.
 - **Security:** Destructive actions require exact server-enforced confirmation; credential plaintext remains on the localhost backend.
-- **Installers:** Windows MSI and macOS Apple Silicon DMG are unsigned review artifacts. A signed and notarized macOS build is required for normal use; do not bypass Gatekeeper.
+- **Installers:** Windows MSI and macOS Apple Silicon DMG are unsigned review artifacts. A signed and notarized macOS build is required for normal use. Until then, the checksum-first macOS quarantine workaround below is required for a verified review copy.
 - **Provider setup:** Bitwarden requires the official `bw` CLI. On macOS, install Node.js LTS if needed, install `@bitwarden/cli`, verify `bw --version`, then reopen WardSen.
-- **Vault sessions:** New accounts auto-lock after five minutes of inactivity. Unlocked vault rows show the remaining time; existing accounts keep their individually configured timeout.
+- **Vault sessions:** New accounts auto-lock after ten minutes of inactivity. Unlocked vault rows show the remaining time; existing accounts keep their individually configured timeout.
 - **Request protection:** Login, unlock, terminal handoff, employee code, and local API routes have layered rate limits to reduce brute-force and UI-loop abuse.
 
 See the [current release notes](docs/release-notes/v0.1.0.md), [getting-started steps](#get-started), [security design](docs/security-design.md), and [installer signing guide](docs/installer-signing.md) for detail.
 
 ## Get Started
 
+### First-Time Setup: No Node.js, `npm`, or `bw` Yet
+
+WardSen does not bundle Bitwarden's command-line tool. Install it once on the operator machine that will open the vault; WardSen then keeps its own isolated local Bitwarden profile and does not ask for the master password in the app.
+
+1. Install the current **Node.js LTS** release from [nodejs.org](https://nodejs.org/en/download). Node supplies `npm`, which installs the Bitwarden CLI.
+2. Open a **new** terminal window and confirm both commands work:
+
+   ```bash
+   node -v
+   npm -v
+   ```
+
+3. Install Bitwarden's official CLI:
+
+   **Windows PowerShell or Command Prompt**
+
+   ```powershell
+   npm.cmd install -g @bitwarden/cli
+   bw --version
+   ```
+
+   **macOS Terminal**
+
+   ```bash
+   npm install -g @bitwarden/cli
+   bw --version
+   ```
+
+   If macOS reports `EACCES`, do not use `sudo`. Follow [npm's user-owned prefix guide](https://docs.npmjs.com/resolving-eacces-permissions-errors-when-installing-packages-globally/), then open a new Terminal and run `bw --version` again.
+
+4. Fully quit WardSen, reopen it, then go to **Vaults**. Add a Bitwarden account with a label and email, keeping the ten-minute auto-lock unless your policy requires less.
+5. Select that account in **Account Access**, choose **Terminal login / unlock**, paste the copied command into Terminal or PowerShell, and enter the Bitwarden password only at Bitwarden's own prompt. Return to WardSen after the command confirms the local session handoff; the account should change to **Unlocked** automatically.
+
+For a new password-manager account, create and secure the Bitwarden account first through Bitwarden's official app or website, then use the steps above to connect WardSen. Never paste a Bitwarden password, session key, recovery code, or API token into WardSen, email, chat, or a support ticket.
+
 ### Release Users
 
 Download the Windows MSI or macOS Apple Silicon DMG from [GitHub Releases](https://github.com/subtlesayak/WardSen/releases), together with its matching `SHA256SUMS-*.txt` file.
 
 - **Windows:** Verify the checksum before running the MSI. Treat SmartScreen or Defender blocks as a reportable release issue.
-- **macOS:** The current DMG is an unsigned review artifact, not a normal end-user installer. Do not use `xattr`, `sudo xattr`, or another override if macOS says WardSen cannot be verified or is damaged.
+- **macOS: Temporary required step until signed releases are available.** The current DMG is an unsigned review artifact, not a normal end-user installer. Verify its checksum and use it only for review testing. After dragging it to Applications, run this exact command in Terminal:
+
+  ```bash
+  xattr -dr com.apple.quarantine /Applications/WardSen.app
+  ```
+
+  This removes macOS quarantine for that local review copy. It is not equivalent to code signing or notarization; do not use it for an app you did not obtain from WardSen's verified release page.
 
 ### New Users
 
@@ -103,6 +144,19 @@ If `npm install -g` reports `EACCES`, configure a user-owned npm prefix instead 
 For the first sign-in, select **Terminal login / unlock** in WardSen and run the copied command in your system terminal. WardSen receives a one-time, in-memory local session handoff and changes the account to **Unlocked** automatically; it never asks for the Bitwarden password or code in the app.
 
 In Vault Accounts, **Select** makes an account active in Account Access, **Sync** fetches its latest provider changes, and **Lock** removes its WardSen session and asks the provider to lock. Sync requires an unlocked account.
+
+### Other Delivery Providers
+
+Use **Settings > Provider Capabilities** to read each provider's requirements, open its official documentation, and run a local configuration check before creating a delivery. WardSen never accepts delivery-provider API tokens in the desktop UI.
+
+- **Password Pusher:** set `WARDSEN_PASSWORD_PUSHER_API_TOKEN`; optionally set `WARDSEN_PASSWORD_PUSHER_BASE_URL` for a trusted HTTPS instance. It supports create, status checks and revoke, but does not provide a trustworthy access count or viewer identity.
+- **Onetime Secret:** set `WARDSEN_ONETIME_SECRET_USERNAME` and `WARDSEN_ONETIME_SECRET_API_TOKEN`; optionally set `WARDSEN_ONETIME_SECRET_BASE_URL`. It supports one-time creation, receipt-status checks and burn/revoke, but not viewer identity or an exact access count.
+- **Yopass:** install the official `yopass` CLI, verify `yopass --version`, and set `WARDSEN_YOPASS_CLI_PATH` when WardSen cannot discover it. It creates an encrypted one-time link, but the current CLI does not give WardSen status checks or sender-side revocation.
+- **Ente Paste:** remains a manual clipboard/browser handoff. WardSen does not upload the paste or claim status, revoke, access-count, or viewer telemetry for it.
+
+The selected **audit account** for non-Bitwarden delivery providers scopes WardSen's metadata only. It is not the source of the external provider credential. Configure those secrets only in the local service environment, then fully restart WardSen so its local service receives the updated environment.
+
+Maintainers can run the opt-in disposable provider contracts in `tests/externalDeliveryProviders.live.test.ts`. Set only the matching `WARDSEN_PASSWORD_PUSHER_LIVE_TEST=true`, `WARDSEN_ONETIME_SECRET_LIVE_TEST=true`, or `WARDSEN_YOPASS_LIVE_TEST=true` environment switch before running the file. Yopass additionally requires `WARDSEN_YOPASS_LIVE_TEST_ALLOW_CREATE=true` because its current CLI cannot revoke the disposable link after creation. These tests use generated non-production values and do not print provider credentials or link secrets.
 
 ## Maintainers
 

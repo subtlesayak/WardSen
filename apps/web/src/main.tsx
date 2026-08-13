@@ -41,6 +41,7 @@ interface ProviderInfo {
   enabledByDefault?: boolean;
   documentationUrl?: string;
   notes?: string;
+  setupInstructions?: string[];
   capabilities?: Record<string, boolean>;
   delivery?: DeliveryReadiness;
 }
@@ -211,6 +212,8 @@ interface ApiState {
   batches: DeliveryBatchRecord[];
 }
 
+type DestructiveConfirmation = (phrase: string, message: string) => Promise<boolean>;
+
 const navItems: Array<{ id: NavItem; icon: React.ElementType }> = [
   { id: "Overview", icon: ShieldCheck },
   { id: "Vaults", icon: Vault },
@@ -225,6 +228,7 @@ function App() {
   if (isEmployeePortalView()) return <EmployeePortalPage />;
   const [active, setActive] = useState<NavItem>("Overview");
   const api = useWardSenApi();
+  const destructiveConfirmation = useDestructiveConfirmation();
   return (
     <div className="shell">
       <a className="skipLink" href="#main-content">Skip to content</a>
@@ -264,14 +268,15 @@ function App() {
         </header>
 
         <ApiBanner api={api} />
-        {active === "Overview" && <Overview api={api} />}
-        {active === "Vaults" && <Vaults api={api} />}
+        {active === "Overview" && <Overview api={api} confirmDestructiveAction={destructiveConfirmation.confirm} />}
+        {active === "Vaults" && <Vaults api={api} confirmDestructiveAction={destructiveConfirmation.confirm} />}
         {active === "Credentials" && <Credentials api={api} />}
-        {active === "People" && <People api={api} />}
+        {active === "People" && <People api={api} confirmDestructiveAction={destructiveConfirmation.confirm} />}
         {active === "Requests" && <RequestsView api={api} />}
-        {active === "Deliveries" && <Deliveries api={api} />}
-        {active === "Settings" && <SettingsView providers={api.deliveryProviders} plannedProviders={api.plannedProviders} />}
+        {active === "Deliveries" && <Deliveries api={api} confirmDestructiveAction={destructiveConfirmation.confirm} />}
+        {active === "Settings" && <SettingsView credentialProviders={api.credentialProviders} deliveryProviders={api.deliveryProviders} plannedProviders={api.plannedProviders} onRefresh={api.refresh} />}
       </main>
+      {destructiveConfirmation.dialog}
     </div>
   );
 }
@@ -409,7 +414,7 @@ function ApiBanner({ api }: { api: ReturnType<typeof useWardSenApi> }) {
   );
 }
 
-function Overview({ api }: { api: ReturnType<typeof useWardSenApi> }) {
+function Overview({ api, confirmDestructiveAction }: { api: ReturnType<typeof useWardSenApi>; confirmDestructiveAction: DestructiveConfirmation }) {
   const activeDeliveries = api.deliveries.filter((delivery) => delivery.status === "active").length;
   const failedDeliveries = api.deliveries.filter((delivery) => delivery.status === "failed").length;
   return (
@@ -420,19 +425,19 @@ function Overview({ api }: { api: ReturnType<typeof useWardSenApi> }) {
       <Metric label="People" value={String(api.people.length)} detail="Server-side paginated" />
       <section className="panel wide">
         <PanelTitle icon={Database} title="Recent Dispatch Activity" action="Refresh" onAction={api.refresh} />
-        <DeliveryTable api={api} />
+        <DeliveryTable api={api} confirmDestructiveAction={confirmDestructiveAction} />
       </section>
     </div>
   );
 }
 
-function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
+function Vaults({ api, confirmDestructiveAction }: { api: ReturnType<typeof useWardSenApi>; confirmDestructiveAction: DestructiveConfirmation }) {
   const [accountForm, setAccountForm] = useState({
     providerId: "",
     label: "",
     username: "",
     serverUrl: "",
-    autoLockMinutes: "5"
+    autoLockMinutes: "10"
   });
   const [accessForm, setAccessForm] = useState({
     accountId: "",
@@ -502,7 +507,7 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
           label: accountForm.label,
           username: accountForm.username || undefined,
           serverUrl: accountForm.serverUrl || undefined,
-          autoLockMinutes: Number(accountForm.autoLockMinutes) || 5
+          autoLockMinutes: Number(accountForm.autoLockMinutes) || 10
         })
       });
       setAccessForm((current) => ({ ...current, accountId: account.id }));
@@ -628,6 +633,7 @@ function Vaults({ api }: { api: ReturnType<typeof useWardSenApi> }) {
         <label>Provider<select name="providerId" value={providerId} onChange={(event) => setAccountForm((current) => ({ ...current, providerId: event.target.value }))}>
           {api.credentialProviders.map((provider) => <option key={provider.id} value={provider.id}>{provider.displayName}</option>)}
         </select></label>
+        <small className="fieldInstruction wide">Only active, verified adapters are selectable. Check Settings &gt; Provider Capabilities for planned and experimental providers, their requirements and current limits.</small>
         <label>Label<input name="label" required value={accountForm.label} onChange={(event) => setAccountForm((current) => ({ ...current, label: event.target.value }))} placeholder="Work Bitwarden" /></label>
         <label>Username<input name="username" autoComplete="username" value={accountForm.username} onChange={(event) => setAccountForm((current) => ({ ...current, username: event.target.value }))} placeholder="name@example.com" /></label>
         <label>Server URL<input name="serverUrl" type="url" value={accountForm.serverUrl} onChange={(event) => setAccountForm((current) => ({ ...current, serverUrl: event.target.value }))} placeholder="Optional custom server" /></label>
@@ -830,7 +836,7 @@ function Credentials({ api }: { api: ReturnType<typeof useWardSenApi> }) {
   );
 }
 
-function People({ api }: { api: ReturnType<typeof useWardSenApi> }) {
+function People({ api, confirmDestructiveAction }: { api: ReturnType<typeof useWardSenApi>; confirmDestructiveAction: DestructiveConfirmation }) {
   const emptyPersonForm = { name: "", phone: "", email: "", groupName: "", role: "", notes: "", active: true };
   const [form, setForm] = useState(emptyPersonForm);
   const [editingPersonId, setEditingPersonId] = useState<string | undefined>();
@@ -985,9 +991,7 @@ function People({ api }: { api: ReturnType<typeof useWardSenApi> }) {
                   ) : (
                     <button type="button" aria-label={`Restore ${person.name}`} title="Restore" onClick={() => api.action(`/api/people/${person.id}/restore`)}><RotateCcw size={15} aria-hidden="true" /></button>
                   )}
-                  <button type="button" aria-label={`Delete ${person.name} permanently`} title="Delete permanently" onClick={() => void confirmDestructiveAction(`DELETE PERSON ${person.id}`, `Permanently delete "${person.name}"? This cannot be restored from WardSen.`).then((confirmed) => {
-                    if (confirmed) void api.action(`/api/people/${person.id}?hard=true`, { method: "DELETE", body: JSON.stringify({ confirm: `DELETE PERSON ${person.id}` }) });
-                  })}><Trash2 size={15} aria-hidden="true" /></button>
+                  <button type="button" aria-label={`Delete ${person.name} permanently`} title="Delete permanently" onClick={() => void deletePerson(person)}><Trash2 size={15} aria-hidden="true" /></button>
                 </div>
               </div>
             ))}
@@ -996,6 +1000,18 @@ function People({ api }: { api: ReturnType<typeof useWardSenApi> }) {
       </section>
     </div>
   );
+
+  async function deletePerson(person: PersonRecord) {
+    const confirm = `DELETE PERSON ${person.id}`;
+    if (!await confirmDestructiveAction(confirm, `Permanently delete "${person.name}"? This cannot be restored from WardSen.`)) return;
+    setMessage({ status: "loading", text: `Deleting ${person.name}...` });
+    try {
+      await api.action(`/api/people/${person.id}?hard=true`, { method: "DELETE", body: JSON.stringify({ confirm }) });
+      setMessage({ status: "ready", text: `${person.name} deleted.` });
+    } catch (error) {
+      setMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
+    }
+  }
 }
 
 function RequestsView({ api }: { api: ReturnType<typeof useWardSenApi> }) {
@@ -1446,6 +1462,16 @@ function RequestsView({ api }: { api: ReturnType<typeof useWardSenApi> }) {
         ) : null}
         <button className="primary full" disabled={!requestForm.employeeId || !requestForm.catalogEntryId}><Archive size={16} aria-hidden="true" /> Request access</button>
       </form>
+      <section className="panel requestGuide" aria-labelledby="request-guide-title">
+        <PanelTitle icon={UsersRound} title="How Requests Work" action="" />
+        <ol id="request-guide-title" className="requestSteps">
+          <li><strong>Admin prepares access:</strong> create an Employee with their assigned work email, then publish only credential metadata and who may request it.</li>
+          <li><strong>Admin issues a code:</strong> select the employee, create a one-time sign-in code, and send that code through their assigned-email workflow.</li>
+          <li><strong>Employee requests:</strong> they open Employee Portal, enter the assigned email and one-time code, choose an allowed credential, and state the reason and ticket.</li>
+          <li><strong>Admin decides:</strong> review the request in Admin Request Queue, approve or deny it, then choose an available delivery provider and audit account.</li>
+          <li><strong>Employee receives a link:</strong> WardSen creates a short-lived provider link. A replacement request revokes the prior link first when that provider supports revocation.</li>
+        </ol>
+      </section>
       <section className="panel employeePortalLaunch">
         <PanelTitle icon={Lock} title="Employee Portal" action="Open" onAction={() => window.location.assign(`${window.location.pathname}?view=employee`)} />
         <p>Employees use their assigned email and an admin-issued one-time code in a separate request-only view. It never exposes the admin queue, vault accounts or raw credentials.</p>
@@ -1504,7 +1530,7 @@ function RequestsView({ api }: { api: ReturnType<typeof useWardSenApi> }) {
   );
 }
 
-function Deliveries({ api }: { api: ReturnType<typeof useWardSenApi> }) {
+function Deliveries({ api, confirmDestructiveAction }: { api: ReturnType<typeof useWardSenApi>; confirmDestructiveAction: DestructiveConfirmation }) {
   const [batchDetails, setBatchDetails] = useState<{ status: LoadState | "idle"; batchId?: string; deliveries: DeliveryRecord[]; error?: string }>({
     status: "idle",
     deliveries: []
@@ -1580,10 +1606,37 @@ function Deliveries({ api }: { api: ReturnType<typeof useWardSenApi> }) {
     }
   }
 
+  async function refreshProviderStatus(silent = false) {
+    if (!silent) setAuditMessage({ status: "loading", text: "Refreshing provider status for active deliveries..." });
+    const summary = await refreshSupportedDeliveryStatuses(api.deliveries, api.deliveryProviders);
+    if (!silent || summary.failed > 0 || summary.total === 0) {
+      setAuditMessage({
+        status: summary.failed ? "error" : "ready",
+        text: refreshSummaryText(summary)
+      });
+    }
+    await api.refresh();
+  }
+
+  const refreshKey = api.deliveries
+    .filter((delivery) => delivery.status === "active" && deliveryProviderSupports(api.deliveryProviders, delivery.deliveryProviderId, "statusLookup"))
+    .map((delivery) => `${delivery.id}:${delivery.status}`)
+    .join(",");
+
+  useEffect(() => {
+    if (!refreshKey) return;
+    const firstCheck = window.setTimeout(() => void refreshProviderStatus(true), 500);
+    const interval = window.setInterval(() => void refreshProviderStatus(true), 2 * 60 * 1000);
+    return () => {
+      window.clearTimeout(firstCheck);
+      window.clearInterval(interval);
+    };
+  }, [refreshKey]);
+
   return (
     <div className="grid">
       <section className="panel">
-        <PanelTitle icon={ShieldCheck} title="Delivery Audit" action="Refresh" onAction={api.refresh} />
+        <PanelTitle icon={ShieldCheck} title="Delivery Audit" action="Refresh provider status" onAction={() => void refreshProviderStatus()} />
         {auditMessage.status === "error" ? <ErrorNotice message={auditMessage.text} compact /> : null}
         {auditMessage.status === "loading" || auditMessage.status === "ready" ? <div className="notice compact" role="status" aria-live="polite">{auditMessage.text}</div> : null}
         <DeliveryAuditPanel
@@ -1596,8 +1649,8 @@ function Deliveries({ api }: { api: ReturnType<typeof useWardSenApi> }) {
         />
       </section>
       <section className="panel">
-        <PanelTitle icon={Send} title="Delivery History" action="Refresh" onAction={api.refresh} />
-        <DeliveryTable api={api} />
+        <PanelTitle icon={Send} title="Delivery History" action="Reload history" onAction={api.refresh} />
+        <DeliveryTable api={api} confirmDestructiveAction={confirmDestructiveAction} />
       </section>
       <section className="panel">
         <PanelTitle icon={Archive} title="Bulk Batches" action="Refresh" onAction={api.refresh} />
@@ -1615,20 +1668,44 @@ function Deliveries({ api }: { api: ReturnType<typeof useWardSenApi> }) {
   );
 }
 
-function SettingsView({ providers, plannedProviders }: { providers: ProviderInfo[]; plannedProviders: ProviderInfo[] }) {
+function SettingsView({ credentialProviders, deliveryProviders, plannedProviders, onRefresh }: { credentialProviders: ProviderInfo[]; deliveryProviders: ProviderInfo[]; plannedProviders: ProviderInfo[]; onRefresh: () => void }) {
   const [selectedProviderId, setSelectedProviderId] = useState("");
+  const [connectionCheck, setConnectionCheck] = useState<{ status: "idle" | "loading" | "ready" | "error"; text?: string }>({ status: "idle" });
+  const providers = [...credentialProviders, ...deliveryProviders];
   const selectedProvider = providers.find((provider) => provider.id === selectedProviderId) ?? providers[0];
   const capabilities = selectedProvider?.capabilities ?? {};
-  const deliveryCandidates = plannedProviders.filter((provider) => provider.kind === "delivery");
+
+  async function checkDeliveryProvider() {
+    if (!selectedProvider || selectedProvider.kind !== "delivery" || selectedProvider.id === "bitwarden-send") return;
+    setConnectionCheck({ status: "loading", text: `Checking ${selectedProvider.displayName} configuration...` });
+    try {
+      const result = await apiSend<{ ready: boolean; safeMessage?: string }>(`/api/delivery-providers/${encodeURIComponent(selectedProvider.id)}/test`);
+      setConnectionCheck({
+        status: result.ready ? "ready" : "error",
+        text: result.safeMessage ?? (result.ready ? `${selectedProvider.displayName} is ready.` : `${selectedProvider.displayName} is not ready.`)
+      });
+    } catch (error) {
+      setConnectionCheck({ status: "error", text: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
   return (
     <div className="grid">
       <section className="panel">
-        <PanelTitle icon={Settings} title="Provider Capabilities" action="Refresh" />
+        <PanelTitle icon={Settings} title="Provider Capabilities" action="Refresh" onAction={onRefresh} />
         <div className="filters">
           <select aria-label="Provider capability selection" value={selectedProvider?.id ?? ""} onChange={(event) => setSelectedProviderId(event.target.value)}>
             {providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.displayName}</option>)}
           </select>
+          {selectedProvider?.documentationUrl ? <button type="button" onClick={() => void openExternalUrl(selectedProvider.documentationUrl!)}>Open provider docs</button> : null}
+          {selectedProvider?.kind === "delivery" && selectedProvider.id !== "bitwarden-send" ? <button type="button" disabled={connectionCheck.status === "loading"} onClick={() => void checkDeliveryProvider()}>{connectionCheck.status === "loading" ? "Checking..." : "Check configuration"}</button> : null}
         </div>
+        {selectedProvider?.notes ? <p className="providerNotes">{selectedProvider.notes}</p> : null}
+        {selectedProvider?.setupInstructions?.length ? <ul className="providerSetup" aria-label={`${selectedProvider.displayName} setup`}>
+          {selectedProvider.setupInstructions.map((instruction) => <li key={instruction}>{instruction}</li>)}
+        </ul> : null}
+        {selectedProvider?.id === "bitwarden-send" ? <p className="providerNotes">Bitwarden Send readiness is checked with the selected unlocked Bitwarden account when a delivery is created.</p> : null}
+        {connectionCheck.status !== "idle" ? <div className={connectionCheck.status === "error" ? "notice error compact" : "notice compact"} role="status" aria-live="polite">{connectionCheck.text}</div> : null}
         <div className="capabilityGrid">
           {Object.entries(capabilities).map(([key, enabled]) => (
             <div className={enabled ? "capability enabled" : "capability"} key={key}>
@@ -1640,24 +1717,25 @@ function SettingsView({ providers, plannedProviders }: { providers: ProviderInfo
         </div>
       </section>
       <section className="panel">
-        <PanelTitle icon={Send} title="Delivery Provider Candidates" action="Refresh" />
+        <PanelTitle icon={Send} title="Planned Provider Candidates" action="Refresh" onAction={onRefresh} />
         <div className="table providerTable">
           <div className="tableHead providerCandidate">
-            <span>Provider</span><span>Status</span><span>Integration</span><span>Telemetry</span><span>Promotion blockers</span>
+            <span>Provider</span><span>Type</span><span>Status</span><span>Integration</span><span>Telemetry</span><span>Promotion blockers</span>
           </div>
-          {deliveryCandidates.map((provider) => (
+          {plannedProviders.map((provider) => (
             <div className="tableRow providerCandidate" key={provider.id}>
               <div>
                 <strong>{provider.displayName}</strong>
                 <span>{provider.documentationUrl ?? provider.id}</span>
               </div>
+              <span>{titleStatus(provider.kind ?? "provider")}</span>
               <Status value={titleStatus(provider.maturity ?? "planned")} />
               <span>{provider.delivery ? titleStatus(provider.delivery.integrationSurface) : "Unknown"}</span>
               <span>{provider.delivery ? providerTelemetryLabel(provider.delivery) : "Unknown"}</span>
               <span>{provider.delivery?.promotionBlockedBy.join(", ") || "Provider-specific conformance tests"}</span>
             </div>
           ))}
-          {deliveryCandidates.length === 0 ? <EmptyState text="No planned delivery providers are configured." /> : null}
+          {plannedProviders.length === 0 ? <EmptyState text="No planned providers are configured." /> : null}
         </div>
       </section>
     </div>
@@ -1789,9 +1867,11 @@ function DeliveryComposer({ api, selectedCredential }: { api: ReturnType<typeof 
       <label>Delivery provider<select name="deliveryProviderId" value={deliveryProviderId} onChange={(event) => setForm((current) => ({ ...current, deliveryProviderId: event.target.value }))}>
         {api.deliveryProviders.map((provider) => <option key={provider.id} value={provider.id}>{provider.displayName}</option>)}
       </select></label>
-      <label>Delivery account<select name="deliveryAccountId" value={deliveryAccountId} onChange={(event) => setForm((current) => ({ ...current, deliveryAccountId: event.target.value }))}>
+      <small className="fieldInstruction wide">Only active delivery integrations are selectable. Check Settings &gt; Provider Capabilities for provider limits and planned candidates.</small>
+      <label>{deliveryProviderId === "bitwarden-send" ? "Delivery account" : "Audit account"}<select name="deliveryAccountId" value={deliveryAccountId} onChange={(event) => setForm((current) => ({ ...current, deliveryAccountId: event.target.value }))}>
         {api.accounts.map((account) => <option key={account.id} value={account.id}>{account.label}</option>)}
       </select></label>
+      {deliveryProviderId !== "bitwarden-send" ? <small className="fieldInstruction wide">This provider reads its setup from the local WardSen service environment. The selected audit account scopes metadata only; it does not supply the provider API credential.</small> : null}
       <div className="segmented" role="group" aria-label="Delivery recipient mode">
         <button type="button" aria-pressed={form.mode === "shared"} className={form.mode === "shared" ? "selected" : ""} onClick={() => setForm((current) => ({ ...current, mode: "shared", personId: "" }))}>Shared</button>
         <button type="button" aria-pressed={form.mode === "individual"} className={form.mode === "individual" ? "selected" : ""} onClick={() => setForm((current) => ({ ...current, mode: "individual", personId: current.personId || activePeople[0]?.id || "" }))}>Individual</button>
@@ -1847,7 +1927,7 @@ function DeliveryComposer({ api, selectedCredential }: { api: ReturnType<typeof 
   );
 }
 
-function DeliveryTable({ api }: { api: ReturnType<typeof useWardSenApi> }) {
+function DeliveryTable({ api, confirmDestructiveAction }: { api: ReturnType<typeof useWardSenApi>; confirmDestructiveAction: DestructiveConfirmation }) {
   const [message, setMessage] = useState<{ status: "idle" | "loading" | "ready" | "error"; text?: string; url?: string; delivery?: CreatedDeliveryRecord }>({ status: "idle" });
 
   async function rowAction(delivery: DeliveryRecord, action: DeliveryHistoryAction) {
@@ -1888,11 +1968,16 @@ function DeliveryTable({ api }: { api: ReturnType<typeof useWardSenApi> }) {
   async function refreshAll() {
     setMessage({ status: "loading", text: "Refreshing active deliveries..." });
     const active = api.deliveries.filter((delivery) => delivery.status === "active" && deliveryProviderSupports(api.deliveryProviders, delivery.deliveryProviderId, "statusLookup"));
+    if (active.length === 0) {
+      setMessage({ status: "ready", text: "No active deliveries from a provider that supports status checks." });
+      return;
+    }
     const results = await Promise.allSettled(active.map(async (delivery) => parseDeliveryRecord(await apiSend<unknown>(`/api/deliveries/${delivery.id}/refresh`))));
-    const failures = results.filter((result) => result.status === "rejected").length;
+    const rejected = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+    const failureDetail = rejected[0]?.reason instanceof Error ? rejected[0].reason.message : rejected[0] ? String(rejected[0].reason) : undefined;
     setMessage({
-      status: failures ? "error" : "ready",
-      text: `Refreshed ${results.length - failures}/${results.length} active deliveries${failures ? `; ${failures} failed` : ""}.`
+      status: rejected.length ? "error" : "ready",
+      text: `Refreshed ${results.length - rejected.length}/${results.length} active deliveries${rejected.length ? `; ${rejected.length} failed. ${failureDetail}` : "."}`
     });
     await api.refresh();
   }
@@ -2095,7 +2180,7 @@ function PanelTitle({ icon: Icon, title, action, onAction }: { icon: React.Eleme
   return (
     <div className="panelTitle">
       <h2><Icon size={18} aria-hidden="true" /> {title}</h2>
-      <button type="button" onClick={onAction}>{action}</button>
+      {onAction ? <button type="button" onClick={onAction}>{action}</button> : null}
     </div>
   );
 }
@@ -2202,8 +2287,62 @@ function titleStatus(value: string) {
   return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-async function confirmDestructiveAction(_phrase: string, message: string): Promise<boolean> {
-  return window.confirm(`${message}\n\nWardSen will ask the local service to confirm this action.`);
+function useDestructiveConfirmation() {
+  const [request, setRequest] = useState<{ phrase: string; message: string; resolve: (confirmed: boolean) => void }>();
+
+  function confirm(phrase: string, message: string): Promise<boolean> {
+    return new Promise((resolve) => setRequest({ phrase, message, resolve }));
+  }
+
+  function finish(confirmed: boolean) {
+    const current = request;
+    setRequest(undefined);
+    current?.resolve(confirmed);
+  }
+
+  return {
+    confirm,
+    dialog: request ? (
+      <DestructiveConfirmationDialog
+        phrase={request.phrase}
+        message={request.message}
+        onCancel={() => finish(false)}
+        onConfirm={() => finish(true)}
+      />
+    ) : null
+  };
+}
+
+function DestructiveConfirmationDialog({ phrase, message, onCancel, onConfirm }: { phrase: string; message: string; onCancel: () => void; onConfirm: () => void }) {
+  const [typedPhrase, setTypedPhrase] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+  const isConfirmed = typedPhrase === phrase;
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, [phrase]);
+
+  return (
+    <div className="confirmationBackdrop" role="presentation">
+      <form className="confirmationDialog" role="dialog" aria-modal="true" aria-labelledby="destructive-confirmation-title" onSubmit={(event) => {
+        event.preventDefault();
+        if (isConfirmed) onConfirm();
+      }}>
+        <h2 id="destructive-confirmation-title">Confirm destructive action</h2>
+        <p>{message}</p>
+        <label>
+          Type the confirmation phrase to continue
+          <code>{phrase}</code>
+          <input ref={inputRef} value={typedPhrase} onChange={(event) => setTypedPhrase(event.target.value)} autoComplete="off" spellCheck="false" aria-describedby="destructive-confirmation-help" />
+        </label>
+        <small id="destructive-confirmation-help">The local service will reject this action unless the phrase matches exactly.</small>
+        <div className="buttonRow confirmationActions">
+          <button type="button" onClick={onCancel}>Cancel</button>
+          <button type="submit" className="dangerAction" disabled={!isConfirmed}>Confirm action</button>
+        </div>
+      </form>
+    </div>
+  );
 }
 
 function formatDate(value: string) {
@@ -2337,6 +2476,24 @@ function isManualHandoffDelivery(delivery?: Pick<CreatedDeliveryRecord, "deliver
 
 function deliveryProviderSupports(providers: ProviderInfo[], providerId: string, capability: string): boolean {
   return providers.find((provider) => provider.id === providerId)?.capabilities?.[capability] === true;
+}
+
+async function refreshSupportedDeliveryStatuses(deliveries: DeliveryRecord[], providers: ProviderInfo[]): Promise<{ total: number; refreshed: number; failed: number; failureDetail?: string }> {
+  const active = deliveries.filter((delivery) => delivery.status === "active" && deliveryProviderSupports(providers, delivery.deliveryProviderId, "statusLookup"));
+  if (active.length === 0) return { total: 0, refreshed: 0, failed: 0 };
+  const results = await Promise.allSettled(active.map(async (delivery) => parseDeliveryRecord(await apiSend<unknown>(`/api/deliveries/${delivery.id}/refresh`))));
+  const rejected = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+  return {
+    total: results.length,
+    refreshed: results.length - rejected.length,
+    failed: rejected.length,
+    failureDetail: rejected[0]?.reason instanceof Error ? rejected[0].reason.message : rejected[0] ? String(rejected[0].reason) : undefined
+  };
+}
+
+function refreshSummaryText(summary: { total: number; refreshed: number; failed: number; failureDetail?: string }): string {
+  if (summary.total === 0) return "No active deliveries from a provider that supports status checks.";
+  return `Refreshed ${summary.refreshed}/${summary.total} active deliveries${summary.failed ? `; ${summary.failed} failed. ${summary.failureDetail}` : "."}`;
 }
 
 function deliveryMessage(message: string, delivery?: Pick<CreatedDeliveryRecord, "deliveryProviderId" | "status">): string {

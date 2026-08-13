@@ -9,6 +9,7 @@ import type {
   DeliveryStatus,
   SensitiveCredential
 } from "@wardsen/core";
+import { formatDeliveryCredentialText } from "@wardsen/core";
 
 export type ClipboardWriter = (text: string) => Promise<void>;
 
@@ -97,10 +98,7 @@ export class EntePasteManualDeliveryProvider implements DeliveryProvider {
 }
 
 export function formatCredentialText(credential: SensitiveCredential): string {
-  const lines = [`Title: ${credential.title}`];
-  if (credential.username) lines.push(`Username: ${credential.username}`);
-  if (credential.password) lines.push(`Password: ${credential.password}`);
-  return lines.join("\n");
+  return formatDeliveryCredentialText(credential);
 }
 
 async function writeSystemClipboard(text: string): Promise<void> {

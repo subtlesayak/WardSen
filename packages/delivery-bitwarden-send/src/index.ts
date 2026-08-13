@@ -7,6 +7,7 @@ import type {
   DeliveryResult,
   DeliveryStatus
 } from "@wardsen/core";
+import { formatDeliveryCredentialText } from "@wardsen/core";
 import { resolveProviderExecutable, runCliCommand, type CliCommandInput, type CliCommandResult } from "@wardsen/security";
 
 export type BitwardenSendCommandRunner = (input: CliCommandInput) => Promise<CliCommandResult>;
@@ -149,10 +150,7 @@ function bitwardenExecutableCandidates(): string[] {
 }
 
 function formatCredentialText(credential: CreateDeliveryInput["sourceCredential"]): string {
-  const lines = [`Title: ${credential.title}`];
-  if (credential.username) lines.push(`Username: ${credential.username}`);
-  if (credential.password) lines.push(`Password: ${credential.password}`);
-  return lines.join("\n");
+  return formatDeliveryCredentialText(credential);
 }
 
 function buildTextSendObject(input: CreateDeliveryInput, text: string): Record<string, unknown> {

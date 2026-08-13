@@ -110,6 +110,14 @@ export interface DeliveryProviderCapabilities {
   statusLookup: boolean;
 }
 
+/** Projects the only credential fields WardSen may hand to a delivery provider. */
+export function formatDeliveryCredentialText(credential: SensitiveCredential): string {
+  const lines = [`Title: ${credential.title}`];
+  if (credential.username) lines.push(`Username: ${credential.username}`);
+  if (credential.password) lines.push(`Password: ${credential.password}`);
+  return lines.join("\n");
+}
+
 export interface DeliveryRecipient {
   id: string;
   name: string;

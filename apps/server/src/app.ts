@@ -32,6 +32,7 @@ import { InMemoryWardSenRepository } from "@wardsen/database";
 import type { WardSenRepository } from "@wardsen/database";
 import { BitwardenCredentialProvider } from "@wardsen/provider-bitwarden";
 import { BitwardenSendDeliveryProvider } from "@wardsen/delivery-bitwarden-send";
+import { OnetimeSecretDeliveryProvider, PasswordPusherDeliveryProvider, YopassDeliveryProvider } from "@wardsen/delivery-external";
 import { KeePassXCCredentialProvider } from "@wardsen/provider-keepassxc";
 import { assertSameOrigin, isLocalRequest, safeErrorMessage } from "@wardsen/security";
 import { parsePeopleCsv, peopleToCsv } from "./csv";
@@ -103,6 +104,9 @@ export async function buildApp(options: BuildAppOptions = {}) {
       })
     );
     registry.registerDeliveryProvider(new EntePasteManualDeliveryProvider());
+    registry.registerDeliveryProvider(new PasswordPusherDeliveryProvider());
+    registry.registerDeliveryProvider(new OnetimeSecretDeliveryProvider());
+    registry.registerDeliveryProvider(new YopassDeliveryProvider());
   }
   for (const provider of options.credentialProviders ?? []) {
     registry.registerCredentialProvider(provider);
@@ -225,6 +229,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
           enabledByDefault: manifest?.enabledByDefault ?? true,
           documentationUrl: manifest?.documentationUrl,
           notes: manifest?.notes,
+          setupInstructions: manifest?.setupInstructions,
           delivery: manifest?.delivery,
           capabilities: await provider.getCapabilities()
         };
@@ -232,7 +237,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     ),
     plannedProviders: builtInProviderManifests
       .filter((manifest) => !manifest.enabledByDefault)
-      .map(({ id, displayName, kind, maturity, enabledByDefault, documentationUrl, notes, delivery }) => ({
+      .map(({ id, displayName, kind, maturity, enabledByDefault, documentationUrl, notes, setupInstructions, delivery }) => ({
         id,
         displayName,
         kind,
@@ -240,6 +245,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
         enabledByDefault,
         documentationUrl,
         notes,
+        setupInstructions,
         delivery
       }))
   }));
@@ -253,6 +259,24 @@ export async function buildApp(options: BuildAppOptions = {}) {
     await provider.clearHandoffClipboard();
     await audit("delivery.manual_handoff.clipboard_clear", "success", { safeDetails: `provider=${provider.id}` });
     return { providerId: provider.id, cleared: true };
+  });
+
+  app.post("/api/delivery-providers/:id/test", { config: { rateLimit: { max: 10, timeWindow: RATE_LIMIT_WINDOW } } }, async (request) => {
+    const { id } = idParams.parse(request.params);
+    const provider = registry.getDeliveryProvider(id);
+    if (provider.id === "bitwarden-send") {
+      throw app.httpErrors.badRequest("Bitwarden Send readiness is checked against the selected unlocked Bitwarden account when a delivery is created.");
+    }
+    const result = await provider.testConnection(`provider-configuration-${provider.id}`);
+    await audit("delivery.provider_configuration_check", result.ok ? "success" : "failure", {
+      safeDetails: `provider=${provider.id};status=${result.status}`
+    });
+    return {
+      providerId: provider.id,
+      ready: result.ok && result.status === "unlocked",
+      status: result.status,
+      safeMessage: result.safeMessage
+    };
   });
 
   app.get("/api/accounts", async () => accountsWithLiveStatus());
@@ -270,7 +294,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
       serverUrl: body.serverUrl,
       profileDirectory: managedProfileDirectory(profileRoot, id),
       accountType: body.accountType,
-      autoLockMinutes: body.autoLockMinutes ?? 5,
+      autoLockMinutes: body.autoLockMinutes ?? 10,
       status: "locked",
       lastActivity: now
     };
@@ -1381,7 +1405,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   async function enforceAutoLock() {
     const accounts = await repository.listAccounts();
     const accountsById = new Map(accounts.map((account) => [account.id, account]));
-    const inactiveIds = sessions.inactiveAccountIds(new Date(), (accountId) => accountsById.get(accountId)?.autoLockMinutes ?? 5);
+    const inactiveIds = sessions.inactiveAccountIds(new Date(), (accountId) => accountsById.get(accountId)?.autoLockMinutes ?? 10);
     for (const id of inactiveIds) {
       const account = accountsById.get(id);
       if (!account) continue;
@@ -1997,7 +2021,7 @@ async function assertDeliveryProviderReady(deliveryProvider: DeliveryProvider, a
     if (deliveryProvider.id === "bitwarden-send") {
       throw new Error(`Bitwarden Send account "${label}" is not ready. Go to Vaults > Account Access, select "${label}", use Terminal login / unlock if Bitwarden asks for first login or verification, then wait for WardSen to show the account as unlocked before creating a secure link. Detail: ${detail}`);
     }
-    throw new Error(`Delivery account "${label}" is not ready. Unlock or reconnect this delivery account before creating a secure link. Detail: ${detail}`);
+    throw new Error(`${deliveryProvider.displayName} is not configured for audit account "${label}". Check Settings > Provider Capabilities for its local setup requirements. Detail: ${detail}`);
   }
 }
 

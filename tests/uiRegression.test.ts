@@ -8,12 +8,14 @@ const employeePortalSource = readFileSync("apps/web/src/employeePortal.tsx", "ut
 const styles = readFileSync("apps/web/src/styles.css", "utf8");
 
 describe("web UI regression guards", () => {
-  it("uses a simple confirmation dialog for destructive UI actions", () => {
-    const helper = webSource.match(/async function confirmDestructiveAction[\s\S]*?\n}/)?.[0] ?? "";
+  it("uses an in-app typed confirmation dialog for destructive UI actions", () => {
+    const dialog = webSource.match(/function DestructiveConfirmationDialog[\s\S]*?\n}/)?.[0] ?? "";
 
-    expect(helper).toContain("window.confirm");
-    expect(helper).not.toContain("window.prompt");
-    expect(helper).not.toContain("Type ${phrase} to continue");
+    expect(webSource).toContain("function useDestructiveConfirmation");
+    expect(dialog).toContain("Type the confirmation phrase to continue");
+    expect(dialog).toContain("disabled={!isConfirmed}");
+    expect(dialog).toContain("The local service will reject this action unless the phrase matches exactly.");
+    expect(webSource).not.toContain("async function confirmDestructiveAction");
   });
 
   it("keeps the desktop sidebar independent from content scrolling", () => {
@@ -103,7 +105,12 @@ describe("web UI regression guards", () => {
     expect(webSource).toContain("Lock and remove WardSen session");
     expect(webSource).toContain("formatAutoLockCountdown");
     expect(webSource).toContain("Locks in ${minutes}:${seconds}");
-    expect(webSource).toContain("autoLockMinutes: \"5\"");
+    expect(webSource).toContain("autoLockMinutes: \"10\"");
+    expect(webSource).toContain("Check Settings &gt; Provider Capabilities");
+    expect(webSource).toContain("Only active delivery integrations are selectable.");
+    expect(webSource).toContain("Open provider docs");
+    expect(webSource).toContain("Check configuration");
+    expect(webSource).toContain("/api/delivery-providers/${encodeURIComponent(selectedProvider.id)}/test");
   });
 
   it("keeps delivery recipient copy aligned with the selected delivery mode", () => {
@@ -195,13 +202,25 @@ describe("web UI regression guards", () => {
 
   it("shows delivery provider candidates without enabling planned providers as functional", () => {
     expect(webSource).toContain("plannedProviders: ProviderInfo[]");
-    expect(webSource).toContain("Delivery Provider Candidates");
+    expect(webSource).toContain("Planned Provider Candidates");
     expect(webSource).toContain("providerTelemetryLabel");
     expect(webSource).toContain("Promotion blockers");
     expect(webSource).toContain("viewer ${titleStatus(readiness.viewerIdentity)}");
     expect(webSource).toContain("provider.delivery?.promotionBlockedBy.join");
     expect(styles).toMatch(/\.tableHead\.providerCandidate,\s*\.tableRow\.providerCandidate/);
     expect(styles).toMatch(/\.providerTable\s*{/);
+    expect(webSource).toContain("Planned Provider Candidates");
+    expect(styles).toContain("minmax(248px, 1.2fr)");
+    expect(styles).toContain("scrollbar-gutter: stable both-edges");
+  });
+
+  it("refreshes provider status from the delivery audit instead of only reloading local metadata", () => {
+    expect(webSource).toContain("async function refreshProviderStatus");
+    expect(webSource).toContain('title="Delivery Audit" action="Refresh provider status" onAction={() => void refreshProviderStatus()}');
+    expect(webSource).toContain('text: `Refreshed ${results.length - rejected.length}/${results.length} active deliveries');
+    expect(webSource).toContain("await api.refresh();");
+    expect(webSource).toContain("function refreshSupportedDeliveryStatuses");
+    expect(webSource).toContain("window.setInterval(() => void refreshProviderStatus(true), 2 * 60 * 1000)");
   });
 
   it("labels Ente Paste as a manual handoff and disables unsupported lifecycle controls", () => {

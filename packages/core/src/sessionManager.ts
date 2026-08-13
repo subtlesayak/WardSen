@@ -93,7 +93,7 @@ export class AccountSessionManager {
     }
   }
 
-  lockInactive(now = new Date(), autoLockMinutesFor: (accountId: string) => number = () => 5): string[] {
+  lockInactive(now = new Date(), autoLockMinutesFor: (accountId: string) => number = () => 10): string[] {
     const locked: string[] = [];
     for (const accountId of this.inactiveAccountIds(now, autoLockMinutesFor)) {
       this.markLocked(accountId);
@@ -102,7 +102,7 @@ export class AccountSessionManager {
     return locked;
   }
 
-  inactiveAccountIds(now = new Date(), autoLockMinutesFor: (accountId: string) => number = () => 5): string[] {
+  inactiveAccountIds(now = new Date(), autoLockMinutesFor: (accountId: string) => number = () => 10): string[] {
     const inactive: string[] = [];
     for (const session of this.sessions.values()) {
       if (session.status !== "unlocked" || !session.lastActivityAt) continue;

@@ -4,7 +4,7 @@ Run this checklist before publishing a public WardSen build.
 
 ## v0.1.0-rc.54 Preparation
 
-- Release candidate includes automatic Bitwarden terminal-handoff refresh, the macOS Finder environment fix for npm-installed Bitwarden CLI wrappers, five-minute default auto-lock and reactive provider capability settings.
+- Release candidate includes automatic Bitwarden terminal-handoff refresh, the macOS Finder environment fix for npm-installed Bitwarden CLI wrappers, ten-minute default auto-lock and reactive provider capability settings.
 - 2026-08-12 focused validation passed: `npm run check` and 76 targeted API/provider/UI tests. Full release validation is required before publishing.
 - `v0.1.0-rc.54` is an unsigned security-review prerelease. Trusted end-user macOS distribution remains blocked until Apple Developer ID signing, notarization, and target-machine lifecycle evidence are available. The GitHub repository has no configured Apple signing secrets or `MACOS_SIGNING_ENABLED=true` variable.
 

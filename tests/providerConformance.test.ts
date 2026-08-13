@@ -5,6 +5,7 @@ import {
   verifyCredentialProviderConformance,
   verifyDeliveryProviderConformance
 } from "@wardsen/core";
+import { OnetimeSecretDeliveryProvider, PasswordPusherDeliveryProvider, YopassDeliveryProvider } from "@wardsen/delivery-external";
 import type {
   ConnectionResult,
   CredentialProvider,
@@ -53,8 +54,8 @@ describe("provider conformance", () => {
     expect(report).toEqual({ providerId: "bitwarden-send", kind: "delivery", passed: true, failures: [] });
   });
 
-  it("keeps secure-link candidates planned and disabled until they have a safe integration path", () => {
-    for (const providerId of ["password-pusher", "yopass", "onetime-secret", "onepassword-item-share"]) {
+  it("keeps the web-only 1Password sharing candidate planned until a supported automation surface exists", () => {
+    for (const providerId of ["onepassword-item-share"]) {
       const manifest = builtInProviderManifests.find((item) => item.id === providerId);
       expect(manifest).toMatchObject({
         id: providerId,
@@ -67,6 +68,19 @@ describe("provider conformance", () => {
         })
       });
       expect(manifest?.delivery?.promotionBlockedBy.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("passes the expanded active delivery providers against their readiness manifests", async () => {
+    const providers = [
+      new PasswordPusherDeliveryProvider({ apiToken: "test-token" }),
+      new OnetimeSecretDeliveryProvider({ username: "test-user", apiToken: "test-token" }),
+      new YopassDeliveryProvider({ runCommand: async () => ({ exitCode: 0, stdout: "yopass 1.0", stderr: "", durationMs: 1 }) })
+    ];
+    for (const provider of providers) {
+      const manifest = builtInProviderManifests.find((item) => item.id === provider.id);
+      expect(manifest).toBeTruthy();
+      await expect(verifyDeliveryProviderConformance(provider, manifest!)).resolves.toEqual({ providerId: provider.id, kind: "delivery", passed: true, failures: [] });
     }
   });
 

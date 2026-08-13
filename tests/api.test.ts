@@ -149,10 +149,31 @@ describe("WardSen API", () => {
       expect.objectContaining({ id: "onepassword", maturity: "planned", enabledByDefault: false }),
       expect.objectContaining({ id: "proton-pass", maturity: "planned", enabledByDefault: false }),
       expect.objectContaining({ id: "keeper", maturity: "planned", enabledByDefault: false }),
-      expect.objectContaining({ id: "password-pusher", maturity: "planned", enabledByDefault: false })
+      expect.objectContaining({ id: "onepassword-item-share", maturity: "planned", enabledByDefault: false })
     ]));
     expect(body.deliveryProviders).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "bitwarden-send", maturity: "active", enabledByDefault: true }),
+      expect.objectContaining({
+        id: "password-pusher",
+        maturity: "active",
+        enabledByDefault: true,
+        setupInstructions: expect.arrayContaining([expect.stringContaining("WARDSEN_PASSWORD_PUSHER_API_TOKEN")]),
+        delivery: expect.objectContaining({ revoke: "supported", statusLookup: "supported", accessCount: "unsupported" })
+      }),
+      expect.objectContaining({
+        id: "onetime-secret",
+        maturity: "active",
+        enabledByDefault: true,
+        setupInstructions: expect.arrayContaining([expect.stringContaining("WARDSEN_ONETIME_SECRET_USERNAME")]),
+        delivery: expect.objectContaining({ revoke: "supported", statusLookup: "supported", accessCount: "unsupported" })
+      }),
+      expect.objectContaining({
+        id: "yopass",
+        maturity: "active",
+        enabledByDefault: true,
+        setupInstructions: expect.arrayContaining([expect.stringContaining("WARDSEN_YOPASS_CLI_PATH")]),
+        delivery: expect.objectContaining({ revoke: "unsupported", statusLookup: "unsupported", accessCount: "unsupported" })
+      }),
       expect.objectContaining({
         id: "ente-paste",
         maturity: "experimental",
@@ -171,6 +192,20 @@ describe("WardSen API", () => {
         })
       })
     ]));
+    await app.close();
+  });
+
+  it("checks non-Bitwarden delivery provider configuration without accepting provider secrets from the UI", async () => {
+    const app = await buildApp();
+    const headers = { host: "127.0.0.1:4777", origin: "http://127.0.0.1:4777" };
+
+    const manual = await app.inject({ method: "POST", url: "/api/delivery-providers/ente-paste/test", headers });
+    expect(manual.statusCode).toBe(200);
+    expect(manual.json()).toMatchObject({ providerId: "ente-paste", ready: true, status: "unlocked" });
+
+    const bitwarden = await app.inject({ method: "POST", url: "/api/delivery-providers/bitwarden-send/test", headers });
+    expect(bitwarden.statusCode).toBe(400);
+    expect(bitwarden.json().error).toContain("selected unlocked Bitwarden account");
     await app.close();
   });
 
@@ -336,7 +371,7 @@ describe("WardSen API", () => {
     await app.close();
   });
 
-  it("defaults new accounts to a five-minute auto-lock", async () => {
+  it("defaults new accounts to a ten-minute auto-lock", async () => {
     const app = await buildApp({ credentialProviders: [new MockCredentialProvider()] });
     const headers = { host: "127.0.0.1:4777", origin: "http://127.0.0.1:4777" };
 
@@ -347,7 +382,7 @@ describe("WardSen API", () => {
       payload: { id: "source", providerId: "mock-source", label: "Mock source" }
     });
 
-    expect(created.json()).toMatchObject({ autoLockMinutes: 5 });
+    expect(created.json()).toMatchObject({ autoLockMinutes: 10 });
     await app.close();
   });
 
