@@ -48,6 +48,7 @@ Before opening a pull request, ask:
 - Does the UI overstate what a provider status signal proves?
 - Are destructive actions server-enforced with exact confirmation where needed?
 - Are logs and thrown errors redacted and bounded?
+- Did a generated `WARD-SEN-CANARY-...` value stay out of SQLite, API responses, audit output, diagnostics and built web assets when exercising the changed provider path?
 - Are release or signing claims backed by artifact-specific evidence?
 
 ## Required Checks
@@ -57,7 +58,8 @@ Run the focused checks relevant to your change. For ordinary code changes, start
 ```bash
 npm run check
 npm test
+npm run security:test-canary
 npm run security:scan-secrets
 ```
 
-Release changes also need the release evidence scripts documented in `docs/release-security-checklist.md` and `docs/installer-signing.md`.
+Use generated test-only canaries, never a real credential or session value. Release changes also need the release evidence scripts documented in `docs/release-security-checklist.md` and `docs/installer-signing.md`; the release workflow scans its built service and web artifacts before publishing.

@@ -47,6 +47,29 @@ interface ProviderInfo {
   delivery?: DeliveryReadiness;
 }
 
+interface ProviderDiagnostic {
+  providerId: string;
+  displayName: string;
+  kind: string;
+  runtime: { kind: string; binaryFound: boolean; version: string; detail: string };
+  authentication: { state: string; detail: string };
+  accounts: Array<{ id: string; label: string; status: string }>;
+  capabilities: Record<string, boolean>;
+  linkPreviewRisk: string;
+}
+
+interface OperationImpactPreview {
+  action: string;
+  impact: {
+    affectedPeople: string[];
+    resources: string[];
+    providers: string[];
+    deliveryCount: number;
+    activeDeliveryCount: number;
+    batch?: { id: string; requestedCount: number; completedCount: number; failedCount: number; cancelled: boolean };
+  };
+}
+
 interface DeliveryReadiness {
   integrationSurface: string;
   secureLinkCreation: string;
@@ -635,7 +658,13 @@ function Vaults({ api, confirmDestructiveAction }: { api: ReturnType<typeof useW
 
   async function deleteVault(vault: AccountRecord) {
     const confirm = `DELETE ACCOUNT ${vault.id}`;
-    const confirmed = await confirmDestructiveAction(confirm, `Delete vault account "${vault.label}"? This removes local account metadata.`);
+    let confirmed: boolean;
+    try {
+      confirmed = await confirmDestructivePreview(confirmDestructiveAction, confirm, `/api/accounts/${encodeURIComponent(vault.id)}/operation-preview`, `Delete vault account "${vault.label}"? This removes local account metadata.`);
+    } catch (error) {
+      setMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
+      return;
+    }
     if (!confirmed) {
       setMessage({ status: "idle" });
       return;
@@ -869,6 +898,7 @@ function People({ api, confirmDestructiveAction }: { api: ReturnType<typeof useW
   const [editingPersonId, setEditingPersonId] = useState<string | undefined>();
   const [filters, setFilters] = useState({ search: "", groupName: "", active: "active" });
   const [csv, setCsv] = useState("");
+  const [showCsvImport, setShowCsvImport] = useState(false);
   const [message, setMessage] = useState<{ status: "idle" | "loading" | "ready" | "error"; text?: string }>({ status: "idle" });
   const groups = [...new Set(api.people.map((person) => person.groupName).filter(Boolean))].sort();
   const filteredPeople = api.people.filter((person) => {
@@ -926,6 +956,7 @@ function People({ api, confirmDestructiveAction }: { api: ReturnType<typeof useW
         body: JSON.stringify({ csv })
       });
       setCsv("");
+      setShowCsvImport(false);
       setMessage({ status: "ready", text: `Imported ${result.importedCount} people; ${result.duplicateCount} duplicate signal${result.duplicateCount === 1 ? "" : "s"}.` });
       await api.refresh();
     } catch (error) {
@@ -979,13 +1010,17 @@ function People({ api, confirmDestructiveAction }: { api: ReturnType<typeof useW
           {editingPersonId ? <button type="button" onClick={cancelPersonEdit}>Cancel edit</button> : null}
         </div>
       </form>
-      <form className="panel formGrid" onSubmit={importPeople}>
-        <PanelTitle icon={Archive} title="CSV Import" action="Export" onAction={exportPeople} />
-        <label className="spanAll">CSV<textarea name="peopleCsv" value={csv} onChange={(event) => setCsv(event.target.value)} placeholder="name,email,phone,groupName,role&#10;Mira,mira@example.com,+1,Ops,Admin" /></label>
-        <button className="primary full"><Archive size={16} aria-hidden="true" /> Import CSV</button>
-      </form>
       <section className="panel">
-        <PanelTitle icon={UsersRound} title="People Directory" action="Export CSV" onAction={exportPeople} />
+        <PanelTitle icon={UsersRound} title="People Directory" action="Import CSV" onAction={() => setShowCsvImport((visible) => !visible)} />
+        {showCsvImport ? (
+          <form className="formGrid csvImport" onSubmit={importPeople}>
+            <label className="spanAll">Paste CSV rows<textarea name="peopleCsv" value={csv} onChange={(event) => setCsv(event.target.value)} placeholder="name,email,phone,groupName,role&#10;Mira,mira@example.com,+1,Ops,Admin" /></label>
+            <div className="buttonRow spanAll">
+              <button className="primary"><Archive size={16} aria-hidden="true" /> Import CSV</button>
+              <button type="button" onClick={() => setShowCsvImport(false)}>Cancel</button>
+            </div>
+          </form>
+        ) : null}
         <div className="filters">
           <input aria-label="People search filter" value={filters.search} onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))} placeholder="Search people, groups, phone or email" />
           <select aria-label="People group filter" value={filters.groupName} onChange={(event) => setFilters((current) => ({ ...current, groupName: event.target.value }))}>
@@ -1014,7 +1049,7 @@ function People({ api, confirmDestructiveAction }: { api: ReturnType<typeof useW
                   <CopyFeedbackButton value={person.email ?? person.phone ?? person.name} label="Copy" copiedLabel="Copied" copiedStatus="Contact copied to clipboard." />
                   <button type="button" aria-label={`Edit ${person.name}`} title="Edit person" onClick={() => editPerson(person)}><Pencil size={15} aria-hidden="true" /></button>
                   {person.active ? (
-                    <button type="button" aria-label={`Archive ${person.name}`} title="Archive" onClick={() => api.action(`/api/people/${person.id}`, { method: "DELETE" })}><Archive size={15} aria-hidden="true" /></button>
+                    <button type="button" aria-label={`Offboard ${person.name}`} title="Offboard" onClick={() => void archivePerson(person)}><Archive size={15} aria-hidden="true" /></button>
                   ) : (
                     <button type="button" aria-label={`Restore ${person.name}`} title="Restore" onClick={() => api.action(`/api/people/${person.id}/restore`)}><RotateCcw size={15} aria-hidden="true" /></button>
                   )}
@@ -1030,11 +1065,28 @@ function People({ api, confirmDestructiveAction }: { api: ReturnType<typeof useW
 
   async function deletePerson(person: PersonRecord) {
     const confirm = `DELETE PERSON ${person.id}`;
-    if (!await confirmDestructiveAction(confirm, `Permanently delete "${person.name}"? This cannot be restored from WardSen.`)) return;
+    try {
+      if (!await confirmDestructivePreview(confirmDestructiveAction, confirm, `/api/people/${encodeURIComponent(person.id)}/operation-preview`, `Permanently delete "${person.name}"? This cannot be restored from WardSen.`)) return;
+    } catch (error) {
+      setMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
+      return;
+    }
     setMessage({ status: "loading", text: `Deleting ${person.name}...` });
     try {
       await api.action(`/api/people/${person.id}?hard=true`, { method: "DELETE", body: JSON.stringify({ confirm }) });
       setMessage({ status: "ready", text: `${person.name} deleted.` });
+    } catch (error) {
+      setMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  async function archivePerson(person: PersonRecord) {
+    const confirm = `OFFBOARD PERSON ${person.id}`;
+    try {
+      if (!await confirmDestructivePreview(confirmDestructiveAction, confirm, `/api/people/${encodeURIComponent(person.id)}/operation-preview`, `Offboard "${person.name}"? Their People record will be archived and no longer selected for new deliveries.`)) return;
+      setMessage({ status: "loading", text: `Offboarding ${person.name}...` });
+      await api.action(`/api/people/${person.id}`, { method: "DELETE", body: JSON.stringify({ confirm }) });
+      setMessage({ status: "ready", text: `${person.name} offboarded.` });
     } catch (error) {
       setMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
     }
@@ -1580,7 +1632,13 @@ function Deliveries({ api, confirmDestructiveAction }: { api: ReturnType<typeof 
       return;
     }
     const confirm = `REVOKE DELIVERY ${delivery.id}`;
-    const confirmed = await confirmDestructiveAction(confirm, `Revoke the suspicious provider link for "${delivery.credentialName}"? Recipients may lose access immediately.`);
+    let confirmed: boolean;
+    try {
+      confirmed = await confirmDestructivePreview(confirmDestructiveAction, confirm, `/api/deliveries/${encodeURIComponent(delivery.id)}/operation-preview`, `Revoke the suspicious provider link for "${delivery.credentialName}"? Recipients may lose access immediately.`);
+    } catch (error) {
+      setAuditMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
+      return;
+    }
     if (!confirmed) return;
 
     setAuditMessage({ status: "loading", text: `Revoking ${delivery.credentialName}...` });
@@ -1603,7 +1661,13 @@ function Deliveries({ api, confirmDestructiveAction }: { api: ReturnType<typeof 
       return;
     }
     const confirm = `REVOKE BATCH LINKS ${delivery.batchId}`;
-    const confirmed = await confirmDestructiveAction(confirm, `Revoke every active provider link created in this batch for "${delivery.credentialName}"? Every recipient in the batch may lose access immediately.`);
+    let confirmed: boolean;
+    try {
+      confirmed = await confirmDestructivePreview(confirmDestructiveAction, confirm, `/api/deliveries/${encodeURIComponent(delivery.id)}/revoke-batch/operation-preview`, `Revoke every active provider link created in this batch for "${delivery.credentialName}"? Every recipient in the batch may lose access immediately.`);
+    } catch (error) {
+      setAuditMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
+      return;
+    }
     if (!confirmed) return;
 
     setAuditMessage({ status: "loading", text: `Revoking active links in batch ${delivery.batchId}...` });
@@ -1624,7 +1688,13 @@ function Deliveries({ api, confirmDestructiveAction }: { api: ReturnType<typeof 
 
   async function cancelBatch(batch: DeliveryBatchRecord) {
     const confirm = `CANCEL BATCH ${batch.id}`;
-    const confirmed = await confirmDestructiveAction(confirm, `Cancel batch ${batch.id}? Any queued work for this batch will stop.`);
+    let confirmed: boolean;
+    try {
+      confirmed = await confirmDestructivePreview(confirmDestructiveAction, confirm, `/api/batches/${encodeURIComponent(batch.id)}/operation-preview`, `Cancel batch ${batch.id}? Any queued work for this batch will stop.`);
+    } catch (error) {
+      setAuditMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
+      return;
+    }
     if (!confirmed) return;
     try {
       await api.action(`/api/batches/${batch.id}/cancel`, { body: JSON.stringify({ confirm }) });
@@ -1635,20 +1705,27 @@ function Deliveries({ api, confirmDestructiveAction }: { api: ReturnType<typeof 
 
   async function refreshProviderStatus(silent = false) {
     if (!silent) setAuditMessage({ status: "loading", text: "Refreshing provider status for active deliveries..." });
-    const summary = await refreshSupportedDeliveryStatuses(api.deliveries, api.deliveryProviders);
-    if (!silent || summary.failed > 0 || summary.total === 0) {
-      setAuditMessage({
-        status: summary.failed ? "error" : "ready",
-        text: refreshSummaryText(summary)
-      });
+    try {
+      const summary = await refreshSupportedDeliveryStatuses(api.deliveries, api.deliveryProviders, api.accounts);
+      if (!silent || summary.failed > 0 || summary.total === 0) {
+        setAuditMessage({
+          status: summary.failed ? "error" : "ready",
+          text: refreshSummaryText(summary)
+        });
+      }
+      await api.refresh();
+    } catch (error) {
+      setAuditMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
     }
-    await api.refresh();
   }
 
-  const refreshKey = api.deliveries
-    .filter((delivery) => delivery.status === "active" && deliveryProviderSupports(api.deliveryProviders, delivery.deliveryProviderId, "statusLookup"))
-    .map((delivery) => `${delivery.id}:${delivery.status}`)
-    .join(",");
+  const refreshKey = [
+    api.deliveries
+      .filter((delivery) => delivery.status === "active" && deliveryProviderSupports(api.deliveryProviders, delivery.deliveryProviderId, "statusLookup"))
+      .map((delivery) => `${delivery.id}:${delivery.status}`)
+      .join(","),
+    api.accounts.map((account) => `${account.id}:${account.status}`).join(",")
+  ].join("|");
 
   useEffect(() => {
     if (!refreshKey) return;
@@ -1669,6 +1746,7 @@ function Deliveries({ api, confirmDestructiveAction }: { api: ReturnType<typeof 
         <DeliveryAuditPanel
           deliveries={api.deliveries}
           people={api.people}
+          providers={api.deliveryProviders}
           canRevoke={(delivery) => deliveryProviderSupports(api.deliveryProviders, delivery.deliveryProviderId, "revokeLink")}
           onRevoke={(delivery) => void revokeSuspiciousDelivery(delivery)}
           canContainBatch={(delivery) => Boolean(delivery.batchId) && deliveryProviderSupports(api.deliveryProviders, delivery.deliveryProviderId, "revokeLink")}
@@ -1697,22 +1775,39 @@ function Deliveries({ api, confirmDestructiveAction }: { api: ReturnType<typeof 
 
 function SettingsView({ credentialProviders, deliveryProviders, plannedProviders, onRefresh }: { credentialProviders: ProviderInfo[]; deliveryProviders: ProviderInfo[]; plannedProviders: ProviderInfo[]; onRefresh: () => void }) {
   const [selectedProviderId, setSelectedProviderId] = useState("");
-  const [connectionCheck, setConnectionCheck] = useState<{ status: "idle" | "loading" | "ready" | "error"; text?: string }>({ status: "idle" });
+  const [connectionCheck, setConnectionCheck] = useState<{ providerId?: string; status: "idle" | "loading" | "ready" | "error"; text?: string }>({ status: "idle" });
+  const [diagnostic, setDiagnostic] = useState<{ providerId?: string; status: "idle" | "loading" | "ready" | "error"; value?: ProviderDiagnostic; text?: string }>({ status: "idle" });
   const providers = [...credentialProviders, ...deliveryProviders];
   const selectedProvider = providers.find((provider) => provider.id === selectedProviderId) ?? providers[0];
   const capabilities = selectedProvider?.capabilities ?? {};
+  const isSelectedProviderCheck = connectionCheck.providerId === selectedProvider?.id;
+  const isSelectedDiagnostic = diagnostic.providerId === selectedProvider?.id;
 
   async function checkDeliveryProvider() {
     if (!selectedProvider || selectedProvider.kind !== "delivery" || selectedProvider.id === "bitwarden-send") return;
-    setConnectionCheck({ status: "loading", text: `Checking ${selectedProvider.displayName} configuration...` });
+    const provider = selectedProvider;
+    setConnectionCheck({ providerId: provider.id, status: "loading", text: `Checking ${provider.displayName} configuration...` });
     try {
-      const result = await apiSend<{ ready: boolean; safeMessage?: string }>(`/api/delivery-providers/${encodeURIComponent(selectedProvider.id)}/test`);
+      const result = await apiSend<{ ready: boolean; safeMessage?: string }>(`/api/delivery-providers/${encodeURIComponent(provider.id)}/test`);
       setConnectionCheck({
+        providerId: provider.id,
         status: result.ready ? "ready" : "error",
-        text: result.safeMessage ?? (result.ready ? `${selectedProvider.displayName} is ready.` : `${selectedProvider.displayName} is not ready.`)
+        text: result.safeMessage ?? (result.ready ? `${provider.displayName} is ready.` : `${provider.displayName} is not ready.`)
       });
     } catch (error) {
-      setConnectionCheck({ status: "error", text: error instanceof Error ? error.message : String(error) });
+      setConnectionCheck({ providerId: provider.id, status: "error", text: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  async function refreshDiagnostics() {
+    if (!selectedProvider) return;
+    const provider = selectedProvider;
+    setDiagnostic({ providerId: provider.id, status: "loading", text: `Checking ${provider.displayName} local readiness...` });
+    try {
+      const value = await apiGet<ProviderDiagnostic>(`/api/provider-diagnostics/${encodeURIComponent(provider.id)}`);
+      setDiagnostic({ providerId: provider.id, status: "ready", value });
+    } catch (error) {
+      setDiagnostic({ providerId: provider.id, status: "error", text: error instanceof Error ? error.message : String(error) });
     }
   }
 
@@ -1721,18 +1816,25 @@ function SettingsView({ credentialProviders, deliveryProviders, plannedProviders
       <section className="panel">
         <PanelTitle icon={Settings} title="Provider Capabilities" action="Refresh" onAction={onRefresh} />
         <div className="filters">
-          <select aria-label="Provider capability selection" value={selectedProvider?.id ?? ""} onChange={(event) => setSelectedProviderId(event.target.value)}>
+          <select aria-label="Provider capability selection" value={selectedProvider?.id ?? ""} onChange={(event) => {
+            setSelectedProviderId(event.target.value);
+            setConnectionCheck({ status: "idle" });
+            setDiagnostic({ status: "idle" });
+          }}>
             {providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.displayName}</option>)}
           </select>
           {selectedProvider?.documentationUrl ? <button type="button" onClick={() => void openExternalUrl(selectedProvider.documentationUrl!)}>Open provider docs</button> : null}
-          {selectedProvider?.kind === "delivery" && selectedProvider.id !== "bitwarden-send" ? <button type="button" disabled={connectionCheck.status === "loading"} onClick={() => void checkDeliveryProvider()}>{connectionCheck.status === "loading" ? "Checking..." : "Check configuration"}</button> : null}
+          {selectedProvider?.kind === "delivery" && selectedProvider.id !== "bitwarden-send" ? <button type="button" disabled={isSelectedProviderCheck && connectionCheck.status === "loading"} onClick={() => void checkDeliveryProvider()}>{isSelectedProviderCheck && connectionCheck.status === "loading" ? "Checking..." : "Check configuration"}</button> : null}
+          <button type="button" disabled={isSelectedDiagnostic && diagnostic.status === "loading"} onClick={() => void refreshDiagnostics()}>{isSelectedDiagnostic && diagnostic.status === "loading" ? "Checking runtime..." : "Refresh diagnostics"}</button>
         </div>
         {selectedProvider?.notes ? <p className="providerNotes">{selectedProvider.notes}</p> : null}
         {selectedProvider?.setupInstructions?.length ? <ul className="providerSetup" aria-label={`${selectedProvider.displayName} setup`}>
           {selectedProvider.setupInstructions.map((instruction) => <li key={instruction}>{instruction}</li>)}
         </ul> : null}
         {selectedProvider?.id === "bitwarden-send" ? <p className="providerNotes">Bitwarden Send readiness is checked with the selected unlocked Bitwarden account when a delivery is created.</p> : null}
-        {connectionCheck.status !== "idle" ? <div className={connectionCheck.status === "error" ? "notice error compact" : "notice compact"} role="status" aria-live="polite">{connectionCheck.text}</div> : null}
+        {isSelectedProviderCheck && connectionCheck.status !== "idle" ? <div className={connectionCheck.status === "error" ? "notice error compact" : "notice compact"} role="status" aria-live="polite">{connectionCheck.text}</div> : null}
+        {isSelectedDiagnostic && diagnostic.status === "error" ? <ErrorNotice message={diagnostic.text} compact /> : null}
+        {isSelectedDiagnostic && diagnostic.status === "ready" && diagnostic.value ? <ProviderDiagnostics diagnostic={diagnostic.value} /> : null}
         <div className="capabilityGrid">
           {Object.entries(capabilities).map(([key, enabled]) => (
             <div className={enabled ? "capability enabled" : "capability"} key={key}>
@@ -1766,6 +1868,25 @@ function SettingsView({ credentialProviders, deliveryProviders, plannedProviders
         </div>
       </section>
     </div>
+  );
+}
+
+function ProviderDiagnostics({ diagnostic }: { diagnostic: ProviderDiagnostic }) {
+  const accountSummary = diagnostic.accounts.length
+    ? diagnostic.accounts.map((account) => `${account.label}: ${titleStatus(account.status)}`).join(", ")
+    : "No local account configured";
+  return (
+    <section className="providerDiagnostics" aria-label={`${diagnostic.displayName} diagnostics`}>
+      <h3>Local readiness</h3>
+      <dl>
+        <div><dt>Runtime</dt><dd>{diagnostic.runtime.kind === "cli" ? `${diagnostic.runtime.binaryFound ? "CLI found" : "CLI unavailable"} - ${diagnostic.runtime.version}` : diagnostic.runtime.version}</dd></div>
+        <div><dt>Authentication</dt><dd>{titleStatus(diagnostic.authentication.state)}</dd></div>
+        <div><dt>Account state</dt><dd>{accountSummary}</dd></div>
+        <div><dt>Link-preview risk</dt><dd>{diagnostic.linkPreviewRisk}</dd></div>
+      </dl>
+      <p>{diagnostic.runtime.detail}</p>
+      <p>{diagnostic.authentication.detail}</p>
+    </section>
   );
 }
 
@@ -1978,7 +2099,7 @@ function DeliveryTable({ api, confirmDestructiveAction }: { api: ReturnType<type
           return;
         }
         const confirm = `REVOKE DELIVERY ${delivery.id}`;
-        const confirmed = await confirmDestructiveAction(confirm, `Revoke the provider link for "${delivery.credentialName}"? Recipients may lose access immediately.`);
+        const confirmed = await confirmDestructivePreview(confirmDestructiveAction, confirm, `/api/deliveries/${encodeURIComponent(delivery.id)}/operation-preview`, `Revoke the provider link for "${delivery.credentialName}"? Recipients may lose access immediately.`);
         if (!confirmed) {
           setMessage({ status: "idle" });
           return;
@@ -2314,6 +2435,33 @@ function titleStatus(value: string) {
   return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+async function confirmDestructivePreview(confirm: DestructiveConfirmation, phrase: string, previewPath: string, fallback: string): Promise<boolean> {
+  const preview = await apiGet<OperationImpactPreview>(previewPath);
+  return confirm(phrase, formatOperationImpactPreview(preview, fallback));
+}
+
+function formatOperationImpactPreview(preview: OperationImpactPreview, fallback: string): string {
+  const { impact } = preview;
+  const lines = [
+    "Impact preview",
+    fallback,
+    `Delivery links: ${impact.activeDeliveryCount}/${impact.deliveryCount} still active or pending.`,
+    previewList("Affected people", impact.affectedPeople),
+    previewList("Resources", impact.resources),
+    previewList("Providers", impact.providers)
+  ];
+  if (impact.batch) {
+    lines.push(`Batch: ${impact.batch.completedCount}/${impact.batch.requestedCount} created; ${impact.batch.failedCount} failed${impact.batch.cancelled ? "; already cancelled" : ""}.`);
+  }
+  return lines.join("\n\n");
+}
+
+function previewList(label: string, values: string[]): string {
+  if (values.length === 0) return `${label}: none.`;
+  const visible = values.slice(0, 8);
+  return `${label}: ${visible.join(", ")}${values.length > visible.length ? ` and ${values.length - visible.length} more` : ""}.`;
+}
+
 function useDestructiveConfirmation() {
   const [request, setRequest] = useState<{ phrase: string; message: string; resolve: (confirmed: boolean) => void }>();
 
@@ -2505,22 +2653,44 @@ function deliveryProviderSupports(providers: ProviderInfo[], providerId: string,
   return providers.find((provider) => provider.id === providerId)?.capabilities?.[capability] === true;
 }
 
-async function refreshSupportedDeliveryStatuses(deliveries: DeliveryRecord[], providers: ProviderInfo[]): Promise<{ total: number; refreshed: number; failed: number; failureDetail?: string }> {
+interface DeliveryRefreshSummary {
+  total: number;
+  refreshed: number;
+  blocked: number;
+  blockedAccountLabels: string[];
+  failed: number;
+  failureDetail?: string;
+}
+
+function isBitwardenStatusRefreshBlocked(delivery: DeliveryRecord, accounts: AccountRecord[]): boolean {
+  if (delivery.deliveryProviderId !== "bitwarden-send") return false;
+  return accounts.find((account) => account.id === delivery.deliveryAccountId)?.status !== "unlocked";
+}
+
+async function refreshSupportedDeliveryStatuses(deliveries: DeliveryRecord[], providers: ProviderInfo[], accounts: AccountRecord[]): Promise<DeliveryRefreshSummary> {
   const active = deliveries.filter((delivery) => delivery.status === "active" && deliveryProviderSupports(providers, delivery.deliveryProviderId, "statusLookup"));
-  if (active.length === 0) return { total: 0, refreshed: 0, failed: 0 };
-  const results = await Promise.allSettled(active.map(async (delivery) => parseDeliveryRecord(await apiSend<unknown>(`/api/deliveries/${delivery.id}/refresh`))));
+  if (active.length === 0) return { total: 0, refreshed: 0, blocked: 0, blockedAccountLabels: [], failed: 0 };
+  const blocked = active.filter((delivery) => isBitwardenStatusRefreshBlocked(delivery, accounts));
+  const refreshable = active.filter((delivery) => !isBitwardenStatusRefreshBlocked(delivery, accounts));
+  const results = await Promise.allSettled(refreshable.map(async (delivery) => parseDeliveryRecord(await apiSend<unknown>(`/api/deliveries/${delivery.id}/refresh`))));
   const rejected = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
   return {
-    total: results.length,
+    total: active.length,
     refreshed: results.length - rejected.length,
+    blocked: blocked.length,
+    blockedAccountLabels: [...new Set(blocked.map((delivery) => accounts.find((account) => account.id === delivery.deliveryAccountId)?.label ?? "the selected Bitwarden vault"))],
     failed: rejected.length,
     failureDetail: rejected[0]?.reason instanceof Error ? rejected[0].reason.message : rejected[0] ? String(rejected[0].reason) : undefined
   };
 }
 
-function refreshSummaryText(summary: { total: number; refreshed: number; failed: number; failureDetail?: string }): string {
+function refreshSummaryText(summary: DeliveryRefreshSummary): string {
   if (summary.total === 0) return "No active deliveries from a provider that supports status checks.";
-  return `Refreshed ${summary.refreshed}/${summary.total} active deliveries${summary.failed ? `; ${summary.failed} failed. ${summary.failureDetail}` : "."}`;
+  const detail = [
+    summary.blocked ? `${summary.blocked} waiting for ${summary.blockedAccountLabels.join(", ")} to be unlocked` : undefined,
+    summary.failed ? `${summary.failed} failed${summary.failureDetail ? `: ${summary.failureDetail}` : ""}` : undefined
+  ].filter(Boolean);
+  return `Refreshed ${summary.refreshed}/${summary.total} active deliveries${detail.length ? `; ${detail.join("; ")}.` : "."}`;
 }
 
 function deliveryMessage(message: string, delivery?: Pick<CreatedDeliveryRecord, "deliveryProviderId" | "status">): string {

@@ -417,6 +417,11 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
   align-self: start;
   width: 100%;
 }
+.csvImport {
+  border-top: 1px solid #dce7e1;
+  margin: 0 0 14px;
+  padding-top: 14px;
+}
 .accountAccessGrid {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
   column-gap: 16px;
@@ -607,6 +612,7 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
   box-shadow: 0 20px 48px rgba(24, 42, 35, 0.24);
 }
 .confirmationDialog h2, .confirmationDialog p { margin: 0; }
+.confirmationDialog p { white-space: pre-line; line-height: 1.45; }
 .confirmationDialog label { display: grid; gap: 8px; }
 .confirmationDialog code {
   display: block;
@@ -737,6 +743,19 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
 .providerTable { margin-top: 2px; }
 .providerNotes { margin: 0; color: #52665e; line-height: 1.5; }
 .providerSetup { display: grid; gap: 5px; margin: 0; padding-left: 20px; color: #52665e; line-height: 1.45; }
+.providerDiagnostics {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #d7e4de;
+  border-radius: 8px;
+  background: #f8fbf9;
+}
+.providerDiagnostics h3, .providerDiagnostics p { margin: 0; }
+.providerDiagnostics dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px 18px; margin: 0; }
+.providerDiagnostics dl > div { display: grid; gap: 3px; min-width: 0; }
+.providerDiagnostics dt { color: #64756e; font-size: 0.78rem; font-weight: 700; text-transform: uppercase; }
+.providerDiagnostics dd { margin: 0; overflow-wrap: anywhere; }
 .capability {
   display: grid;
   grid-template-columns: auto 1fr;

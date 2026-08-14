@@ -15,6 +15,10 @@ describe("web UI regression guards", () => {
     expect(dialog).toContain("Type the confirmation phrase to continue");
     expect(dialog).toContain("disabled={!isConfirmed}");
     expect(dialog).toContain("The local service will reject this action unless the phrase matches exactly.");
+    expect(webSource).toContain("function confirmDestructivePreview");
+    expect(webSource).toContain("Impact preview");
+    expect(webSource).toContain("/operation-preview");
+    expect(styles).toContain(".confirmationDialog p { white-space: pre-line;");
     expect(webSource).not.toContain("async function confirmDestructiveAction");
   });
 
@@ -100,6 +104,8 @@ describe("web UI regression guards", () => {
     expect(webSource).toContain("Provider capability selection");
     expect(webSource).toContain("value={selectedProvider?.id ?? \"\"}");
     expect(webSource).toContain("setSelectedProviderId(event.target.value)");
+    expect(webSource).toContain("setConnectionCheck({ status: \"idle\" })");
+    expect(webSource).toContain("connectionCheck.providerId === selectedProvider?.id");
     expect(webSource).toContain("Select for account access");
     expect(webSource).toContain("Sync latest provider changes");
     expect(webSource).toContain("Lock and remove WardSen session");
@@ -110,7 +116,11 @@ describe("web UI regression guards", () => {
     expect(webSource).toContain("Only active delivery integrations are selectable.");
     expect(webSource).toContain("Open provider docs");
     expect(webSource).toContain("Check configuration");
-    expect(webSource).toContain("/api/delivery-providers/${encodeURIComponent(selectedProvider.id)}/test");
+    expect(webSource).toContain("Refresh diagnostics");
+    expect(webSource).toContain("ProviderDiagnostics");
+    expect(webSource).toContain("/api/provider-diagnostics/${encodeURIComponent(provider.id)}");
+    expect(styles).toContain(".providerDiagnostics");
+    expect(webSource).toContain("/api/delivery-providers/${encodeURIComponent(provider.id)}/test");
   });
 
   it("keeps delivery recipient copy aligned with the selected delivery mode", () => {
@@ -217,10 +227,19 @@ describe("web UI regression guards", () => {
   it("refreshes provider status from the delivery audit instead of only reloading local metadata", () => {
     expect(webSource).toContain("async function refreshProviderStatus");
     expect(webSource).toContain('title="Delivery Audit" action="Refresh provider status" onAction={() => void refreshProviderStatus()}');
-    expect(webSource).toContain('text: `Refreshed ${results.length - rejected.length}/${results.length} active deliveries');
+    expect(webSource).toContain("isBitwardenStatusRefreshBlocked");
+    expect(webSource).toContain("blockedAccountLabels");
+    expect(webSource).toContain("api.accounts.map((account) => `${account.id}:${account.status}`)");
     expect(webSource).toContain("await api.refresh();");
     expect(webSource).toContain("function refreshSupportedDeliveryStatuses");
     expect(webSource).toContain("window.setInterval(() => void refreshProviderStatus(true), 2 * 60 * 1000)");
+  });
+
+  it("keeps CSV import discoverable and avoids duplicate people export actions", () => {
+    expect(webSource).toContain('title="People Directory" action="Import CSV"');
+    expect(webSource).toContain('name="peopleCsv"');
+    expect(webSource).toContain('aria-hidden="true" /> Export CSV</button>');
+    expect(webSource).not.toContain('title="People Directory" action="Export CSV"');
   });
 
   it("labels Ente Paste as a manual handoff and disables unsupported lifecycle controls", () => {

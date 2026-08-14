@@ -500,9 +500,52 @@ describe("WardSen API", () => {
     });
     expect(updated.json().groupName).toBe("Ops");
 
-    expect((await app.inject({ method: "DELETE", url: "/api/people/person-1", headers })).json().archived).toBe(true);
+    const archiveWithoutConfirmation = await app.inject({ method: "DELETE", url: "/api/people/person-1", headers });
+    expect(archiveWithoutConfirmation.statusCode).toBe(400);
+    expect(archiveWithoutConfirmation.json().error).toBe("Destructive action requires confirmation phrase: OFFBOARD PERSON person-1");
+    expect((await app.inject({ method: "DELETE", url: "/api/people/person-1", headers, payload: { confirm: "OFFBOARD PERSON person-1" } })).json().archived).toBe(true);
     expect((await app.inject({ method: "POST", url: "/api/people/person-1/restore", headers })).statusCode).toBe(200);
     expect((await app.inject({ method: "DELETE", url: "/api/people/person-1?hard=true", headers, payload: { confirm: "DELETE PERSON person-1" } })).json().deleted).toBe(true);
+    await app.close();
+  });
+
+  it("previews offboarding, batch cancellation and batch link revocation without returning delivery URLs", async () => {
+    const repository = new InMemoryWardSenRepository();
+    await repository.upsertPerson({ id: "person-preview", name: "Preview Person", email: "preview@example.com" });
+    await repository.createBatch({ id: "batch-preview", requestedCount: 2, completedCount: 2, failedCount: 0, cancelled: false });
+    await repository.createDelivery({
+      id: "delivery-preview", sourceProviderId: "mock-source", sourceAccountId: "source", sourceItemId: "preview-item", deliveryProviderId: "mock-delivery", deliveryAccountId: "delivery", credentialName: "Preview credential", personId: "person-preview", batchId: "batch-preview", expiresAt: new Date(Date.now() + 3600000).toISOString(), status: "active", providerDeliveryId: "provider-preview"
+    });
+    const app = await buildApp({ repository, credentialProviders: [new MockCredentialProvider()], deliveryProviders: [new MockDeliveryProvider()] });
+    const headers = { host: "127.0.0.1:4777" };
+
+    const [personPreview, batchPreview, revokePreview] = await Promise.all([
+      app.inject({ method: "GET", url: "/api/people/person-preview/operation-preview", headers }),
+      app.inject({ method: "GET", url: "/api/batches/batch-preview/operation-preview", headers }),
+      app.inject({ method: "GET", url: "/api/deliveries/delivery-preview/revoke-batch/operation-preview", headers })
+    ]);
+
+    for (const preview of [personPreview, batchPreview, revokePreview]) {
+      expect(preview.statusCode).toBe(200);
+      expect(preview.body).toContain("Preview credential");
+      expect(preview.body).toContain("Mock Delivery");
+      expect(preview.body).not.toContain("https://");
+    }
+    expect(personPreview.json().impact.affectedPeople).toContain("Preview Person");
+    expect(batchPreview.json().impact.activeDeliveryCount).toBe(1);
+    await app.close();
+  });
+
+  it("reports provider diagnostics without exposing local configuration values", async () => {
+    const app = await buildApp();
+    const response = await app.inject({ method: "GET", url: "/api/provider-diagnostics/ente-paste", headers: { host: "127.0.0.1:4777" } });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      providerId: "ente-paste",
+      runtime: { kind: "browser", version: "Not applicable" },
+      authentication: { state: "not applicable" },
+      linkPreviewRisk: expect.stringContaining("WardSen cannot see")
+    });
     await app.close();
   });
 
@@ -1598,6 +1641,46 @@ describe("WardSen API", () => {
     expect(refreshedAgain.firstViewedAt).toBe(refreshed.firstViewedAt);
     expect((await app.inject({ method: "POST", url: `/api/deliveries/${deliveryId}/retry`, headers })).json().oneTimeDeliveryUrl).toMatch(/^https:\/\/mock.local\/send\//);
     expect((await app.inject({ method: "DELETE", url: `/api/deliveries/${deliveryId}`, headers, payload: { confirm: `REVOKE DELIVERY ${deliveryId}` } })).json().status).toBe("revoked");
+    await app.close();
+  });
+
+  it("marks expired delivery metadata as expired when a provider status check is unavailable", async () => {
+    const createdAt = new Date("2026-08-14T12:00:00.000Z");
+    const now = vi.spyOn(Date, "now").mockReturnValue(createdAt.getTime());
+    const sessions = new AccountSessionManager();
+    const app = await buildApp({
+      sessions,
+      credentialProviders: [new MockCredentialProvider()],
+      deliveryProviders: [new MockDeliveryProvider()]
+    });
+    const headers = { host: "127.0.0.1:4777", origin: "http://127.0.0.1:4777" };
+    await app.inject({ method: "POST", url: "/api/accounts", headers, payload: { id: "source", providerId: "mock-source", label: "Mock source" } });
+    sessions.markUnlocked("source", "mock-source", "source-token");
+    await app.inject({ method: "POST", url: "/api/accounts", headers, payload: { id: "delivery", providerId: "mock-source", label: "Mock delivery" } });
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/deliveries",
+      headers,
+      payload: {
+        sourceProviderId: "mock-source",
+        sourceAccountId: "source",
+        sourceItemId: "cms",
+        deliveryProviderId: "mock-delivery",
+        deliveryAccountId: "delivery",
+        expiresAt: new Date(createdAt.getTime() + 60_000).toISOString(),
+        viewLimit: 1,
+        viewOnce: true,
+        deliveryMethod: "copy"
+      }
+    });
+    expect(created.statusCode).toBe(200);
+
+    now.mockReturnValue(createdAt.getTime() + 60_001);
+    const deliveries = await app.inject({ method: "GET", url: "/api/deliveries", headers });
+    expect(deliveries.json().items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: created.json().id, status: "expired" })
+    ]));
     await app.close();
   });
 

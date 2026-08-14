@@ -34,7 +34,7 @@ import { BitwardenCredentialProvider } from "@wardsen/provider-bitwarden";
 import { BitwardenSendDeliveryProvider } from "@wardsen/delivery-bitwarden-send";
 import { OnetimeSecretDeliveryProvider, PasswordPusherDeliveryProvider, YopassDeliveryProvider } from "@wardsen/delivery-external";
 import { KeePassXCCredentialProvider } from "@wardsen/provider-keepassxc";
-import { assertSameOrigin, isLocalRequest, safeErrorMessage } from "@wardsen/security";
+import { assertSameOrigin, isLocalRequest, resolveProviderExecutable, runCliCommand, safeErrorMessage } from "@wardsen/security";
 import { parsePeopleCsv, peopleToCsv } from "./csv";
 import { EntePasteManualDeliveryProvider } from "../../../packages/delivery-ente-paste/src";
 
@@ -252,6 +252,27 @@ export async function buildApp(options: BuildAppOptions = {}) {
       }))
   }));
 
+  app.get("/api/provider-diagnostics/:id", async (request) => {
+    const { id } = idParams.parse(request.params);
+    const credentialProvider = registry.listCredentialProviders().find((provider) => provider.id === id);
+    const deliveryProvider = registry.listDeliveryProviders().find((provider) => provider.id === id);
+    const provider = credentialProvider ?? deliveryProvider;
+    if (!provider) throw app.httpErrors.notFound("Provider not found");
+
+    const manifest = builtInProviderManifests.find((item) => item.id === id);
+    const accounts = (await accountsWithLiveStatus()).filter((account) => account.providerId === id || (id === "bitwarden-send" && account.providerId === "bitwarden"));
+    return {
+      providerId: id,
+      displayName: provider.displayName,
+      kind: manifest?.kind ?? (credentialProvider ? "credential" : "delivery"),
+      runtime: await providerRuntimeDiagnostic(id),
+      authentication: providerAuthenticationDiagnostic(id, accounts),
+      accounts: accounts.map((account) => ({ id: account.id, label: account.label, status: account.status })),
+      capabilities: await provider.getCapabilities(),
+      linkPreviewRisk: providerLinkPreviewRisk(id)
+    };
+  });
+
   app.post("/api/delivery-providers/:id/clear-handoff-clipboard", async (request) => {
     const { id } = idParams.parse(request.params);
     const provider = registry.getDeliveryProvider(id);
@@ -328,6 +349,21 @@ export async function buildApp(options: BuildAppOptions = {}) {
     rememberAccountProfile(account);
     await audit("account.update", "success", { sourceAccountId: id });
     return account;
+  });
+
+  app.get("/api/accounts/:id/operation-preview", async (request) => {
+    const { id } = idParams.parse(request.params);
+    const account = await findAccount(repository, id);
+    const deliveries = await listAllDeliveriesForAccount(id);
+    const deliveryImpact = await operationImpactPreview({ deliveries });
+    return {
+      action: "delete vault account",
+      impact: {
+        ...deliveryImpact,
+        resources: [`Vault account: ${account.label}`, ...deliveryImpact.resources],
+        providers: [...new Set([registry.getCredentialProvider(account.providerId).displayName, ...deliveryImpact.providers])]
+      }
+    };
   });
 
   app.delete("/api/accounts/:id", async (request) => {
@@ -552,6 +588,16 @@ export async function buildApp(options: BuildAppOptions = {}) {
     await reply.header("content-type", "text/csv; charset=utf-8").send(peopleToCsv(allPeople));
   });
 
+  app.get("/api/people/:id/operation-preview", async (request) => {
+    const { id } = idParams.parse(request.params);
+    const person = await repository.getPerson(id);
+    if (!person) throw app.httpErrors.notFound("Person not found");
+    return {
+      action: "offboard person",
+      impact: await operationImpactPreview({ people: [person], deliveries: await listAllDeliveriesForPerson(id) })
+    };
+  });
+
   app.delete("/api/people/:id", async (request) => {
     const { id } = idParams.parse(request.params);
     const query = hardDeleteSchema.parse(request.query);
@@ -561,6 +607,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
       await audit("people.delete", "success", { personId: id });
       return { ok: true, deleted: true };
     }
+    assertDestructiveConfirmation(request.body, confirmationPhrase("OFFBOARD PERSON", id));
     await repository.archivePerson(id);
     await audit("people.archive", "success", { personId: id });
     return { ok: true, archived: true };
@@ -1059,6 +1106,16 @@ export async function buildApp(options: BuildAppOptions = {}) {
     return batch;
   });
 
+  app.get("/api/batches/:id/operation-preview", async (request) => {
+    const { id } = idParams.parse(request.params);
+    const batch = await repository.getBatch(id);
+    if (!batch) throw app.httpErrors.notFound("Batch not found");
+    return {
+      action: "cancel batch",
+      impact: await operationImpactPreview({ deliveries: await listAllBatchDeliveries(id), batch })
+    };
+  });
+
   app.get("/api/batches", async (request) => {
     const query = paginationSchema.parse(request.query);
     return repository.listBatches(query);
@@ -1250,14 +1307,15 @@ export async function buildApp(options: BuildAppOptions = {}) {
       }
       deliveryUrlCache.delete(pending.id);
       await repository.updateDelivery(pending.id, { status: "failed", providerDeliveryId: result?.deliveryId }).catch(() => undefined);
+      const safeMessage = safeErrorMessage(error, sensitiveCredentialValues(sensitiveCredential, body.accessPassword));
       await audit("delivery.create", "failure", {
         sourceAccountId: body.sourceAccountId,
         deliveryAccountId: body.deliveryAccountId,
         personId: body.recipient?.id,
         deliveryId: pending.id,
-        safeDetails: safeErrorMessage(error)
+        safeDetails: safeMessage
       });
-      throw error;
+      throw new Error(safeMessage);
     }
   }
 
@@ -1308,22 +1366,92 @@ export async function buildApp(options: BuildAppOptions = {}) {
     }
   }
 
+  async function listAllDeliveriesForPerson(personId: string): Promise<DeliveryRecord[]> {
+    const deliveries: DeliveryRecord[] = [];
+    let page = 1;
+    while (true) {
+      const result = await repository.listDeliveries({ page, pageSize: 100 });
+      deliveries.push(...result.items.filter((delivery) => delivery.personId === personId));
+      if (page * result.pageSize >= result.total || result.items.length === 0) return deliveries;
+      page += 1;
+    }
+  }
+
+  async function listAllDeliveriesForAccount(accountId: string): Promise<DeliveryRecord[]> {
+    const deliveries: DeliveryRecord[] = [];
+    let page = 1;
+    while (true) {
+      const result = await repository.listDeliveries({ page, pageSize: 100 });
+      deliveries.push(...result.items.filter((delivery) => delivery.sourceAccountId === accountId || delivery.deliveryAccountId === accountId));
+      if (page * result.pageSize >= result.total || result.items.length === 0) return deliveries;
+      page += 1;
+    }
+  }
+
+  async function operationImpactPreview(input: { deliveries: DeliveryRecord[]; people?: Array<{ id: string; name: string }>; batch?: { id: string; requestedCount: number; completedCount: number; failedCount: number; cancelled: boolean } }) {
+    const peopleById = new Map((input.people ?? []).map((person) => [person.id, person.name]));
+    for (const personId of new Set(input.deliveries.map((delivery) => delivery.personId).filter((personId): personId is string => Boolean(personId)))) {
+      if (peopleById.has(personId)) continue;
+      const person = await repository.getPerson(personId);
+      if (person) peopleById.set(person.id, person.name);
+    }
+    const providerNames = [...new Set(input.deliveries.map((delivery) => {
+      const provider = registry.listDeliveryProviders().find((candidate) => candidate.id === delivery.deliveryProviderId);
+      return provider?.displayName ?? delivery.deliveryProviderId;
+    }))].sort();
+    const resources = [...new Set(input.deliveries.map((delivery) => delivery.credentialName))].sort();
+    const activeDeliveryCount = input.deliveries.filter((delivery) => ["active", "viewed", "limit_reached", "creating", "queued"].includes(delivery.status)).length;
+    return {
+      affectedPeople: [...peopleById.values()].sort(),
+      resources,
+      providers: providerNames,
+      deliveryCount: input.deliveries.length,
+      activeDeliveryCount,
+      batch: input.batch ? {
+        id: input.batch.id,
+        requestedCount: input.batch.requestedCount,
+        completedCount: input.batch.completedCount,
+        failedCount: input.batch.failedCount,
+        cancelled: input.batch.cancelled
+      } : undefined
+    };
+  }
+
+  async function reconcileExpiredDelivery(delivery: DeliveryRecord): Promise<DeliveryRecord> {
+    if (delivery.status !== "active" && delivery.status !== "viewed") return delivery;
+    const expiresAt = Date.parse(delivery.expiresAt);
+    if (!Number.isFinite(expiresAt) || expiresAt > Date.now()) return delivery;
+    const updated = await repository.updateDelivery(delivery.id, { status: "expired" });
+    await audit("delivery.expire.local", "success", {
+      deliveryAccountId: delivery.deliveryAccountId,
+      deliveryId: delivery.id,
+      safeDetails: `expires=${delivery.expiresAt}`
+    });
+    return updated;
+  }
+
   app.get("/api/deliveries", async (request) => {
     const query = deliveryQuerySchema.parse(request.query);
-    return repository.listDeliveries(query);
+    const result = await repository.listDeliveries(query);
+    return {
+      ...result,
+      items: await Promise.all(result.items.map((delivery) => reconcileExpiredDelivery(delivery)))
+    };
   });
 
   app.get("/api/deliveries/:id", async (request) => {
     const { id } = idParams.parse(request.params);
     const delivery = await repository.getDelivery(id);
     if (!delivery) throw app.httpErrors.notFound("Delivery not found");
-    return delivery;
+    return reconcileExpiredDelivery(delivery);
   });
 
   app.post("/api/deliveries/:id/refresh", async (request) => {
     const { id } = idParams.parse(request.params);
-    const delivery = await repository.getDelivery(id);
-    if (!delivery) throw app.httpErrors.notFound("Delivery not found");
+    const storedDelivery = await repository.getDelivery(id);
+    if (!storedDelivery) throw app.httpErrors.notFound("Delivery not found");
+    const delivery = await reconcileExpiredDelivery(storedDelivery);
+    if (delivery.status === "expired") return delivery;
     const provider = registry.getDeliveryProvider(delivery.deliveryProviderId);
     await assertDeliveryProviderSupports(provider, "statusLookup", "refresh status");
     const status = await provider.getStatus(delivery.deliveryAccountId, delivery.providerDeliveryId ?? delivery.id);
@@ -1384,6 +1512,27 @@ export async function buildApp(options: BuildAppOptions = {}) {
     deliveryUrlCache.delete(id);
     await audit("delivery.revoke", "success", { deliveryAccountId: delivery.deliveryAccountId, deliveryId: id });
     return updated;
+  });
+
+  app.get("/api/deliveries/:id/operation-preview", async (request) => {
+    const { id } = idParams.parse(request.params);
+    const delivery = await repository.getDelivery(id);
+    if (!delivery) throw app.httpErrors.notFound("Delivery not found");
+    return {
+      action: "revoke delivery",
+      impact: await operationImpactPreview({ deliveries: [delivery] })
+    };
+  });
+
+  app.get("/api/deliveries/:id/revoke-batch/operation-preview", async (request) => {
+    const { id } = idParams.parse(request.params);
+    const delivery = await repository.getDelivery(id);
+    if (!delivery) throw app.httpErrors.notFound("Delivery not found");
+    if (!delivery.batchId) throw app.httpErrors.badRequest("This delivery was not created in a bulk batch, so it has no related batch links to revoke.");
+    return {
+      action: "revoke batch links",
+      impact: await operationImpactPreview({ deliveries: await listAllBatchDeliveries(delivery.batchId) })
+    };
   });
 
   app.post("/api/deliveries/:id/revoke-batch", async (request) => {
@@ -2164,8 +2313,94 @@ function pathsEqual(left: string, right: string): boolean {
     : normalizedLeft === normalizedRight;
 }
 
-function confirmationPhrase(action: "DELETE ACCOUNT" | "DELETE PERSON" | "REVOKE DELIVERY" | "REVOKE BATCH LINKS" | "CANCEL BATCH" | "REPLACE REQUEST" | "BREAK GLASS", id: string): string {
+function confirmationPhrase(action: "DELETE ACCOUNT" | "DELETE PERSON" | "OFFBOARD PERSON" | "REVOKE DELIVERY" | "REVOKE BATCH LINKS" | "CANCEL BATCH" | "REPLACE REQUEST" | "BREAK GLASS", id: string): string {
   return `${action} ${id}`;
+}
+
+function sensitiveCredentialValues(credential: { password?: string; totp?: string; notes?: string; urls?: string[] }, accessPassword?: string): string[] {
+  return [credential.password, credential.totp, credential.notes, ...(credential.urls ?? []), accessPassword].filter((value): value is string => Boolean(value));
+}
+
+async function providerRuntimeDiagnostic(providerId: string) {
+  if (providerId === "bitwarden" || providerId === "bitwarden-send") {
+    return cliRuntimeDiagnostic("bw", "WARDSEN_BITWARDEN_CLI_PATH", bitwardenDiagnosticCandidates());
+  }
+  if (providerId === "keepassxc") {
+    return cliRuntimeDiagnostic("keepassxc-cli", "WARDSEN_KEEPASSXC_CLI_PATH", keepassXcDiagnosticCandidates());
+  }
+  if (providerId === "yopass") {
+    return cliRuntimeDiagnostic("yopass", "WARDSEN_YOPASS_CLI_PATH", yopassDiagnosticCandidates());
+  }
+  if (providerId === "ente-paste") {
+    return { kind: "browser", binaryFound: false, version: "Not applicable", detail: "Manual browser handoff; WardSen does not authenticate to Ente Paste." };
+  }
+  if (providerId === "password-pusher" || providerId === "onetime-secret") {
+    return { kind: "api", binaryFound: false, version: "Not applicable", detail: "Configured through local service environment variables; WardSen does not expose their values." };
+  }
+  return { kind: "managed", binaryFound: false, version: "Not checked", detail: "This provider does not declare a local executable diagnostic." };
+}
+
+async function cliRuntimeDiagnostic(command: string, environmentKey: string, trustedCandidates: string[]) {
+  try {
+    const executable = resolveProviderExecutable({ toolName: command, envPathKey: environmentKey, trustedCandidates });
+    const result = await runCliCommand({ executable, args: ["--version"], timeoutMs: 5_000, maxOutputBytes: 512 });
+    const version = result.stdout.replace(/\s+/g, " ").trim().slice(0, 160) || "Version command completed";
+    return { kind: "cli", binaryFound: true, version, detail: `${command} is available to the local service.` };
+  } catch (error) {
+    return { kind: "cli", binaryFound: false, version: "Unavailable", detail: safeErrorMessage(error) };
+  }
+}
+
+function providerAuthenticationDiagnostic(providerId: string, accounts: AccountRecord[]) {
+  if (providerId === "password-pusher") {
+    return process.env.WARDSEN_PASSWORD_PUSHER_API_TOKEN
+      ? { state: "configured", detail: "Required API token is present in the local service environment." }
+      : { state: "not configured", detail: "Set WARDSEN_PASSWORD_PUSHER_API_TOKEN in the local service environment." };
+  }
+  if (providerId === "onetime-secret") {
+    return process.env.WARDSEN_ONETIME_SECRET_USERNAME && process.env.WARDSEN_ONETIME_SECRET_API_TOKEN
+      ? { state: "configured", detail: "Required Onetime Secret credentials are present in the local service environment." }
+      : { state: "not configured", detail: "Set WARDSEN_ONETIME_SECRET_USERNAME and WARDSEN_ONETIME_SECRET_API_TOKEN in the local service environment." };
+  }
+  if (providerId === "ente-paste" || providerId === "yopass") {
+    return { state: "not applicable", detail: providerId === "ente-paste" ? "Manual handoff does not use a WardSen provider session." : "The current Yopass CLI contract does not expose a WardSen authentication state." };
+  }
+  const unlocked = accounts.filter((account) => account.status === "unlocked").length;
+  if (unlocked > 0) return { state: "unlocked", detail: `${unlocked} selected account${unlocked === 1 ? " is" : "s are"} unlocked for this provider.` };
+  if (accounts.length > 0) return { state: "locked", detail: `${accounts.length} configured account${accounts.length === 1 ? " is" : "s are"} currently locked or logged out.` };
+  return { state: "no account", detail: "Add an account, then sign in or unlock it when this provider requires a vault session." };
+}
+
+function providerLinkPreviewRisk(providerId: string): string {
+  if (providerId === "ente-paste") return "Manual browser handoff. WardSen cannot see sender-visible access, revoke, or link-preview telemetry.";
+  if (providerId === "yopass") return "One-time URL. Avoid sending it through channels that fetch link previews; the current CLI cannot report access or revoke it.";
+  if (providerId === "bitwarden-send") return "External links can be opened by anyone with the link. Use one link per recipient and provider limits when a stronger binding is needed.";
+  if (providerId === "password-pusher" || providerId === "onetime-secret") return "External delivery links may be fetched by link-preview clients. Treat provider status as link state, not verified viewer identity.";
+  return "Review the provider's sharing behavior before sending a live link.";
+}
+
+function bitwardenDiagnosticCandidates(): string[] {
+  const candidates: string[] = [];
+  if (process.env.LOCALAPPDATA) candidates.push(path.join(process.env.LOCALAPPDATA, "WardSen", "tools", "bw.exe"));
+  if (process.env.APPDATA) candidates.push(path.join(process.env.APPDATA, "WardSen", "tools", "bw.exe"));
+  if (process.env.HOME) candidates.push(path.join(process.env.HOME, ".local", "bin", "bw"), path.join(process.env.HOME, "Library", "Application Support", "WardSen", "tools", "bw"), path.join(process.env.HOME, ".wardsen", "tools", "bw"));
+  return [...candidates, "/opt/homebrew/bin/bw", "/usr/local/bin/bw", "/opt/local/bin/bw"];
+}
+
+function keepassXcDiagnosticCandidates(): string[] {
+  const candidates: string[] = [];
+  if (process.env.LOCALAPPDATA) candidates.push(path.join(process.env.LOCALAPPDATA, "WardSen", "tools", "keepassxc-cli.exe"));
+  if (process.env.ProgramFiles) candidates.push(path.join(process.env.ProgramFiles, "KeePassXC", "keepassxc-cli.exe"));
+  if (process.env["ProgramFiles(x86)"]) candidates.push(path.join(process.env["ProgramFiles(x86)"], "KeePassXC", "keepassxc-cli.exe"));
+  if (process.env.HOME) candidates.push(path.join(process.env.HOME, "Applications", "KeePassXC.app", "Contents", "MacOS", "keepassxc-cli"), path.join(process.env.HOME, ".wardsen", "tools", "keepassxc-cli"));
+  return [...candidates, "/Applications/KeePassXC.app/Contents/MacOS/keepassxc-cli", "/usr/local/bin/keepassxc-cli", "/opt/homebrew/bin/keepassxc-cli", "/usr/bin/keepassxc-cli"];
+}
+
+function yopassDiagnosticCandidates(): string[] {
+  const candidates: string[] = [];
+  if (process.env.LOCALAPPDATA) candidates.push(path.join(process.env.LOCALAPPDATA, "WardSen", "tools", "yopass.exe"));
+  if (process.env.HOME) candidates.push(path.join(process.env.HOME, ".local", "bin", "yopass"), path.join(process.env.HOME, "Library", "Application Support", "WardSen", "tools", "yopass"));
+  return [...candidates, "/opt/homebrew/bin/yopass", "/usr/local/bin/yopass", "/opt/local/bin/yopass"];
 }
 
 function assertDestructiveConfirmation(body: unknown, expected: string): void {

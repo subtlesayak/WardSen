@@ -38,6 +38,7 @@
     "release:verify-public-readiness": "node scripts/verify-public-release-readiness.mjs",
     "release:verify-ref": "node scripts/verify-release-ref.mjs",
     "security:scan-secrets": "node scripts/secret-non-persistence-scan.mjs",
+    "security:test-canary": "vitest run tests/secretCanary.test.ts",
     "smoke:packaged": "node scripts/packaged-smoke.mjs",
     "smoke:web": "node scripts/web-smoke.mjs --http-only",
     "smoke:web:visual": "node scripts/web-smoke.mjs",

@@ -178,6 +178,9 @@ jobs:
         shell: pwsh
         run: npm run tauri:build -- --bundles msi
 
+      - name: Scan built service and web artifacts for secret canaries
+        run: npm run security:scan-secrets
+
       - name: Sign and verify Windows artifacts
         if: runner.os == 'Windows'
         shell: pwsh

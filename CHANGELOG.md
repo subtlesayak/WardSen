@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.0-rc.59 - 2026-08-14
+
+- Made People CSV import discoverable from the People Directory header and kept a single Export CSV command in the directory filters.
+- Corrected Delivery Audit refresh reporting: Bitwarden Send links belonging to locked vault accounts are shown as waiting for unlock instead of failed, and a newly unlocked account triggers an automatic status recheck.
+- Made delivery access telemetry explicit in the audit: a provider that does not expose sender-visible access counts now says `Not reported` instead of appearing to have zero views.
+- Expire locally stored active/viewed delivery records once their recorded deadline has passed, even when the provider cannot be queried, so stale `Active` labels no longer survive an unavailable provider session.
+- Prevented Settings from showing a completed connection check for the previously selected provider after the provider selection changes.
+- Added non-secret operation previews for account deletion, person offboarding/permanent deletion, batch cancellation, and delivery or batch-link revocation. Offboarding now also requires an exact server-enforced confirmation phrase.
+- Added local provider diagnostics for CLI availability/version, API configuration state, account unlock state, capability support, and link-preview risk without returning local environment values.
+- Added a generated-secret canary adversarial test: a provider-error echo is redacted before API responses, audit output, diagnostics, and SQLite persistence. CI and installer releases now scan built web/service artifacts for canary prefixes.
+- Documented Apache-2.0 distribution material, contributor security checks, and the no-secret-persistence ADR from the README.
+
 ## 0.1.0-rc.58 - 2026-08-13
 
 - Improved desktop-launched Bitwarden terminal handoff windows so Windows PowerShell and macOS Terminal explain what WardSen is doing before the Bitwarden prompt appears.

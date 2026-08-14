@@ -34,7 +34,7 @@ For dedicated recipient links, say **"Asha's link was viewed"**, not **"Asha vie
 
 ## Release status
 
-`v0.1.0-rc.58` is the current security-review release candidate. A trusted public installer release still requires Windows code signing and Apple Developer ID signing plus macOS notarization.
+`v0.1.0-rc.59` is the current security-review release candidate. A trusted public installer release still requires Windows code signing and Apple Developer ID signing plus macOS notarization.
 
 | Area | Current position |
 | --- | --- |
@@ -193,6 +193,7 @@ Run this before a change or release:
 npm run check
 npm test
 npm run build
+npm run security:test-canary
 npm run security:scan-secrets
 ```
 
@@ -210,6 +211,11 @@ Follow [desktop packaging](docs/desktop-packaging.md), [installer signing](docs/
 | Provider tools | CLI commands use `spawn` with `shell: false`; output is bounded and timed-out command trees are terminated. |
 | Desktop service | Packaged sessions use a per-launch local API token and prefer bundled or absolute trusted Node runtimes. |
 | Sensitive actions | Login, unlock, terminal handoff, employee code, and local API routes have layered rate limits. Destructive actions require exact server confirmation. |
+| Safety review | Destructive actions fetch an operator-visible impact preview before the exact confirmation phrase is accepted. Generated canaries prove provider errors do not leak into SQLite, audit/API output, diagnostics, or release-scanned web assets. |
+
+## Project hygiene
+
+WardSen is released under the [Apache-2.0 license](LICENSE). See [NOTICE](NOTICE) for distribution notices, [CONTRIBUTING.md](CONTRIBUTING.md) for the contributor security bar, and [ADR 0002](docs/adr/0002-no-secret-persistence.md) for the no-secret-persistence decision.
 
 ## Documentation
 
@@ -218,6 +224,7 @@ Follow [desktop packaging](docs/desktop-packaging.md), [installer signing](docs/
 | Security model and privacy | [Security design](docs/security-design.md), [threat model](THREAT_MODEL.md), [privacy policy](PRIVACY.md) |
 | Employee access workflow | [Employee request flow](docs/employee-request-flow.md) |
 | Provider behavior | [Delivery provider comparison](docs/delivery-provider-comparison.md), [third-party provider policy](docs/third-party-provider-policy.md) |
+| Provider diagnostics | **Settings > Provider Capabilities** shows local CLI/API readiness, account/session state, capability support, and link-preview risk without exposing environment values. |
 | API and desktop packaging | [API reference](docs/api.md), [desktop packaging](docs/desktop-packaging.md) |
 | Release evidence and advisories | [Release checklist](docs/release-security-checklist.md), [RustSec notes](docs/rustsec-audit.md) |
 
