@@ -361,9 +361,7 @@ fn launch_windows_powershell(command: &str) -> io::Result<()> {
             &encoded_command,
         ])
         .creation_flags(CREATE_NEW_CONSOLE)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        // A new console needs its own standard handles for the Bitwarden prompt and errors.
         .spawn()
         .map(|_| ())
 }
