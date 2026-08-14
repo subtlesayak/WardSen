@@ -345,25 +345,65 @@ fn launch_terminal_session(command: &str) -> io::Result<()> {
 
 #[cfg(windows)]
 fn launch_windows_powershell(command: &str) -> io::Result<()> {
+    let visible_command = windows_terminal_command(command);
+    let encoded_command = encode_powershell_command(&visible_command);
+
+    // Ask Windows Terminal for one dedicated tab. Letting the default terminal
+    // broker a freshly-created console can produce an empty host window beside
+    // the actual interactive PowerShell tab.
+    match Command::new("wt.exe")
+        .args(windows_terminal_args(&encoded_command))
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    {
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            launch_windows_powershell_fallback(&encoded_command)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+#[cfg(windows)]
+fn launch_windows_powershell_fallback(encoded_command: &str) -> io::Result<()> {
     use std::os::windows::process::CommandExt;
 
     const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
-    let visible_command = windows_terminal_command(command);
-    let encoded_command = encode_powershell_command(&visible_command);
     Command::new("powershell.exe")
-        .args([
-            "-NoLogo",
-            "-NoProfile",
-            "-NoExit",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-EncodedCommand",
-            &encoded_command,
-        ])
+        .args(windows_powershell_args(encoded_command))
         .creation_flags(CREATE_NEW_CONSOLE)
         // A new console needs its own standard handles for the Bitwarden prompt and errors.
         .spawn()
         .map(|_| ())
+}
+
+#[cfg(any(windows, test))]
+fn windows_terminal_args(encoded_command: &str) -> Vec<String> {
+    let mut args = vec![
+        "-w".to_string(),
+        "new".to_string(),
+        "new-tab".to_string(),
+        "--title".to_string(),
+        "WardSen Bitwarden".to_string(),
+        "powershell.exe".to_string(),
+    ];
+    args.extend(windows_powershell_args(encoded_command));
+    args
+}
+
+#[cfg(any(windows, test))]
+fn windows_powershell_args(encoded_command: &str) -> Vec<String> {
+    vec![
+        "-NoLogo".to_string(),
+        "-NoProfile".to_string(),
+        "-NoExit".to_string(),
+        "-ExecutionPolicy".to_string(),
+        "Bypass".to_string(),
+        "-EncodedCommand".to_string(),
+        encoded_command.to_string(),
+    ]
 }
 
 #[cfg(any(windows, test))]
@@ -443,7 +483,7 @@ fn base64_encode(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{macos_terminal_command, windows_terminal_command};
+    use super::{macos_terminal_command, windows_terminal_args, windows_terminal_command};
 
     #[test]
     fn macos_terminal_handoff_keeps_the_window_open_after_running() {
@@ -461,6 +501,30 @@ mod tests {
         assert!(command.contains("WardSen is starting Bitwarden login"));
         assert!(command.contains("bw unlock --raw"));
         assert!(command.contains("This PowerShell window stays open"));
+    }
+
+    #[test]
+    fn windows_terminal_handoff_opens_one_named_tab() {
+        let args = windows_terminal_args("encoded-command");
+
+        assert_eq!(
+            args,
+            vec![
+                "-w",
+                "new",
+                "new-tab",
+                "--title",
+                "WardSen Bitwarden",
+                "powershell.exe",
+                "-NoLogo",
+                "-NoProfile",
+                "-NoExit",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-EncodedCommand",
+                "encoded-command",
+            ]
+        );
     }
 }
 

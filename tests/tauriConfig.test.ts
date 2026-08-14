@@ -54,16 +54,23 @@ describe("Tauri packaging config", () => {
     expect(rustLauncher).toMatch(/tauri::generate_handler!\[[\s\S]*get_api_token[\s\S]*get_local_service_url[\s\S]*restart_local_service[\s\S]*local_service_status[\s\S]*\]/);
   });
 
-  it("keeps interactive handles attached to the Windows Bitwarden terminal", () => {
+  it("opens one explicit Windows Terminal tab and preserves a real-console fallback", () => {
     const windowsLauncher = rustLauncher.slice(
       rustLauncher.indexOf("fn launch_windows_powershell"),
       rustLauncher.indexOf("fn windows_terminal_command")
     );
+    const fallbackLauncher = rustLauncher.slice(
+      rustLauncher.indexOf("fn launch_windows_powershell_fallback"),
+      rustLauncher.indexOf("fn windows_terminal_args")
+    );
 
-    expect(windowsLauncher).toContain("creation_flags(CREATE_NEW_CONSOLE)");
-    expect(windowsLauncher).not.toContain(".stdin(Stdio::null())");
-    expect(windowsLauncher).not.toContain(".stdout(Stdio::null())");
-    expect(windowsLauncher).not.toContain(".stderr(Stdio::null())");
+    expect(windowsLauncher).toContain('Command::new("wt.exe")');
+    expect(windowsLauncher).toContain('"WardSen Bitwarden"');
+    expect(windowsLauncher).toContain("launch_windows_powershell_fallback");
+    expect(fallbackLauncher).toContain("creation_flags(CREATE_NEW_CONSOLE)");
+    expect(fallbackLauncher).not.toContain(".stdin(Stdio::null())");
+    expect(fallbackLauncher).not.toContain(".stdout(Stdio::null())");
+    expect(fallbackLauncher).not.toContain(".stderr(Stdio::null())");
   });
 
   it("enforces a desktop content security policy", () => {
