@@ -1645,7 +1645,9 @@ describe("WardSen API", () => {
   });
 
   it("marks expired delivery metadata as expired when a provider status check is unavailable", async () => {
-    const createdAt = new Date("2026-08-14T12:00:00.000Z");
+    // Keep creation future relative to the real clock used by validation, then
+    // advance only Date.now() to exercise expiry reconciliation deterministically.
+    const createdAt = new Date(Date.now() + 5 * 60_000);
     const now = vi.spyOn(Date, "now").mockReturnValue(createdAt.getTime());
     const sessions = new AccountSessionManager();
     const app = await buildApp({

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-rc.60 - 2026-08-14
+
+- Reissued the rc.59 security and operation-preview work after correcting a time-sensitive delivery-expiry test that could fail on macOS release runners after its hard-coded timestamp passed.
+
 ## 0.1.0-rc.59 - 2026-08-14
 
 - Made People CSV import discoverable from the People Directory header and kept a single Export CSV command in the directory filters.
