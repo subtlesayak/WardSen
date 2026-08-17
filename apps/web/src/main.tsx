@@ -28,6 +28,8 @@ import { DeliveryAuditPanel } from "./deliveryAuditPanel";
 import { BatchDeliveryTable, BatchTable } from "./deliveryBatchTables";
 import { DeliveryHistoryTable, type DeliveryHistoryAction } from "./deliveryHistoryTable";
 import { EmployeePortalPage, isEmployeePortalView } from "./employeePortal";
+
+const TERMINAL_LAUNCH_TIMEOUT_MS = 2500;
 import { appReleaseMetadata, appVersion } from "./version";
 import "./styles.css";
 
@@ -601,7 +603,7 @@ function Vaults({ api, confirmDestructiveAction }: { api: ReturnType<typeof useW
       setTerminalHandoff({ accountId: account.id, ...response });
       if (canLaunchTerminalSession()) {
         try {
-          await openTerminalSession(account.id, response.launchId);
+          await openTerminalSessionWithUiTimeout(account.id, response.launchId);
           setMessage({ status: "ready", text: "Terminal opened for Bitwarden login. Type the Bitwarden password only in its prompt. WardSen will update this account automatically." });
           return;
         } catch (error) {
@@ -628,10 +630,26 @@ function Vaults({ api, confirmDestructiveAction }: { api: ReturnType<typeof useW
   async function openBitwardenTerminalAgain(handoff: NonNullable<typeof terminalHandoff>) {
     setMessage({ status: "loading", text: "Opening Terminal for Bitwarden login..." });
     try {
-      await openTerminalSession(handoff.accountId, handoff.launchId);
+      await openTerminalSessionWithUiTimeout(handoff.accountId, handoff.launchId);
       setMessage({ status: "ready", text: "Terminal opened for Bitwarden login. Type the Bitwarden password only in its prompt." });
     } catch (error) {
       setMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  async function openTerminalSessionWithUiTimeout(accountId: string, launchId: string): Promise<void> {
+    let timedOut = false;
+    await Promise.race([
+      openTerminalSession(accountId, launchId),
+      new Promise<void>((resolve) => {
+        window.setTimeout(() => {
+          timedOut = true;
+          resolve();
+        }, TERMINAL_LAUNCH_TIMEOUT_MS);
+      })
+    ]);
+    if (timedOut) {
+      throw new Error("WardSen asked the desktop app to open Terminal, but it did not respond quickly. Use Copy terminal command and run it in Terminal or PowerShell.");
     }
   }
 

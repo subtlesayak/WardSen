@@ -37,6 +37,8 @@ describe("Tauri packaging config", () => {
     expect(rustLauncher).toContain("proxy_local_service_request");
     expect(rustLauncher).toContain("validate_local_service_proxy_request");
     expect(rustLauncher).toContain("open_terminal_session");
+    expect(rustLauncher).toContain("async fn open_terminal_session");
+    expect(rustLauncher).toContain("tauri::async_runtime::spawn_blocking");
     expect(rustLauncher).toContain("fetch_terminal_handoff_command");
     expect(rustLauncher).not.toContain("open_terminal_session(command: String)");
     expect(rustLauncher).toContain("WardSen is starting Bitwarden login");
@@ -57,23 +59,36 @@ describe("Tauri packaging config", () => {
     expect(rustLauncher).toMatch(/tauri::generate_handler!\[[\s\S]*proxy_local_service_request[\s\S]*restart_local_service[\s\S]*local_service_status[\s\S]*\]/);
   });
 
-  it("opens one explicit Windows Terminal tab and preserves a real-console fallback", () => {
+  it("opens a real PowerShell console first and keeps Windows Terminal as fallback", () => {
     const windowsLauncher = rustLauncher.slice(
       rustLauncher.indexOf("fn launch_windows_powershell"),
       rustLauncher.indexOf("fn windows_terminal_command")
     );
-    const fallbackLauncher = rustLauncher.slice(
-      rustLauncher.indexOf("fn launch_windows_powershell_fallback"),
+    const powershellConsoleLauncher = rustLauncher.slice(
+      rustLauncher.indexOf("fn launch_windows_powershell_console"),
       rustLauncher.indexOf("fn windows_terminal_args")
     );
 
+    expect(windowsLauncher.indexOf("launch_windows_powershell_console")).toBeLessThan(windowsLauncher.indexOf("launch_windows_terminal_tab"));
     expect(windowsLauncher).toContain('Command::new("wt.exe")');
     expect(windowsLauncher).toContain('"WardSen Bitwarden"');
-    expect(windowsLauncher).toContain("launch_windows_powershell_fallback");
-    expect(fallbackLauncher).toContain("creation_flags(CREATE_NEW_CONSOLE)");
-    expect(fallbackLauncher).not.toContain(".stdin(Stdio::null())");
-    expect(fallbackLauncher).not.toContain(".stdout(Stdio::null())");
-    expect(fallbackLauncher).not.toContain(".stderr(Stdio::null())");
+    expect(windowsLauncher).toContain("launch_windows_powershell_console");
+    expect(powershellConsoleLauncher).toContain('Command::new("powershell.exe")');
+    expect(powershellConsoleLauncher).toContain("creation_flags(CREATE_NEW_CONSOLE)");
+    expect(powershellConsoleLauncher).not.toContain(".stdin(Stdio::null())");
+    expect(powershellConsoleLauncher).not.toContain(".stdout(Stdio::null())");
+    expect(powershellConsoleLauncher).not.toContain(".stderr(Stdio::null())");
+  });
+
+  it("does not block the desktop app while macOS Terminal automation runs", () => {
+    const macosLauncher = rustLauncher.slice(
+      rustLauncher.indexOf("fn launch_macos_terminal"),
+      rustLauncher.indexOf("fn macos_terminal_command")
+    );
+
+    expect(macosLauncher).toContain('Command::new("osascript")');
+    expect(macosLauncher).toContain(".spawn()");
+    expect(macosLauncher).not.toContain(".status()");
   });
 
   it("enforces a desktop content security policy", () => {

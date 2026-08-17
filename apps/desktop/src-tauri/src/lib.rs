@@ -88,22 +88,28 @@ fn local_service_status(
 }
 
 #[tauri::command]
-fn open_terminal_session(
+async fn open_terminal_session(
     account_id: String,
     launch_id: String,
-    config: tauri::State<ServerLaunchConfig>,
-    token: tauri::State<ApiToken>,
+    config: tauri::State<'_, ServerLaunchConfig>,
+    token: tauri::State<'_, ApiToken>,
 ) -> Result<(), String> {
     validate_terminal_launch_id(&account_id)?;
     validate_terminal_launch_id(&launch_id)?;
-    let command = fetch_terminal_handoff_command(&config, &token.0, &account_id, &launch_id)
-        .map_err(|_| "WardSen could not retrieve the one-time terminal login command. Start Terminal login / unlock again.".to_string())?;
-    validate_terminal_handoff_command(&command)?;
-    launch_terminal_session(&command).map_err(|error| {
-        format!(
-            "WardSen could not open a terminal for Bitwarden login: {error}. Copy the terminal command and run it manually."
-        )
+    let config = config.inner().clone();
+    let token = token.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let command = fetch_terminal_handoff_command(&config, &token, &account_id, &launch_id)
+            .map_err(|_| "WardSen could not retrieve the one-time terminal login command. Start Terminal login / unlock again.".to_string())?;
+        validate_terminal_handoff_command(&command)?;
+        launch_terminal_session(&command).map_err(|error| {
+            format!(
+                "WardSen could not open a terminal for Bitwarden login: {error}. Copy the terminal command and run it manually."
+            )
+        })
     })
+    .await
+    .map_err(|error| format!("WardSen terminal launch task failed: {error}."))?
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -614,9 +620,17 @@ fn launch_windows_powershell(command: &str) -> io::Result<()> {
     let visible_command = windows_terminal_command(command);
     let encoded_command = encode_powershell_command(&visible_command);
 
-    // Ask Windows Terminal for one dedicated tab. Letting the default terminal
-    // broker a freshly-created console can produce an empty host window beside
-    // the actual interactive PowerShell tab.
+    match launch_windows_powershell_console(&encoded_command) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            launch_windows_terminal_tab(&encoded_command)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+#[cfg(windows)]
+fn launch_windows_terminal_tab(encoded_command: &str) -> io::Result<()> {
     match Command::new("wt.exe")
         .args(windows_terminal_args(&encoded_command))
         .stdin(Stdio::null())
@@ -626,14 +640,14 @@ fn launch_windows_powershell(command: &str) -> io::Result<()> {
     {
         Ok(_) => Ok(()),
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            launch_windows_powershell_fallback(&encoded_command)
+            launch_windows_powershell_console(&encoded_command)
         }
         Err(error) => Err(error),
     }
 }
 
 #[cfg(windows)]
-fn launch_windows_powershell_fallback(encoded_command: &str) -> io::Result<()> {
+fn launch_windows_powershell_console(encoded_command: &str) -> io::Result<()> {
     use std::os::windows::process::CommandExt;
 
     const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
@@ -689,22 +703,15 @@ fn launch_macos_terminal(command: &str) -> io::Result<()> {
     end tell
 end run"#;
     let visible_command = macos_terminal_command(command);
-    let status = Command::new("osascript")
+    Command::new("osascript")
         .arg("-e")
         .arg(script)
         .arg(visible_command)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .status()?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(io::Error::new(
-            io::ErrorKind::Other,
-            "macOS Terminal did not accept the login command",
-        ))
-    }
+        .spawn()
+        .map(|_| ())
 }
 
 #[cfg(any(target_os = "macos", test))]

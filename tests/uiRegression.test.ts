@@ -149,6 +149,13 @@ describe("web UI regression guards", () => {
     expect(webSource).toContain("Copy and open WhatsApp");
   });
 
+  it("keeps terminal launch failures from leaving the UI in a loading state", () => {
+    expect(webSource).toContain("TERMINAL_LAUNCH_TIMEOUT_MS");
+    expect(webSource).toContain("openTerminalSessionWithUiTimeout");
+    expect(webSource).toContain("WardSen asked the desktop app to open Terminal, but it did not respond quickly");
+    expect(webSource).toContain("Copy terminal command");
+  });
+
   it("keeps employee identities separate from People while allowing editable request records", () => {
     expect(webSource).toContain('title={editingEmployeeId ? "Edit Employee Identity" : "Add Employee Identity"}');
     expect(webSource).toContain('title="Employee Identities"');

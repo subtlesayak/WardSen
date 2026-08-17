@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0-rc.64 - 2026-08-17
+
+- Fixed Terminal login / unlock responsiveness by moving the desktop terminal handoff into Tauri's blocking task pool, so the WardSen window stays responsive while Windows opens PowerShell.
+- Changed Windows automatic terminal launch to open a direct PowerShell console first, avoiding slow Windows Terminal startup on machines where `wt.exe` takes several seconds to appear.
+- Added a web UI timeout and fallback path: if automatic terminal launch does not answer quickly, WardSen returns to the manual Copy terminal command flow instead of staying on a loading state.
+- Kept macOS Terminal automation non-blocking as well, so the same terminal unlock flow is safe on both desktop targets.
+- Added regression coverage for non-blocking terminal launch and the UI timeout/fallback message.
+
 ## 0.1.0-rc.63 - 2026-08-17
 
 - Simplified the Vaults > Account Access panel so Bitwarden accounts clearly use terminal-only password entry, while KeePassXC-only fields appear only for KeePassXC accounts.
