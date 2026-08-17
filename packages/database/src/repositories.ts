@@ -86,6 +86,8 @@ export interface WardSenRepository {
   listAccounts(): Promise<AccountRecord[]>;
   upsertAccount(input: Omit<AccountRecord, "createdAt" | "updatedAt" | "status"> & { status?: AccountRecord["status"] }): Promise<AccountRecord>;
   deleteAccount(id: string): Promise<void>;
+  getLocalSetting(key: string): Promise<string | undefined>;
+  setLocalSetting(key: string, value: string): Promise<void>;
   listPeople(query: PeopleQuery): Promise<PaginatedResult<PersonRecord>>;
   getPerson(id: string): Promise<PersonRecord | undefined>;
   upsertPerson(input: PersonUpsertInput): Promise<PersonRecord>;
@@ -128,6 +130,7 @@ export interface WardSenRepository {
 
 export class InMemoryWardSenRepository implements WardSenRepository {
   private readonly accounts = new Map<string, AccountRecord>();
+  private readonly localSettings = new Map<string, string>();
   private readonly people = new Map<string, PersonRecord>();
   private readonly employees = new Map<string, EmployeeRecord>();
   private readonly employeeSignInCodes = new Map<string, EmployeeSignInCodeRecord>();
@@ -157,6 +160,14 @@ export class InMemoryWardSenRepository implements WardSenRepository {
 
   async deleteAccount(id: string): Promise<void> {
     this.accounts.delete(id);
+  }
+
+  async getLocalSetting(key: string): Promise<string | undefined> {
+    return this.localSettings.get(key);
+  }
+
+  async setLocalSetting(key: string, value: string): Promise<void> {
+    this.localSettings.set(key, value);
   }
 
   async listPeople(query: PeopleQuery): Promise<PaginatedResult<PersonRecord>> {

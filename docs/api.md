@@ -6,6 +6,10 @@ WardSen binds only to `127.0.0.1` and rejects non-local requests. Mutating reque
 
 - `GET /api/health`
 - `GET /api/providers`
+- `POST /api/delivery-providers/:id/opt-in`
+- `DELETE /api/delivery-providers/:id/opt-in`
+
+`GET /api/providers` separates normally enabled `deliveryProviders` from `optionalDeliveryProviders`. Ente Paste and Yopass are disabled until a local operator explicitly enables the provider. Enabling requires `confirm: "ENABLE WEAKER PROVIDER <id>"`; disabling requires `confirm: "DISABLE WEAKER PROVIDER <id>"`. The server rejects delivery creation for an opted-out provider, so a client cannot bypass the Settings warning.
 
 ## Accounts
 

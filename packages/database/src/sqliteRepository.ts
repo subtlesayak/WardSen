@@ -95,6 +95,19 @@ export class SqliteWardSenRepository implements WardSenRepository {
     this.db.prepare("DELETE FROM accounts WHERE id = ?").run(id);
   }
 
+  async getLocalSetting(key: string): Promise<string | undefined> {
+    const row = this.db.prepare("SELECT value FROM local_settings WHERE key = ?").get(key) as { value: string } | undefined;
+    return row?.value;
+  }
+
+  async setLocalSetting(key: string, value: string): Promise<void> {
+    this.db.prepare(`
+      INSERT INTO local_settings (key, value, updated_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+    `).run(key, value, new Date().toISOString());
+  }
+
   async listPeople(query: PeopleQuery): Promise<PaginatedResult<PersonRecord>> {
     const where: string[] = [];
     const params: SQLInputValue[] = [];

@@ -14,6 +14,7 @@ import {
   assertDeliveryOptionsSupported,
   assertFutureExpiry,
   builtInProviderManifests,
+  providerManifestFor,
   parseViewLimit
 } from "@wardsen/core";
 import type {
@@ -123,7 +124,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
       directives: {
         defaultSrc: ["'self'"],
         baseUri: ["'self'"],
-        connectSrc: ["'self'", "http://127.0.0.1:*"],
+        connectSrc: ["'self'"],
         frameAncestors: ["'none'"],
         imgSrc: ["'self'", "data:"],
         objectSrc: ["'none'"],
@@ -210,8 +211,28 @@ export async function buildApp(options: BuildAppOptions = {}) {
     telemetry: false
   }));
 
-  app.get("/api/providers", async () => ({
-    credentialProviders: await Promise.all(
+  app.get("/api/providers", async () => {
+    const deliveryProviderEntries = await Promise.all(registry.listDeliveryProviders().map(async (provider) => {
+      const manifest = providerManifestFor(provider.id);
+      return {
+        id: provider.id,
+        displayName: provider.displayName,
+        kind: manifest?.kind ?? "delivery",
+        maturity: manifest?.maturity ?? "active",
+        enabled: await isDeliveryProviderEnabled(provider.id),
+        enabledByDefault: manifest?.enabledByDefault ?? true,
+        requiresExplicitOptIn: manifest?.requiresExplicitOptIn ?? false,
+        optInWarning: manifest?.optInWarning,
+        documentationUrl: manifest?.documentationUrl,
+        notes: manifest?.notes,
+        setupInstructions: manifest?.setupInstructions,
+        delivery: manifest?.delivery,
+        capabilities: await provider.getCapabilities()
+      };
+    }));
+
+    return {
+      credentialProviders: await Promise.all(
       registry.listCredentialProviders().map(async (provider) => ({
         id: provider.id,
         displayName: provider.displayName,
@@ -219,26 +240,11 @@ export async function buildApp(options: BuildAppOptions = {}) {
         enabledByDefault: true,
         capabilities: await provider.getCapabilities()
       }))
-    ),
-    deliveryProviders: await Promise.all(
-      registry.listDeliveryProviders().map(async (provider) => {
-        const manifest = builtInProviderManifests.find((item) => item.id === provider.id);
-        return {
-          id: provider.id,
-          displayName: provider.displayName,
-          kind: manifest?.kind ?? "delivery",
-          maturity: manifest?.maturity ?? "active",
-          enabledByDefault: manifest?.enabledByDefault ?? true,
-          documentationUrl: manifest?.documentationUrl,
-          notes: manifest?.notes,
-          setupInstructions: manifest?.setupInstructions,
-          delivery: manifest?.delivery,
-          capabilities: await provider.getCapabilities()
-        };
-      })
-    ),
-    plannedProviders: builtInProviderManifests
-      .filter((manifest) => !manifest.enabledByDefault)
+      ),
+      deliveryProviders: deliveryProviderEntries.filter((provider) => provider.enabled),
+      optionalDeliveryProviders: deliveryProviderEntries.filter((provider) => !provider.enabled && provider.requiresExplicitOptIn),
+      plannedProviders: builtInProviderManifests
+      .filter((manifest) => manifest.maturity === "planned")
       .map(({ id, displayName, kind, maturity, enabledByDefault, documentationUrl, notes, setupInstructions, delivery }) => ({
         id,
         displayName,
@@ -250,7 +256,26 @@ export async function buildApp(options: BuildAppOptions = {}) {
         setupInstructions,
         delivery
       }))
-  }));
+    };
+  });
+
+  app.post("/api/delivery-providers/:id/opt-in", async (request) => {
+    const { id } = idParams.parse(request.params);
+    const manifest = explicitOptInManifest(id);
+    assertDestructiveConfirmation(request.body, `ENABLE WEAKER PROVIDER ${id}`);
+    await repository.setLocalSetting(providerOptInSettingKey(id), "enabled");
+    await audit("delivery.provider_opt_in", "success", { safeDetails: `provider=${manifest.id}` });
+    return { providerId: manifest.id, enabled: true };
+  });
+
+  app.delete("/api/delivery-providers/:id/opt-in", async (request) => {
+    const { id } = idParams.parse(request.params);
+    const manifest = explicitOptInManifest(id);
+    assertDestructiveConfirmation(request.body, `DISABLE WEAKER PROVIDER ${id}`);
+    await repository.setLocalSetting(providerOptInSettingKey(id), "disabled");
+    await audit("delivery.provider_opt_out", "success", { safeDetails: `provider=${manifest.id}` });
+    return { providerId: manifest.id, enabled: false };
+  });
 
   app.get("/api/provider-diagnostics/:id", async (request) => {
     const { id } = idParams.parse(request.params);
@@ -1234,6 +1259,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     if (existing) return existingOperationResponse(existing, operationFingerprint);
 
     assertFutureExpiry(expiresAt);
+    await assertDeliveryProviderEnabled(body.deliveryProviderId);
     const sourceAccount = await findAccount(repository, body.sourceAccountId);
     rememberAccountProfile(sourceAccount);
     if (sourceAccount.providerId !== body.sourceProviderId) {
@@ -1880,6 +1906,30 @@ export async function buildApp(options: BuildAppOptions = {}) {
     } catch (error) {
       return { recovered: false, safeDetails: `provider_lookup_failed=${safeErrorMessage(error)}` };
     }
+  }
+
+  function explicitOptInManifest(providerId: string) {
+    const manifest = providerManifestFor(providerId);
+    if (!manifest || manifest.kind !== "delivery" || !manifest.requiresExplicitOptIn) {
+      throw app.httpErrors.badRequest("This delivery provider does not require an explicit weaker-provider opt-in.");
+    }
+    return manifest;
+  }
+
+  function providerOptInSettingKey(providerId: string): string {
+    return `delivery-provider-opt-in:${providerId}`;
+  }
+
+  async function isDeliveryProviderEnabled(providerId: string): Promise<boolean> {
+    const manifest = providerManifestFor(providerId);
+    if (!manifest?.requiresExplicitOptIn) return true;
+    return (await repository.getLocalSetting(providerOptInSettingKey(providerId))) === "enabled";
+  }
+
+  async function assertDeliveryProviderEnabled(providerId: string): Promise<void> {
+    const manifest = providerManifestFor(providerId);
+    if (!manifest?.requiresExplicitOptIn || await isDeliveryProviderEnabled(providerId)) return;
+    throw app.httpErrors.forbidden(`${manifest.displayName} is disabled by default because WardSen cannot provide complete link lifecycle controls. Review its warning and enable it in Settings with the exact confirmation phrase before creating a delivery.`);
   }
 }
 

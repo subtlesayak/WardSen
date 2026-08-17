@@ -89,7 +89,9 @@ describe("provider conformance", () => {
 
     expect(manifest).toMatchObject({
       maturity: "experimental",
-      enabledByDefault: true,
+      enabledByDefault: false,
+      requiresExplicitOptIn: true,
+      optInWarning: expect.stringContaining("cannot revoke"),
       documentationUrl: "https://paste.ente.com/",
       delivery: {
         integrationSurface: "web_only",
@@ -99,6 +101,23 @@ describe("provider conformance", () => {
         accessCount: "unsupported",
         viewerIdentity: "unsupported",
         promotionBlockedBy: expect.arrayContaining(["official API or CLI contract", "operator confirmation of browser-side one-time paste creation"])
+      }
+    });
+  });
+
+  it("keeps Yopass behind an explicit weaker-provider opt-in", () => {
+    const manifest = builtInProviderManifests.find((item) => item.id === "yopass");
+
+    expect(manifest).toMatchObject({
+      maturity: "active",
+      enabledByDefault: false,
+      requiresExplicitOptIn: true,
+      optInWarning: expect.stringContaining("cannot revoke"),
+      delivery: {
+        revoke: "unsupported",
+        statusLookup: "unsupported",
+        accessCount: "unsupported",
+        viewerIdentity: "unsupported"
       }
     });
   });

@@ -12,20 +12,30 @@ export interface LocalServiceStatus {
   lastOutput?: string;
 }
 
+interface LocalServiceProxyResponse {
+  statusCode: number;
+  body: string;
+  contentType: string;
+}
+
 export async function apiGet<T>(path: string): Promise<T> {
   const url = await apiUrl(path);
-  const response = await fetchLocal(url, { headers: await apiHeaders() });
+  if (isTauriOrigin()) return tauriJson<T>(url, "GET");
+  const response = await fetchLocal(url);
   if (!response.ok) throw new Error(await errorText(response));
   return response.json() as Promise<T>;
 }
 
 export async function apiSend<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
   const url = await apiUrl(path);
+  const method = init.method ?? "POST";
+  const body = requestBodyText(init.body ?? "{}");
+  if (isTauriOrigin()) return tauriJson<T>(url, method, body, init.headers);
   const response = await fetchLocal(url, {
     ...init,
-    method: init.method ?? "POST",
-    body: init.body ?? "{}",
-    headers: await apiHeaders({ "content-type": "application/json", ...(init.headers ?? {}) })
+    method,
+    body,
+    headers: { "content-type": "application/json", ...(init.headers ?? {}) }
   });
   if (!response.ok) throw new Error(await errorText(response));
   return response.json() as Promise<T>;
@@ -33,9 +43,9 @@ export async function apiSend<T = unknown>(path: string, init: RequestInit = {})
 
 export async function apiDownload(path: string, filename: string): Promise<void> {
   const url = await apiUrl(path);
-  const response = await fetchLocal(url, { headers: await apiHeaders() });
-  if (!response.ok) throw new Error(await errorText(response));
-  const blob = await response.blob();
+  const blob = isTauriOrigin()
+    ? await tauriDownload(url)
+    : await browserDownload(url);
   const objectUrl = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = objectUrl;
@@ -48,7 +58,6 @@ export async function apiDownload(path: string, filename: string): Promise<void>
 
 export async function apiUrl(path: string): Promise<string> {
   if (/^https?:\/\//.test(path)) throw new Error("WardSen API paths must be local application paths, not absolute URLs.");
-  if (isTauriOrigin()) return `${await localServiceBaseUrl()}${path}`;
   return path;
 }
 
@@ -141,45 +150,57 @@ function isTauriOrigin(): boolean {
   return window.location.protocol === "tauri:" || window.location.hostname === "tauri.localhost";
 }
 
-let apiTokenPromise: Promise<string | undefined> | undefined;
-
-async function apiHeaders(headers: HeadersInit = {}): Promise<HeadersInit> {
-  const token = await apiToken();
-  return token ? { ...headers, "x-wardsen-api-token": token } : headers;
-}
-
-async function apiToken(): Promise<string | undefined> {
-  if (!isTauriOrigin()) return undefined;
-  apiTokenPromise ??= readTauriApiToken();
-  return apiTokenPromise;
-}
-
-async function readTauriApiToken(): Promise<string | undefined> {
-  const token = await invoke<string>("get_api_token");
-  return token.trim() || undefined;
-}
-
-async function localServiceBaseUrl(): Promise<string> {
-  const value = await invoke<string>("get_local_service_url");
-  const parsed = new URL(value);
-  if (
-    parsed.protocol !== "http:" ||
-    parsed.hostname !== "127.0.0.1" ||
-    !parsed.port ||
-    parsed.username ||
-    parsed.password ||
-    parsed.pathname !== "/" ||
-    parsed.search ||
-    parsed.hash
-  ) {
-    throw new Error("WardSen desktop returned an invalid local service address.");
+async function tauriJson<T>(path: string, method: string, body?: string, headers?: HeadersInit): Promise<T> {
+  const response = await proxyLocalService(path, method, body, headers);
+  if (response.statusCode < 200 || response.statusCode >= 300) throw new Error(errorTextValue(response.body, response.statusCode));
+  try {
+    return JSON.parse(response.body) as T;
+  } catch {
+    throw new Error("WardSen local service returned an invalid JSON response.");
   }
-  return parsed.origin;
+}
+
+async function tauriDownload(path: string): Promise<Blob> {
+  const response = await proxyLocalService(path, "GET");
+  if (response.statusCode < 200 || response.statusCode >= 300) throw new Error(errorTextValue(response.body, response.statusCode));
+  return new Blob([response.body], { type: response.contentType });
+}
+
+async function browserDownload(url: string): Promise<Blob> {
+  const response = await fetchLocal(url);
+  if (!response.ok) throw new Error(await errorText(response));
+  return response.blob();
+}
+
+async function proxyLocalService(path: string, method: string, body?: string, headers?: HeadersInit): Promise<LocalServiceProxyResponse> {
+  const employeeSession = employeeSessionHeader(headers);
+  try {
+    return await invoke<LocalServiceProxyResponse>("proxy_local_service_request", {
+      request: { path, method, body, employeeSession }
+    });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`Could not connect to WardSen local service. Use Restart service and retry in the desktop app, or close and reopen WardSen. Desktop detail: ${detail}`);
+  }
+}
+
+function employeeSessionHeader(headers: HeadersInit | undefined): string | undefined {
+  if (!headers) return undefined;
+  const normalized = new Headers(headers);
+  return normalized.get("x-wardsen-employee-session") ?? undefined;
+}
+
+function requestBodyText(body: BodyInit): string {
+  if (typeof body === "string") return body;
+  throw new Error("WardSen local API requests must use a JSON string body.");
 }
 
 async function errorText(response: Response): Promise<string> {
-  const text = await response.text();
-  if (!text.trim()) return `Request failed with HTTP ${response.status}`;
+  return errorTextValue(await response.text(), response.status);
+}
+
+function errorTextValue(text: string, status: number): string {
+  if (!text.trim()) return `Request failed with HTTP ${status}`;
   try {
     const parsed = JSON.parse(text) as { error?: unknown };
     if (typeof parsed.error === "string" && parsed.error.trim()) return parsed.error;

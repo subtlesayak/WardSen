@@ -58,33 +58,45 @@ describe("web API helpers", () => {
     await expect(apiSend<{ id: string }>("/api/deliveries", { body: "{}" })).resolves.toEqual({ id: "delivery-1" });
   });
 
-  it("targets the desktop-selected localhost API port when packaged under Tauri", async () => {
-    vi.mocked(invoke).mockImplementation(async (command) => {
-      if (command === "get_local_service_url") return "http://127.0.0.1:43127";
-      return undefined;
-    });
-    vi.stubGlobal("window", { location: { protocol: "tauri:", hostname: "localhost" } });
-
-    await expect(apiUrl("/api/health")).resolves.toBe("http://127.0.0.1:43127/api/health");
-    expect(invoke).toHaveBeenCalledWith("get_local_service_url");
-  });
-
-  it("adds the desktop API token when packaged under Tauri", async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }));
+  it("proxies desktop API requests without exposing a local service URL or token", async () => {
+    const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     vi.mocked(invoke).mockImplementation(async (command) => {
-      if (command === "get_local_service_url") return "http://127.0.0.1:43127";
-      if (command === "get_api_token") return "desktop-token";
+      if (command === "proxy_local_service_request") {
+        return { statusCode: 200, body: JSON.stringify({ ok: true }), contentType: "application/json" };
+      }
       return undefined;
     });
     vi.stubGlobal("window", {
       location: { protocol: "tauri:", hostname: "localhost" }
     });
 
-    await apiGet("/api/health");
+    await expect(apiGet<{ ok: boolean }>("/api/health")).resolves.toEqual({ ok: true });
 
-    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:43127/api/health", {
-      headers: { "x-wardsen-api-token": "desktop-token" }
+    expect(invoke).toHaveBeenCalledWith("proxy_local_service_request", {
+      request: { path: "/api/health", method: "GET", body: undefined, employeeSession: undefined }
+    });
+    expect(invoke).not.toHaveBeenCalledWith("get_local_service_url");
+    expect(invoke).not.toHaveBeenCalledWith("get_api_token");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("forwards the employee portal session only through the desktop proxy", async () => {
+    vi.mocked(invoke).mockResolvedValue({ statusCode: 200, body: "{}", contentType: "application/json" });
+    vi.stubGlobal("window", { location: { protocol: "tauri:", hostname: "localhost" } });
+
+    await apiSend("/api/employee-portal/credential-requests", {
+      headers: { "x-wardsen-employee-session": "employee-session" },
+      body: JSON.stringify({ reason: "needed" })
+    });
+
+    expect(invoke).toHaveBeenCalledWith("proxy_local_service_request", {
+      request: {
+        path: "/api/employee-portal/credential-requests",
+        method: "POST",
+        body: JSON.stringify({ reason: "needed" }),
+        employeeSession: "employee-session"
+      }
     });
   });
 

@@ -743,6 +743,12 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
 .providerTable { margin-top: 2px; }
 .providerNotes { margin: 0; color: #52665e; line-height: 1.5; }
 .providerSetup { display: grid; gap: 5px; margin: 0; padding-left: 20px; color: #52665e; line-height: 1.45; }
+.optionalProviderList { display: grid; gap: 10px; }
+.optionalProvider { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 14px; border: 1px solid #e3c7b7; background: #fff8f3; }
+.optionalProvider.enabled { border-color: #b9dfd1; background: #f1faf6; }
+.optionalProvider h3 { margin: 0 0 4px; font-size: 15px; }
+.optionalProvider p { margin: 0; color: #52665e; line-height: 1.45; }
+.optionalProvider button { justify-self: end; }
 .providerDiagnostics {
   display: grid;
   gap: 10px;
@@ -865,6 +871,12 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
   }
   .vaultRow .actions {
     justify-content: flex-start;
+  }
+  .optionalProvider {
+    grid-template-columns: 1fr;
+  }
+  .optionalProvider button {
+    justify-self: start;
   }
   .row > div:first-child,
   .row > span,

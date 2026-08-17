@@ -34,7 +34,8 @@ describe("Tauri packaging config", () => {
   it("exposes a local-service restart command for desktop recovery", () => {
     expect(rustLauncher).toContain("restart_local_service");
     expect(rustLauncher).toContain("local_service_status");
-    expect(rustLauncher).toContain("get_local_service_url");
+    expect(rustLauncher).toContain("proxy_local_service_request");
+    expect(rustLauncher).toContain("validate_local_service_proxy_request");
     expect(rustLauncher).toContain("open_terminal_session");
     expect(rustLauncher).toContain("fetch_terminal_handoff_command");
     expect(rustLauncher).not.toContain("open_terminal_session(command: String)");
@@ -51,7 +52,9 @@ describe("Tauri packaging config", () => {
     expect(rustLauncher).toContain("WardSen");
     expect(rustLauncher).toContain("data_root_database_size");
     expect(rustLauncher).toContain("dev.wardsen.desktop");
-    expect(rustLauncher).toMatch(/tauri::generate_handler!\[[\s\S]*get_api_token[\s\S]*get_local_service_url[\s\S]*restart_local_service[\s\S]*local_service_status[\s\S]*\]/);
+    expect(rustLauncher).not.toContain("fn get_api_token");
+    expect(rustLauncher).not.toContain("fn get_local_service_url");
+    expect(rustLauncher).toMatch(/tauri::generate_handler!\[[\s\S]*proxy_local_service_request[\s\S]*restart_local_service[\s\S]*local_service_status[\s\S]*\]/);
   });
 
   it("opens one explicit Windows Terminal tab and preserves a real-console fallback", () => {
@@ -75,7 +78,8 @@ describe("Tauri packaging config", () => {
 
   it("enforces a desktop content security policy", () => {
     expect(config.app.security.csp).toContain("default-src 'self'");
-    expect(config.app.security.csp).toContain("connect-src 'self' http://127.0.0.1:*");
+    expect(config.app.security.csp).toContain("connect-src 'self'");
+    expect(config.app.security.csp).not.toContain("127.0.0.1:*");
     expect(config.app.security.csp).toContain("object-src 'none'");
   });
 

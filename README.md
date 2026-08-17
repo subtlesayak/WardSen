@@ -34,7 +34,7 @@ For dedicated recipient links, say **"Asha's link was viewed"**, not **"Asha vie
 
 ## Release status
 
-`v0.1.0-rc.60` is the current security-review release candidate. A trusted public installer release still requires Windows code signing and Apple Developer ID signing plus macOS notarization.
+`v0.1.0-rc.61` is the current security-review release candidate. A trusted public installer release still requires Windows code signing and Apple Developer ID signing plus macOS notarization.
 
 | Area | Current position |
 | --- | --- |
@@ -161,10 +161,12 @@ Open **Settings > Provider Capabilities** for provider requirements, official do
 | **Bitwarden Send** | Install and unlock the official `bw` CLI. | Create, status, access count, revoke. |
 | **Password Pusher** | Set `WARDSEN_PASSWORD_PUSHER_API_TOKEN`. Optionally set `WARDSEN_PASSWORD_PUSHER_BASE_URL` for a trusted HTTPS instance. | Create, status, revoke. No trustworthy access count or viewer identity. |
 | **Onetime Secret** | Set `WARDSEN_ONETIME_SECRET_USERNAME` and `WARDSEN_ONETIME_SECRET_API_TOKEN`. Optionally set `WARDSEN_ONETIME_SECRET_BASE_URL`. | Create, receipt status, burn/revoke. No viewer identity or exact access count. |
-| **Yopass** | Install the official `yopass` CLI. Run `yopass --version`; set `WARDSEN_YOPASS_CLI_PATH` only when discovery fails. | Create only. The current CLI has no status lookup or sender-side revocation. |
-| **Ente Paste** | Manual clipboard and browser handoff. | Experimental only. No WardSen upload, status, revoke, access-count, or viewer telemetry. |
+| **Yopass** | Install the official `yopass` CLI. Run `yopass --version`; set `WARDSEN_YOPASS_CLI_PATH` only when discovery fails. | Disabled by default. Create only after an operator review and exact opt-in; the current CLI has no status lookup or sender-side revocation. |
+| **Ente Paste** | Manual clipboard and browser handoff. | Disabled by default. Experimental manual handoff only after an operator review and exact opt-in; no WardSen upload, status, revoke, access-count, or viewer telemetry. |
 
 For non-Bitwarden delivery providers, the selected **audit account** scopes WardSen metadata only. It is not the source of the external provider credential.
+
+Ente Paste and Yopass are intentionally absent from normal delivery selection until enabled in **Settings > Optional Delivery Providers**. Their warning is not a claim about the recipient: WardSen cannot use either integration to prove viewer identity, device, IP address, user-agent, access count, or link lifecycle state.
 
 <details>
 <summary><strong>Run the opt-in external-provider contract tests</strong></summary>
@@ -209,7 +211,7 @@ Follow [desktop packaging](docs/desktop-packaging.md), [installer signing](docs/
 | --- | --- |
 | Data | No cloud backend, telemetry, or third-party frontend scripts. Credential plaintext and session tokens never enter SQLite, frontend responses, logs, or diagnostics. |
 | Provider tools | CLI commands use `spawn` with `shell: false`; output is bounded and timed-out command trees are terminated. |
-| Desktop service | Packaged sessions use a per-launch local API token and prefer bundled or absolute trusted Node runtimes. |
+| Desktop service | Packaged sessions use a per-launch local API token held by the desktop runtime. The webview uses a bounded local-service proxy rather than a wildcard localhost connection, and the app prefers bundled or absolute trusted Node runtimes. |
 | Sensitive actions | Login, unlock, terminal handoff, employee code, and local API routes have layered rate limits. Destructive actions require exact server confirmation. |
 | Safety review | Destructive actions fetch an operator-visible impact preview before the exact confirmation phrase is accepted. Generated canaries prove provider errors do not leak into SQLite, audit/API output, diagnostics, or release-scanned web assets. |
 

@@ -22,6 +22,8 @@ export interface ProviderManifest {
   packageName?: string;
   documentationUrl?: string;
   enabledByDefault: boolean;
+  requiresExplicitOptIn?: boolean;
+  optInWarning?: string;
   notes: string;
   setupInstructions?: string[];
   delivery?: DeliveryProviderReadiness;
@@ -74,7 +76,9 @@ export const builtInProviderManifests: ProviderManifest[] = [
     maturity: "experimental",
     packageName: "@wardsen/delivery-ente-paste",
     documentationUrl: "https://paste.ente.com/",
-    enabledByDefault: true,
+    enabledByDefault: false,
+    requiresExplicitOptIn: true,
+    optInWarning: "Manual browser handoff only. WardSen cannot revoke the link or observe access, access counts, viewer identity, IP address, device or user-agent data.",
     notes: "Experimental manual handoff provider. WardSen copies only the credential title, username and password to the local clipboard, offers an explicit local clipboard-clear action, returns an Ente Paste open action for the operator, and records a handoff-pending delivery. URLs, TOTP secrets and notes are excluded. Public Ente Paste docs do not expose sender-visible status, revoke, access count, IP, device or user-agent telemetry.",
     delivery: {
       integrationSurface: "web_only",
@@ -123,7 +127,9 @@ export const builtInProviderManifests: ProviderManifest[] = [
     maturity: "active",
     packageName: "@wardsen/delivery-external",
     documentationUrl: "https://github.com/jhaals/yopass",
-    enabledByDefault: true,
+    enabledByDefault: false,
+    requiresExplicitOptIn: true,
+    optInWarning: "One-time delivery without WardSen lifecycle controls. WardSen cannot revoke the link or observe access, access counts, viewer identity, IP address, device or user-agent data.",
     notes: "Yopass CLI delivery. The local CLI encrypts projected credential text before upload and returns a one-time link. WardSen cannot revoke, refresh or attribute that link through the current CLI contract.",
     setupInstructions: [
       "Install the official yopass CLI and verify yopass --version in a terminal.",
@@ -225,7 +231,11 @@ export function activeProviderManifests(kind?: ProviderKind): ProviderManifest[]
 }
 
 export function plannedProviderManifests(kind?: ProviderKind): ProviderManifest[] {
-  return builtInProviderManifests.filter((manifest) => manifest.maturity !== "active" && (!kind || manifest.kind === kind));
+  return builtInProviderManifests.filter((manifest) => manifest.maturity === "planned" && (!kind || manifest.kind === kind));
+}
+
+export function explicitOptInProviderManifests(kind?: ProviderKind): ProviderManifest[] {
+  return builtInProviderManifests.filter((manifest) => manifest.requiresExplicitOptIn && (!kind || manifest.kind === kind));
 }
 
 export function providerManifestFor(id: string): ProviderManifest | undefined {

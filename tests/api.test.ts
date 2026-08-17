@@ -34,6 +34,8 @@ describe("WardSen API", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json().telemetry).toBe(false);
     expect(response.headers["content-security-policy"]).toContain("default-src 'self'");
+    expect(response.headers["content-security-policy"]).toContain("connect-src 'self'");
+    expect(response.headers["content-security-policy"]).not.toContain("127.0.0.1:*");
     await app.close();
   });
 
@@ -167,17 +169,25 @@ describe("WardSen API", () => {
         setupInstructions: expect.arrayContaining([expect.stringContaining("WARDSEN_ONETIME_SECRET_USERNAME")]),
         delivery: expect.objectContaining({ revoke: "supported", statusLookup: "supported", accessCount: "unsupported" })
       }),
+    ]));
+    expect(body.deliveryProviders.some((provider: { id: string }) => provider.id === "yopass")).toBe(false);
+    expect(body.deliveryProviders.some((provider: { id: string }) => provider.id === "ente-paste")).toBe(false);
+    expect(body.optionalDeliveryProviders).toEqual(expect.arrayContaining([
       expect.objectContaining({
         id: "yopass",
         maturity: "active",
-        enabledByDefault: true,
+        enabledByDefault: false,
+        requiresExplicitOptIn: true,
+        optInWarning: expect.stringContaining("cannot revoke"),
         setupInstructions: expect.arrayContaining([expect.stringContaining("WARDSEN_YOPASS_CLI_PATH")]),
         delivery: expect.objectContaining({ revoke: "unsupported", statusLookup: "unsupported", accessCount: "unsupported" })
       }),
       expect.objectContaining({
         id: "ente-paste",
         maturity: "experimental",
-        enabledByDefault: true,
+        enabledByDefault: false,
+        requiresExplicitOptIn: true,
+        optInWarning: expect.stringContaining("cannot revoke"),
         delivery: expect.objectContaining({
           integrationSurface: "web_only",
           secureLinkCreation: "manual",
@@ -192,6 +202,53 @@ describe("WardSen API", () => {
         })
       })
     ]));
+    await app.close();
+  });
+
+  it("requires an exact opt-in before weaker delivery providers are available", async () => {
+    const app = await buildApp();
+    const headers = { host: "127.0.0.1:4777" };
+
+    const blocked = await app.inject({
+      method: "POST",
+      url: "/api/deliveries",
+      headers,
+      payload: {
+        sourceProviderId: "bitwarden",
+        sourceAccountId: "source-account",
+        sourceItemId: "source-item",
+        deliveryProviderId: "yopass",
+        deliveryAccountId: "delivery-account",
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+        deliveryMethod: "copy"
+      }
+    });
+    expect(blocked.statusCode).toBe(403);
+    expect(blocked.json().error).toContain("disabled by default");
+
+    const missingConfirmation = await app.inject({ method: "POST", url: "/api/delivery-providers/yopass/opt-in", headers, payload: {} });
+    expect(missingConfirmation.statusCode).toBe(400);
+
+    const enabled = await app.inject({
+      method: "POST",
+      url: "/api/delivery-providers/yopass/opt-in",
+      headers,
+      payload: { confirm: "ENABLE WEAKER PROVIDER yopass" }
+    });
+    expect(enabled.statusCode).toBe(200);
+    expect(enabled.json()).toEqual({ providerId: "yopass", enabled: true });
+
+    const afterOptIn = await app.inject({ method: "GET", url: "/api/providers", headers });
+    expect(afterOptIn.json().deliveryProviders).toEqual(expect.arrayContaining([expect.objectContaining({ id: "yopass", enabled: true })]));
+
+    const disabled = await app.inject({
+      method: "DELETE",
+      url: "/api/delivery-providers/yopass/opt-in",
+      headers,
+      payload: { confirm: "DISABLE WEAKER PROVIDER yopass" }
+    });
+    expect(disabled.statusCode).toBe(200);
+    expect(disabled.json()).toEqual({ providerId: "yopass", enabled: false });
     await app.close();
   });
 
@@ -1406,6 +1463,13 @@ describe("WardSen API", () => {
     const headers = { host: "127.0.0.1:4777", origin: "http://127.0.0.1:4777" };
     await app.inject({ method: "POST", url: "/api/accounts", headers, payload: { id: "source", providerId: "mock-source", label: "Mock source" } });
     await app.inject({ method: "POST", url: "/api/accounts", headers, payload: { id: "delivery", providerId: "mock-source", label: "Manual delivery account" } });
+    const enabled = await app.inject({
+      method: "POST",
+      url: "/api/delivery-providers/ente-paste/opt-in",
+      headers,
+      payload: { confirm: "ENABLE WEAKER PROVIDER ente-paste" }
+    });
+    expect(enabled.statusCode).toBe(200);
 
     const created = await app.inject({
       method: "POST",

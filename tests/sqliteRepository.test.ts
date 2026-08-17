@@ -13,6 +13,17 @@ afterEach(() => {
 });
 
 describe("SqliteWardSenRepository", () => {
+  it("persists local provider opt-in preferences without credential material", async () => {
+    tempDir = mkdtempSync(path.join(os.tmpdir(), "wardsen-sqlite-"));
+    const repo = new SqliteWardSenRepository(path.join(tempDir, "wardsen.sqlite"));
+
+    await expect(repo.getLocalSetting("delivery-provider-opt-in:yopass")).resolves.toBeUndefined();
+    await repo.setLocalSetting("delivery-provider-opt-in:yopass", "enabled");
+    await expect(repo.getLocalSetting("delivery-provider-opt-in:yopass")).resolves.toBe("enabled");
+
+    repo.close();
+  });
+
   it("persists people and deliveries without storing secure link contents", async () => {
     tempDir = mkdtempSync(path.join(os.tmpdir(), "wardsen-sqlite-"));
     const repo = new SqliteWardSenRepository(path.join(tempDir, "wardsen.sqlite"));

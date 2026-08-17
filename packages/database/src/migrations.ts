@@ -405,5 +405,15 @@ ALTER TABLE deliveries ADD COLUMN delivery_access_code_observed_at TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_deliveries_access_code_observed_at ON deliveries(delivery_access_code_observed_at);
 `
+  },
+  {
+    id: "015_local_provider_preferences",
+    sql: `
+CREATE TABLE IF NOT EXISTS local_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+`
   }
 ];

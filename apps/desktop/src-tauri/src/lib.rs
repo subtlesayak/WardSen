@@ -9,7 +9,7 @@ use std::{
     time::Duration,
 };
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{path::BaseDirectory, Manager};
 
 struct ServerProcess {
@@ -41,14 +41,33 @@ struct LocalServiceStatus {
     last_output: Option<String>,
 }
 
-#[tauri::command]
-fn get_api_token(token: tauri::State<ApiToken>) -> String {
-    token.0.clone()
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LocalServiceProxyRequest {
+    path: String,
+    method: String,
+    body: Option<String>,
+    employee_session: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LocalServiceProxyResponse {
+    status_code: u16,
+    body: String,
+    content_type: String,
 }
 
 #[tauri::command]
-fn get_local_service_url(config: tauri::State<ServerLaunchConfig>) -> String {
-    format!("http://127.0.0.1:{}", config.port)
+fn proxy_local_service_request(
+    request: LocalServiceProxyRequest,
+    config: tauri::State<ServerLaunchConfig>,
+    token: tauri::State<ApiToken>,
+) -> Result<LocalServiceProxyResponse, String> {
+    proxy_local_service_request_inner(&config, &token.0, &request).map_err(|_| {
+        "WardSen could not complete the local service request. Restart the service and retry."
+            .to_string()
+    })
 }
 
 #[tauri::command]
@@ -92,8 +111,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
-            get_api_token,
-            get_local_service_url,
+            proxy_local_service_request,
             restart_local_service,
             local_service_status,
             open_terminal_session
@@ -260,10 +278,236 @@ fn is_port_open(port: u16) -> bool {
     TcpStream::connect_timeout(&address, Duration::from_millis(250)).is_ok()
 }
 
+fn proxy_local_service_request_inner(
+    config: &ServerLaunchConfig,
+    api_token: &str,
+    request: &LocalServiceProxyRequest,
+) -> io::Result<LocalServiceProxyResponse> {
+    validate_local_service_proxy_request(request)
+        .map_err(|message| io::Error::new(io::ErrorKind::InvalidInput, message))?;
+    let address = SocketAddr::from(([127, 0, 0, 1], config.port));
+    let mut stream = TcpStream::connect_timeout(&address, Duration::from_secs(2))?;
+    stream.set_read_timeout(Some(Duration::from_secs(30)))?;
+    stream.set_write_timeout(Some(Duration::from_secs(30)))?;
+
+    let body = request.body.as_deref().unwrap_or("");
+    let content_headers = if request.body.is_some() {
+        format!(
+            "Content-Type: application/json\r\nContent-Length: {}\r\n",
+            body.len()
+        )
+    } else {
+        String::new()
+    };
+    let employee_session_header = request
+        .employee_session
+        .as_deref()
+        .map(|session| format!("X-WardSen-Employee-Session: {session}\r\n"))
+        .unwrap_or_default();
+    let raw_request = format!(
+        "{} {} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nX-WardSen-API-Token: {}\r\n{}Connection: close\r\n{}\r\n{}",
+        request.method, request.path, config.port, api_token, employee_session_header, content_headers, body
+    );
+    stream.write_all(raw_request.as_bytes())?;
+
+    let mut raw_response = Vec::new();
+    stream.read_to_end(&mut raw_response)?;
+    let header_end = raw_response
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "local service response was malformed",
+            )
+        })?;
+    let headers = std::str::from_utf8(&raw_response[..header_end]).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "local service response headers were invalid",
+        )
+    })?;
+    let status_code = headers
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .and_then(|status| status.parse::<u16>().ok())
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "local service response status was invalid",
+            )
+        })?;
+    let content_type = headers
+        .lines()
+        .find_map(|line| http_header_value(line, "content-type"))
+        .unwrap_or_else(|| "application/octet-stream".to_string());
+    let body_bytes = decode_http_response_body(headers, &raw_response[(header_end + 4)..])?;
+    let body = String::from_utf8(body_bytes).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "local service response body was invalid",
+        )
+    })?;
+
+    Ok(LocalServiceProxyResponse {
+        status_code,
+        body,
+        content_type,
+    })
+}
+
+fn http_header_value(line: &str, expected_name: &str) -> Option<String> {
+    line.split_once(':').and_then(|(name, value)| {
+        name.eq_ignore_ascii_case(expected_name)
+            .then(|| value.trim().to_string())
+    })
+}
+
+fn header_value(headers: &str, expected_name: &str) -> Option<String> {
+    headers
+        .lines()
+        .find_map(|line| http_header_value(line, expected_name))
+}
+
+fn decode_http_response_body(headers: &str, body: &[u8]) -> io::Result<Vec<u8>> {
+    if header_value(headers, "transfer-encoding")
+        .is_some_and(|value| value.to_ascii_lowercase().contains("chunked"))
+    {
+        return decode_chunked_body(body);
+    }
+    if let Some(length) = header_value(headers, "content-length") {
+        let length = length.parse::<usize>().map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "local service response content length was invalid",
+            )
+        })?;
+        if body.len() < length {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "local service response body was truncated",
+            ));
+        }
+        return Ok(body[..length].to_vec());
+    }
+    Ok(body.to_vec())
+}
+
+fn decode_chunked_body(body: &[u8]) -> io::Result<Vec<u8>> {
+    let mut decoded = Vec::new();
+    let mut cursor = 0;
+    loop {
+        if cursor >= body.len() {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "local service chunked response ended early",
+            ));
+        }
+        let line_end = body[cursor..]
+            .windows(2)
+            .position(|window| window == b"\r\n")
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "local service chunk size was malformed",
+                )
+            })?;
+        let size_line = std::str::from_utf8(&body[cursor..(cursor + line_end)]).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "local service chunk size was invalid",
+            )
+        })?;
+        let size_hex = size_line.split(';').next().unwrap_or("").trim();
+        let size = usize::from_str_radix(size_hex, 16).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "local service chunk size was invalid",
+            )
+        })?;
+        cursor += line_end + 2;
+        if size == 0 {
+            break;
+        }
+        if body.len() < cursor + size + 2 {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "local service chunked response was truncated",
+            ));
+        }
+        decoded.extend_from_slice(&body[cursor..(cursor + size)]);
+        cursor += size;
+        if body.get(cursor..(cursor + 2)) != Some(b"\r\n") {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "local service chunk terminator was malformed",
+            ));
+        }
+        cursor += 2;
+    }
+    Ok(decoded)
+}
+
+fn validate_local_service_proxy_request(request: &LocalServiceProxyRequest) -> Result<(), String> {
+    const MAX_PATH_LENGTH: usize = 4_096;
+    const MAX_BODY_LENGTH: usize = 128 * 1024;
+    if !matches!(
+        request.method.as_str(),
+        "GET" | "POST" | "PUT" | "PATCH" | "DELETE"
+    ) {
+        return Err("WardSen rejected an unsupported local service method.".to_string());
+    }
+    if !request.path.starts_with("/api/")
+        || request.path.len() > MAX_PATH_LENGTH
+        || !request.path.bytes().all(|character| {
+            character.is_ascii_alphanumeric()
+                || matches!(
+                    character,
+                    b'/' | b'?'
+                        | b'&'
+                        | b'='
+                        | b'.'
+                        | b'_'
+                        | b'~'
+                        | b'%'
+                        | b'-'
+                        | b':'
+                        | b'+'
+                        | b','
+                        | b'@'
+                )
+        })
+    {
+        return Err("WardSen rejected an invalid local service path.".to_string());
+    }
+    if request
+        .body
+        .as_ref()
+        .is_some_and(|body| body.len() > MAX_BODY_LENGTH || body.contains('\0'))
+    {
+        return Err(
+            "WardSen rejected an oversized or invalid local service request body.".to_string(),
+        );
+    }
+    if request.employee_session.as_ref().is_some_and(|session| {
+        session.is_empty()
+            || session.len() > 4_096
+            || session.contains('\r')
+            || session.contains('\n')
+            || session.contains('\0')
+    }) {
+        return Err("WardSen rejected an invalid employee session header.".to_string());
+    }
+    Ok(())
+}
+
 fn validate_terminal_launch_id(value: &str) -> Result<(), String> {
     if value.is_empty()
         || value.len() > 128
-        || !value.bytes().all(|character| character.is_ascii_alphanumeric() || character == b'_' || character == b'-')
+        || !value.bytes().all(|character| {
+            character.is_ascii_alphanumeric() || character == b'_' || character == b'-'
+        })
     {
         return Err("WardSen rejected an invalid terminal launch request.".to_string());
     }
@@ -291,16 +535,35 @@ fn fetch_terminal_handoff_command(
     let header_end = response
         .windows(4)
         .position(|window| window == b"\r\n\r\n")
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "local service response was malformed"))?;
-    let headers = std::str::from_utf8(&response[..header_end])
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "local service response headers were invalid"))?;
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "local service response was malformed",
+            )
+        })?;
+    let headers = std::str::from_utf8(&response[..header_end]).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "local service response headers were invalid",
+        )
+    })?;
     if !headers.starts_with("HTTP/1.1 200 ") {
-        return Err(io::Error::new(io::ErrorKind::PermissionDenied, "local service did not authorize the terminal launch"));
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "local service did not authorize the terminal launch",
+        ));
     }
-    let command = String::from_utf8(response[(header_end + 4)..].to_vec())
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "local service terminal command was invalid"))?;
+    let command = String::from_utf8(response[(header_end + 4)..].to_vec()).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "local service terminal command was invalid",
+        )
+    })?;
     if command.len() > 16_384 {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "local service terminal command was too large"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "local service terminal command was too large",
+        ));
     }
     Ok(command)
 }
@@ -317,7 +580,10 @@ fn validate_terminal_handoff_command(command: &str) -> Result<(), String> {
         && value.contains("bwCommand")
         && value.contains("WardSen received the Bitwarden session");
     if !expected_prefix || !expected_handoff {
-        return Err("WardSen only opens its own short-lived Bitwarden terminal handoff commands.".to_string());
+        return Err(
+            "WardSen only opens its own short-lived Bitwarden terminal handoff commands."
+                .to_string(),
+        );
     }
     Ok(())
 }
@@ -483,11 +749,16 @@ fn base64_encode(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{macos_terminal_command, windows_terminal_args, windows_terminal_command};
+    use super::{
+        decode_http_response_body, macos_terminal_command, validate_local_service_proxy_request,
+        windows_terminal_args, windows_terminal_command, LocalServiceProxyRequest,
+    };
 
     #[test]
     fn macos_terminal_handoff_keeps_the_window_open_after_running() {
-        let command = macos_terminal_command("export BITWARDENCLI_APPDATA_DIR='/tmp/wardsen'; bw unlock --raw");
+        let command = macos_terminal_command(
+            "export BITWARDENCLI_APPDATA_DIR='/tmp/wardsen'; bw unlock --raw",
+        );
 
         assert!(command.contains("WardSen is starting Bitwarden login"));
         assert!(command.contains("bw unlock --raw"));
@@ -496,7 +767,9 @@ mod tests {
 
     #[test]
     fn windows_terminal_handoff_keeps_the_window_open_after_running() {
-        let command = windows_terminal_command("$env:BITWARDENCLI_APPDATA_DIR='C:\\WardSen'; bw unlock --raw");
+        let command = windows_terminal_command(
+            "$env:BITWARDENCLI_APPDATA_DIR='C:\\WardSen'; bw unlock --raw",
+        );
 
         assert!(command.contains("WardSen is starting Bitwarden login"));
         assert!(command.contains("bw unlock --raw"));
@@ -525,6 +798,50 @@ mod tests {
                 "encoded-command",
             ]
         );
+    }
+
+    #[test]
+    fn local_service_proxy_only_accepts_bounded_local_api_requests() {
+        let accepted = LocalServiceProxyRequest {
+            method: "GET".to_string(),
+            path: "/api/providers?filter=ready".to_string(),
+            body: None,
+            employee_session: None,
+        };
+        assert!(validate_local_service_proxy_request(&accepted).is_ok());
+
+        let external_path = LocalServiceProxyRequest {
+            method: "GET".to_string(),
+            path: "https://127.0.0.1:4777/api/providers".to_string(),
+            body: None,
+            employee_session: None,
+        };
+        assert!(validate_local_service_proxy_request(&external_path).is_err());
+
+        let injected_path = LocalServiceProxyRequest {
+            method: "GET".to_string(),
+            path: "/api/providers\r\nX-Injected: true".to_string(),
+            body: None,
+            employee_session: None,
+        };
+        assert!(validate_local_service_proxy_request(&injected_path).is_err());
+    }
+
+    #[test]
+    fn local_service_proxy_decodes_framed_http_response_bodies() {
+        let sized = decode_http_response_body(
+            "HTTP/1.1 200 OK\r\nContent-Length: 11\r\nContent-Type: application/json",
+            br#"{"ok":true}ignored"#,
+        )
+        .expect("content length body");
+        assert_eq!(sized, br#"{"ok":true}"#);
+
+        let chunked = decode_http_response_body(
+            "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nContent-Type: application/json",
+            b"6\r\n{\"ok\":\r\n5\r\ntrue}\r\n0\r\n\r\n",
+        )
+        .expect("chunked body");
+        assert_eq!(chunked, br#"{"ok":true}"#);
     }
 }
 

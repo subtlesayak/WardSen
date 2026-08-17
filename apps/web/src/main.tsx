@@ -39,7 +39,10 @@ interface ProviderInfo {
   displayName: string;
   kind?: string;
   maturity?: string;
+  enabled?: boolean;
   enabledByDefault?: boolean;
+  requiresExplicitOptIn?: boolean;
+  optInWarning?: string;
   documentationUrl?: string;
   notes?: string;
   setupInstructions?: string[];
@@ -226,6 +229,7 @@ interface ApiState {
   loadingMessage?: string;
   credentialProviders: ProviderInfo[];
   deliveryProviders: ProviderInfo[];
+  optionalDeliveryProviders: ProviderInfo[];
   plannedProviders: ProviderInfo[];
   accounts: AccountRecord[];
   people: PersonRecord[];
@@ -298,7 +302,7 @@ function App() {
         {active === "People" && <People api={api} confirmDestructiveAction={destructiveConfirmation.confirm} />}
         {active === "Requests" && <RequestsView api={api} />}
         {active === "Deliveries" && <Deliveries api={api} confirmDestructiveAction={destructiveConfirmation.confirm} />}
-        {active === "Settings" && <SettingsView credentialProviders={api.credentialProviders} deliveryProviders={api.deliveryProviders} plannedProviders={api.plannedProviders} onRefresh={api.refresh} />}
+        {active === "Settings" && <SettingsView credentialProviders={api.credentialProviders} deliveryProviders={api.deliveryProviders} optionalDeliveryProviders={api.optionalDeliveryProviders} plannedProviders={api.plannedProviders} onRefresh={api.refresh} confirmAction={destructiveConfirmation.confirm} />}
       </main>
       {destructiveConfirmation.dialog}
     </div>
@@ -310,6 +314,7 @@ function useWardSenApi() {
     status: "loading",
     credentialProviders: [],
     deliveryProviders: [],
+    optionalDeliveryProviders: [],
     plannedProviders: [],
     accounts: [],
     people: [],
@@ -324,7 +329,7 @@ function useWardSenApi() {
     setState((current) => ({ ...current, status: "loading", error: undefined, loadingMessage: "Loading local WardSen data..." }));
     try {
       const [providers, accounts, people, employees, catalogEntries, credentialRequests, deliveries, batches] = await Promise.all([
-        apiGet<{ credentialProviders: ProviderInfo[]; deliveryProviders: ProviderInfo[]; plannedProviders: ProviderInfo[] }>("/api/providers"),
+        apiGet<{ credentialProviders: ProviderInfo[]; deliveryProviders: ProviderInfo[]; optionalDeliveryProviders: ProviderInfo[]; plannedProviders: ProviderInfo[] }>("/api/providers"),
         apiGet<AccountRecord[]>("/api/accounts"),
         apiGet<{ items: PersonRecord[] }>("/api/people?page=1&pageSize=50"),
         apiGet<{ items: EmployeeRecord[] }>("/api/employees?page=1&pageSize=100"),
@@ -340,6 +345,7 @@ function useWardSenApi() {
         status: "ready",
         credentialProviders: providers.credentialProviders,
         deliveryProviders: providers.deliveryProviders,
+        optionalDeliveryProviders: providers.optionalDeliveryProviders,
         plannedProviders: providers.plannedProviders,
         accounts,
         people: people.items,
@@ -1773,11 +1779,11 @@ function Deliveries({ api, confirmDestructiveAction }: { api: ReturnType<typeof 
   );
 }
 
-function SettingsView({ credentialProviders, deliveryProviders, plannedProviders, onRefresh }: { credentialProviders: ProviderInfo[]; deliveryProviders: ProviderInfo[]; plannedProviders: ProviderInfo[]; onRefresh: () => void }) {
+function SettingsView({ credentialProviders, deliveryProviders, optionalDeliveryProviders, plannedProviders, onRefresh, confirmAction }: { credentialProviders: ProviderInfo[]; deliveryProviders: ProviderInfo[]; optionalDeliveryProviders: ProviderInfo[]; plannedProviders: ProviderInfo[]; onRefresh: () => void; confirmAction: DestructiveConfirmation }) {
   const [selectedProviderId, setSelectedProviderId] = useState("");
   const [connectionCheck, setConnectionCheck] = useState<{ providerId?: string; status: "idle" | "loading" | "ready" | "error"; text?: string }>({ status: "idle" });
   const [diagnostic, setDiagnostic] = useState<{ providerId?: string; status: "idle" | "loading" | "ready" | "error"; value?: ProviderDiagnostic; text?: string }>({ status: "idle" });
-  const providers = [...credentialProviders, ...deliveryProviders];
+  const providers = [...credentialProviders, ...deliveryProviders, ...optionalDeliveryProviders];
   const selectedProvider = providers.find((provider) => provider.id === selectedProviderId) ?? providers[0];
   const capabilities = selectedProvider?.capabilities ?? {};
   const isSelectedProviderCheck = connectionCheck.providerId === selectedProvider?.id;
@@ -1808,6 +1814,27 @@ function SettingsView({ credentialProviders, deliveryProviders, plannedProviders
       setDiagnostic({ providerId: provider.id, status: "ready", value });
     } catch (error) {
       setDiagnostic({ providerId: provider.id, status: "error", text: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  async function setWeakerProviderEnabled(provider: ProviderInfo, enabled: boolean) {
+    const action = enabled ? "ENABLE" : "DISABLE";
+    const phrase = `${action} WEAKER PROVIDER ${provider.id}`;
+    const confirmed = await confirmAction(
+      phrase,
+      enabled
+        ? `${provider.displayName} has reduced delivery safeguards. ${provider.optInWarning ?? "Review its limitations before enabling it."}`
+        : `Disable ${provider.displayName}. It will be removed from delivery selection, while existing delivery records remain available for audit.`
+    );
+    if (!confirmed) return;
+    try {
+      await apiSend(`/api/delivery-providers/${encodeURIComponent(provider.id)}/opt-in`, {
+        method: enabled ? "POST" : "DELETE",
+        body: JSON.stringify({ confirm: phrase })
+      });
+      await onRefresh();
+    } catch (error) {
+      setConnectionCheck({ providerId: provider.id, status: "error", text: error instanceof Error ? error.message : String(error) });
     }
   }
 
@@ -1842,6 +1869,30 @@ function SettingsView({ credentialProviders, deliveryProviders, plannedProviders
               <span>{key.replace(/[A-Z]/g, (letter) => ` ${letter.toLowerCase()}`)}</span>
               <strong>{enabled ? "Supported" : "Hidden or disabled"}</strong>
             </div>
+          ))}
+        </div>
+      </section>
+      <section className="panel">
+        <PanelTitle icon={ShieldCheck} title="Optional Delivery Providers" action="Refresh" onAction={onRefresh} />
+        <div className="optionalProviderList">
+          {optionalDeliveryProviders.map((provider) => (
+            <article className="optionalProvider" key={provider.id}>
+              <div>
+                <h3>{provider.displayName}</h3>
+                <p>{provider.optInWarning ?? "This provider requires an operator opt-in before it can be selected for delivery."}</p>
+              </div>
+              <button type="button" className="dangerAction" onClick={() => void setWeakerProviderEnabled(provider, true)}>Enable with confirmation</button>
+            </article>
+          ))}
+          {optionalDeliveryProviders.length === 0 ? <EmptyState text="No weaker delivery providers are waiting for opt-in." /> : null}
+          {deliveryProviders.filter((provider) => provider.requiresExplicitOptIn).map((provider) => (
+            <article className="optionalProvider enabled" key={provider.id}>
+              <div>
+                <h3>{provider.displayName}</h3>
+                <p>Enabled by an operator. Its reduced lifecycle safeguards still apply.</p>
+              </div>
+              <button type="button" onClick={() => void setWeakerProviderEnabled(provider, false)}>Disable provider</button>
+            </article>
           ))}
         </div>
       </section>
@@ -2503,7 +2554,7 @@ function DestructiveConfirmationDialog({ phrase, message, onCancel, onConfirm }:
         event.preventDefault();
         if (isConfirmed) onConfirm();
       }}>
-        <h2 id="destructive-confirmation-title">Confirm destructive action</h2>
+        <h2 id="destructive-confirmation-title">Confirm exact action</h2>
         <p>{message}</p>
         <label>
           Type the confirmation phrase to continue
@@ -2513,7 +2564,7 @@ function DestructiveConfirmationDialog({ phrase, message, onCancel, onConfirm }:
         <small id="destructive-confirmation-help">The local service will reject this action unless the phrase matches exactly.</small>
         <div className="buttonRow confirmationActions">
           <button type="button" onClick={onCancel}>Cancel</button>
-          <button type="submit" className="dangerAction" disabled={!isConfirmed}>Confirm action</button>
+          <button type="submit" className="dangerAction" disabled={!isConfirmed}>Confirm</button>
         </div>
       </form>
     </div>

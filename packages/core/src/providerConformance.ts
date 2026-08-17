@@ -52,7 +52,7 @@ export function verifyProviderManifestCatalog(manifests: ProviderManifest[]): Pr
   for (const manifest of manifests) {
     if (seenIds.has(manifest.id)) failures.push(`Provider manifest id ${manifest.id} must be unique`);
     seenIds.add(manifest.id);
-    if (manifest.maturity === "active" && !manifest.enabledByDefault) failures.push(`Active provider ${manifest.id} must be enabled by default`);
+    if (manifest.maturity === "active" && !manifest.enabledByDefault && !manifest.requiresExplicitOptIn) failures.push(`Active provider ${manifest.id} must be enabled by default or require explicit opt-in`);
     if (manifest.maturity === "planned" && manifest.enabledByDefault) failures.push(`Planned provider ${manifest.id} must stay disabled by default`);
     if (manifest.kind !== "delivery") continue;
     if (!manifest.delivery) {
@@ -80,7 +80,7 @@ function commonProviderFailures(
   if (manifest.id !== provider.id) failures.push(`Manifest id ${manifest.id} must match provider id ${provider.id}`);
   if (manifest.displayName !== provider.displayName) failures.push(`Manifest display name ${manifest.displayName} must match provider display name ${provider.displayName}`);
   if (manifest.maturity === "planned") failures.push(`Provider ${provider.id} cannot be registered as functional while maturity is ${manifest.maturity}`);
-  if (!manifest.enabledByDefault) failures.push(`Provider ${provider.id} cannot be registered as functional while disabled by default`);
+  if (!manifest.enabledByDefault && !manifest.requiresExplicitOptIn) failures.push(`Provider ${provider.id} cannot be registered as functional while disabled by default`);
   return failures;
 }
 
