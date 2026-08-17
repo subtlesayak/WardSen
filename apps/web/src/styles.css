@@ -417,25 +417,38 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
   align-self: start;
   width: 100%;
 }
+.formGrid .check > input,
+.formGrid .checkboxLine > input { width: auto; }
+.vaultAccountForm { gap: 20px; }
+.vaultAccountForm .panelTitle,
+.accountAccessPanel .panelTitle { margin-bottom: 0; }
+.vaultProviderBlock { display: grid; gap: 7px; max-width: 440px; }
+.vaultProviderBlock label { display: grid; gap: 7px; color: #52665e; font-size: 13px; }
+.vaultAccountFields,
+.accountAccessFields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px 16px;
+}
+.vaultAccountFields label,
+.accountAccessFields label { display: grid; gap: 7px; color: #52665e; font-size: 13px; }
+.vaultAccountFields input,
+.vaultAccountFields select,
+.accountAccessFields input,
+.accountAccessFields select { width: 100%; }
+.vaultProfileNote { grid-column: span 2; align-self: end; max-width: 520px; }
+.accountAccessPanel { display: grid; gap: 20px; }
+.accountAccessPanel .notice.compact { margin: 0; }
+.providerCredentialNotice { display: grid; align-content: start; gap: 4px; color: #52665e; font-size: 13px; line-height: 1.4; }
+.providerCredentialNotice strong { min-height: 42px; display: flex; align-items: center; color: #334d43; font-size: 14px; }
+.providerCredentialNotice small { color: #63766f; font-size: 12px; }
+.accountAccessOption { align-self: end; min-height: 42px; }
+.formActions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.formActions button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 0 14px; }
 .csvImport {
   border-top: 1px solid #dce7e1;
   margin: 0 0 14px;
   padding-top: 14px;
-}
-.accountAccessGrid {
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
-  column-gap: 16px;
-  row-gap: 14px;
-}
-.accountAccessGrid .notice.compact {
-  margin-bottom: 6px;
-}
-.accountAccessGrid .buttonRow {
-  align-items: center;
-  margin-top: 8px;
-}
-.accountAccessGrid .buttonRow button {
-  min-width: 240px;
 }
 .fieldInstruction {
   color: #63766f;
@@ -570,6 +583,8 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
 .actions .copyFeedback button { width: auto; min-width: 40px; padding: 0 10px; display: inline-flex; }
 .dangerAction { justify-self: start; color: #7b2f2f; background: #fff6f4; border-color: #d99a94; }
 .dangerAction:hover:not(:disabled) { background: #f9e2df; }
+.warningAction { justify-self: start; color: #714414; background: #fff3e5; border-color: #e1b36f; }
+.warningAction:hover:not(:disabled) { background: #fde5c8; }
 .historyCopyStatus, .historyCopyError { flex-basis: 100%; text-align: right; font-size: 12px; line-height: 1.35; }
 .historyCopyStatus { color: #0d5f44; }
 .historyCopyError { color: #7b2f2f; }
@@ -720,7 +735,7 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
   min-height: auto;
 }
 .check { display: flex !important; align-items: center; gap: 8px; }
-.check input { min-height: auto; }
+.check input { min-height: auto; width: auto; }
 .inlineCheck {
   display: inline-flex;
   align-items: center;
@@ -818,6 +833,11 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
   .brand strong { font-size: 17px; }
   .nav { padding: 0 10px; }
   .grid.split { grid-template-columns: 1fr; }
+  .vaultAccountFields,
+  .accountAccessFields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .vaultProfileNote { grid-column: 1 / -1; }
   .vaultRow {
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: start;
@@ -858,14 +878,16 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
   .topbar { display: grid; }
   h1 { font-size: 25px; }
   .topbarActions { justify-content: flex-start; }
-  .accountAccessGrid,
+  .vaultAccountFields,
+  .accountAccessFields,
   .vaultRow {
     grid-template-columns: 1fr;
   }
-  .accountAccessGrid .buttonRow {
+  .vaultProfileNote { grid-column: auto; }
+  .formActions {
     justify-content: stretch;
   }
-  .accountAccessGrid .buttonRow button {
+  .formActions button {
     flex: 1 1 220px;
     min-width: 0;
   }

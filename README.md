@@ -34,7 +34,7 @@ For dedicated recipient links, say **"Asha's link was viewed"**, not **"Asha vie
 
 ## Release status
 
-`v0.1.0-rc.62` is the current security-review release candidate. A trusted public installer release still requires Windows code signing and Apple Developer ID signing plus macOS notarization.
+`v0.1.0-rc.63` is the current security-review release candidate. A trusted public installer release still requires Windows code signing and Apple Developer ID signing plus macOS notarization.
 
 | Area | Current position |
 | --- | --- |

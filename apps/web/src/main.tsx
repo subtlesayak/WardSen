@@ -487,6 +487,7 @@ function Vaults({ api, confirmDestructiveAction }: { api: ReturnType<typeof useW
   const selectedAccount = api.accounts.find((account) => account.id === accessForm.accountId) ?? api.accounts[0];
   const providerId = accountForm.providerId || api.credentialProviders[0]?.id || "bitwarden";
   const selectedAccountIsBitwarden = selectedAccount?.providerId === "bitwarden";
+  const selectedAccountIsKeePassXC = selectedAccount?.providerId === "keepassxc";
 
   useEffect(() => {
     if (verificationNeeded) verificationCodeRef.current?.focus();
@@ -689,76 +690,92 @@ function Vaults({ api, confirmDestructiveAction }: { api: ReturnType<typeof useW
     <div className="grid">
       {message.status === "error" && <ErrorNotice message={message.text} />}
       {message.status !== "idle" && message.status !== "error" && <div className="notice" role="status" aria-live="polite">{message.text}</div>}
-      <form className="panel formGrid" onSubmit={createAccount}>
-        <PanelTitle icon={Vault} title="Add Vault Account" action="Refresh" onAction={api.refresh} />
-        <label>Provider<select name="providerId" value={providerId} onChange={(event) => setAccountForm((current) => ({ ...current, providerId: event.target.value }))}>
-          {api.credentialProviders.map((provider) => <option key={provider.id} value={provider.id}>{provider.displayName}</option>)}
-        </select></label>
-        <small className="fieldInstruction wide">Only active, verified adapters are selectable. Check Settings &gt; Provider Capabilities for planned and experimental providers, their requirements and current limits.</small>
-        <label>Label<input name="label" required value={accountForm.label} onChange={(event) => setAccountForm((current) => ({ ...current, label: event.target.value }))} placeholder="Work Bitwarden" /></label>
-        <label>Username<input name="username" autoComplete="username" value={accountForm.username} onChange={(event) => setAccountForm((current) => ({ ...current, username: event.target.value }))} placeholder="name@example.com" /></label>
-        <label>Server URL<input name="serverUrl" type="url" value={accountForm.serverUrl} onChange={(event) => setAccountForm((current) => ({ ...current, serverUrl: event.target.value }))} placeholder="Optional custom server" /></label>
-        <small>WardSen creates an isolated provider profile automatically for each account.</small>
-        <label>Auto-lock minutes<input name="autoLockMinutes" value={accountForm.autoLockMinutes} onChange={(event) => setAccountForm((current) => ({ ...current, autoLockMinutes: event.target.value }))} inputMode="numeric" /></label>
-        <button className="primary full"><Vault size={16} aria-hidden="true" /> Add account</button>
+      <form className="panel formGrid vaultAccountForm" onSubmit={createAccount}>
+        <PanelTitle icon={Vault} title="Add Vault Account" />
+        <div className="vaultProviderBlock wide">
+          <label>Provider<select name="providerId" value={providerId} onChange={(event) => setAccountForm((current) => ({ ...current, providerId: event.target.value }))}>
+            {api.credentialProviders.map((provider) => <option key={provider.id} value={provider.id}>{provider.displayName}</option>)}
+          </select></label>
+          <small className="fieldInstruction">Only active, verified adapters are selectable. Check Settings &gt; Provider Capabilities for planned and experimental providers, their requirements and current limits.</small>
+        </div>
+        <div className="vaultAccountFields wide">
+          <label>Label<input name="label" required value={accountForm.label} onChange={(event) => setAccountForm((current) => ({ ...current, label: event.target.value }))} placeholder="Work Bitwarden" /></label>
+          <label>Username<input name="username" autoComplete="username" value={accountForm.username} onChange={(event) => setAccountForm((current) => ({ ...current, username: event.target.value }))} placeholder="name@example.com" /></label>
+          <label>Server URL<input name="serverUrl" type="url" value={accountForm.serverUrl} onChange={(event) => setAccountForm((current) => ({ ...current, serverUrl: event.target.value }))} placeholder="Optional custom server" /></label>
+          <label>Auto-lock minutes<input name="autoLockMinutes" value={accountForm.autoLockMinutes} onChange={(event) => setAccountForm((current) => ({ ...current, autoLockMinutes: event.target.value }))} inputMode="numeric" /></label>
+          <small className="fieldInstruction vaultProfileNote">WardSen creates an isolated provider profile automatically for each account.</small>
+        </div>
+        <div className="formActions wide">
+          <button className="primary"><Vault size={16} aria-hidden="true" /> Add account</button>
+        </div>
       </form>
-      <section className="panel formGrid accountAccessGrid">
-        <PanelTitle icon={KeyRound} title="Account Access" action="Refresh" onAction={() => void api.refresh()} />
+      <section className="panel accountAccessPanel">
+        <PanelTitle icon={KeyRound} title="Account Access" />
         {selectedAccountIsBitwarden ? (
-          <div className="notice compact wide">
+          <div className="notice compact">
             <strong>Bitwarden unlock flow</strong>
             <span>Select <strong>Terminal login / unlock</strong>. WardSen opens PowerShell or Terminal in the desktop app; type the Bitwarden password only in Bitwarden's terminal prompt. WardSen unlocks automatically when the one-time handoff succeeds.</span>
           </div>
         ) : null}
         {terminalHandoff && terminalHandoff.accountId === selectedAccount?.id ? (
-          <div className="notice compact wide terminalHandoffNotice" role="status" aria-live="polite">
+          <div className="notice compact terminalHandoffNotice" role="status" aria-live="polite">
             <strong>Terminal command ready</strong>
             <span>Expires {formatDate(terminalHandoff.expiresAt)}. The command contains a one-time local handoff authorization, not your Bitwarden password or session token.</span>
             {canLaunchTerminalSession() ? <button type="button" className="secondary" onClick={() => void openBitwardenTerminalAgain(terminalHandoff)}><Terminal size={16} aria-hidden="true" /> Open Terminal again</button> : null}
             <CopyFeedbackButton value={terminalHandoff.command} label="Copy terminal command" copiedLabel="Terminal command copied" />
           </div>
         ) : null}
-        <label>Account<select value={selectedAccount?.id ?? ""} onChange={(event) => {
-          setVerificationNeeded(false);
-          setAccessForm((current) => ({ ...current, accountId: event.target.value, verificationCode: "" }));
-        }}>
-          {api.accounts.map((account) => <option key={account.id} value={account.id}>{account.label}</option>)}
-        </select></label>
-        <label>{selectedAccountIsBitwarden ? "Bitwarden master password" : "Password"}<input value={selectedAccountIsBitwarden ? "" : accessForm.password} readOnly={selectedAccountIsBitwarden} onChange={(event) => setAccessForm((current) => ({ ...current, password: event.target.value }))} placeholder={selectedAccountIsBitwarden ? "Enter only in the Bitwarden Terminal prompt" : "Master password or database password"} type="password" />
-          {selectedAccountIsBitwarden ? <small className="fieldInstruction">WardSen never accepts this password. The desktop app opens Bitwarden visibly and its own prompt accepts the password in Terminal or PowerShell.</small> : null}
-        </label>
-        {selectedAccountIsBitwarden && verificationNeeded ? (
-          <label className={verificationNeeded ? "attentionField" : undefined}>Verification code
-            <input
-              name="verificationCode"
-              ref={verificationCodeRef}
-              value={accessForm.verificationCode}
-              onChange={(event) => setAccessForm((current) => ({ ...current, verificationCode: event.target.value }))}
-              placeholder="Email or authenticator code"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              aria-describedby="bitwarden-verification-help"
-              aria-invalid={verificationNeeded && !accessForm.verificationCode.trim()}
-            />
-            <small id="bitwarden-verification-help" className="fieldInstruction">{verificationNeeded ? "Bitwarden is waiting for this code. Keep Email / new-device selected for Bitwarden email codes, then select Submit code and login." : "Only needed when Bitwarden emails a new-device code or asks for two-step verification."}</small>
-          </label>
-        ) : null}
-        {selectedAccountIsBitwarden && verificationNeeded ? (
-          <label>Code type
-            <select
-              value={accessForm.verificationMethod}
-              onChange={(event) => setAccessForm((current) => ({ ...current, verificationMethod: event.target.value }))}
-            >
-              <option value="email">Email / new-device code</option>
-              <option value="authenticator">Authenticator app</option>
-              <option value="yubikey">YubiKey</option>
-            </select>
-          </label>
-        ) : null}
-        <label>Database path<input name="databasePath" value={accessForm.databasePath} onChange={(event) => setAccessForm((current) => ({ ...current, databasePath: event.target.value }))} placeholder="KeePassXC .kdbx path" /></label>
-        <label>Key file path<input name="keyFilePath" value={accessForm.keyFilePath} onChange={(event) => setAccessForm((current) => ({ ...current, keyFilePath: event.target.value }))} placeholder="Optional KeePassXC key file" /></label>
-        <label className="check"><input name="sso" checked={accessForm.sso} type="checkbox" onChange={(event) => setAccessForm((current) => ({ ...current, sso: event.target.checked }))} /> Login with SSO</label>
-        <div className="buttonRow">
+        <div className="accountAccessFields">
+          <label>Account<select value={selectedAccount?.id ?? ""} onChange={(event) => {
+            setVerificationNeeded(false);
+            setAccessForm((current) => ({ ...current, accountId: event.target.value, verificationCode: "" }));
+          }}>
+            {api.accounts.map((account) => <option key={account.id} value={account.id}>{account.label}</option>)}
+          </select></label>
+          {selectedAccountIsBitwarden ? (
+            <div className="providerCredentialNotice">
+              <span>Bitwarden master password</span>
+              <strong>Enter in Bitwarden's Terminal prompt</strong>
+              <small>WardSen never accepts this password. It never stores it.</small>
+            </div>
+          ) : (
+            <label>Password<input value={accessForm.password} onChange={(event) => setAccessForm((current) => ({ ...current, password: event.target.value }))} placeholder="Master password or database password" type="password" /></label>
+          )}
+          {selectedAccountIsKeePassXC ? <>
+            <label>Database path<input name="databasePath" value={accessForm.databasePath} onChange={(event) => setAccessForm((current) => ({ ...current, databasePath: event.target.value }))} placeholder="KeePassXC .kdbx path" /></label>
+            <label>Key file path<input name="keyFilePath" value={accessForm.keyFilePath} onChange={(event) => setAccessForm((current) => ({ ...current, keyFilePath: event.target.value }))} placeholder="Optional KeePassXC key file" /></label>
+          </> : null}
+          {selectedAccountIsBitwarden ? <label className="checkboxLine accountAccessOption"><input name="sso" checked={accessForm.sso} type="checkbox" onChange={(event) => setAccessForm((current) => ({ ...current, sso: event.target.checked }))} /> Login with SSO</label> : null}
+          {selectedAccountIsBitwarden && verificationNeeded ? (
+            <label className="attentionField">Verification code
+              <input
+                name="verificationCode"
+                ref={verificationCodeRef}
+                value={accessForm.verificationCode}
+                onChange={(event) => setAccessForm((current) => ({ ...current, verificationCode: event.target.value }))}
+                placeholder="Email or authenticator code"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                aria-describedby="bitwarden-verification-help"
+                aria-invalid={!accessForm.verificationCode.trim()}
+              />
+              <small id="bitwarden-verification-help" className="fieldInstruction">Bitwarden is waiting for this code. Keep Email / new-device selected for Bitwarden email codes, then select Submit code and login.</small>
+            </label>
+          ) : null}
+          {selectedAccountIsBitwarden && verificationNeeded ? (
+            <label>Code type
+              <select
+                value={accessForm.verificationMethod}
+                onChange={(event) => setAccessForm((current) => ({ ...current, verificationMethod: event.target.value }))}
+              >
+                <option value="email">Email / new-device code</option>
+                <option value="authenticator">Authenticator app</option>
+                <option value="yubikey">YubiKey</option>
+              </select>
+            </label>
+          ) : null}
+        </div>
+        <div className="formActions accountAccessActions">
           <button type="button" className={selectedAccountIsBitwarden || verificationNeeded ? "primary" : undefined} onClick={() => void accountAccess("login")}><ShieldCheck size={16} /> {selectedAccountIsBitwarden ? "Terminal login / unlock" : verificationNeeded ? "Submit code and login" : "Login"}</button>
           {!selectedAccountIsBitwarden ? <button type="button" className="primary" onClick={() => void accountAccess("unlock")}><KeyRound size={16} /> Unlock</button> : null}
         </div>
@@ -1003,7 +1020,7 @@ function People({ api, confirmDestructiveAction }: { api: ReturnType<typeof useW
       {message.status === "error" && <ErrorNotice message={message.text} />}
       {message.status !== "idle" && message.status !== "error" && <div className="notice" role="status" aria-live="polite">{message.text}</div>}
       <form className="panel formGrid" onSubmit={savePerson}>
-        <PanelTitle icon={UsersRound} title={editingPersonId ? "Edit Person" : "Add Person"} action="Refresh" onAction={api.refresh} />
+        <PanelTitle icon={UsersRound} title={editingPersonId ? "Edit Person" : "Add Person"} />
         <label>Name<input name="name" required value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} placeholder="Mira Patel" /></label>
         <label>Phone<input name="phone" type="tel" autoComplete="tel" value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} placeholder="+1..." /></label>
         <label>Email<input name="email" type="email" autoComplete="email" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} placeholder="mira@example.com" /></label>
@@ -1427,7 +1444,7 @@ function RequestsView({ api }: { api: ReturnType<typeof useWardSenApi> }) {
         </div>
       )}
       <form className="panel formGrid" onSubmit={saveEmployee}>
-        <PanelTitle icon={UsersRound} title={editingEmployeeId ? "Edit Employee Identity" : "Add Employee Identity"} action="Refresh" onAction={api.refresh} />
+        <PanelTitle icon={UsersRound} title={editingEmployeeId ? "Edit Employee Identity" : "Add Employee Identity"} />
         <label>Name<input name="employeeName" required value={employeeForm.name} onChange={(event) => setEmployeeForm((current) => ({ ...current, name: event.target.value }))} placeholder="Ravi Menon" /></label>
         <label>Assigned email<input name="assignedEmail" required type="email" readOnly={Boolean(editingEmployeeId)} value={employeeForm.assignedEmail} onChange={(event) => setEmployeeForm((current) => ({ ...current, assignedEmail: event.target.value }))} placeholder="ravi@example.com" />
           {editingEmployeeId ? <small className="fieldInstruction">The assigned email is this employee's request-portal identity. Create a new employee identity to change it.</small> : null}
@@ -1463,7 +1480,7 @@ function RequestsView({ api }: { api: ReturnType<typeof useWardSenApi> }) {
         )}
       </section>
       <form className="panel formGrid" onSubmit={issueEmployeeCode}>
-        <PanelTitle icon={KeyRound} title="Employee Sign-In Code" action="Refresh" onAction={api.refresh} />
+        <PanelTitle icon={KeyRound} title="Employee Sign-In Code" />
         <label>Employee<select value={codeEmployeeId} onChange={(event) => setCodeForm((current) => ({ ...current, employeeId: event.target.value }))}>
           {activeEmployees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name} / {employee.assignedEmail}</option>)}
         </select></label>
@@ -1487,7 +1504,7 @@ function RequestsView({ api }: { api: ReturnType<typeof useWardSenApi> }) {
         <button className="primary full" disabled={!codeEmployeeId}><KeyRound size={16} aria-hidden="true" /> Issue code</button>
       </form>
       <form className="panel formGrid" onSubmit={saveCatalogEntry}>
-        <PanelTitle icon={KeyRound} title="Admin Catalog Metadata" action="Refresh" onAction={api.refresh} />
+        <PanelTitle icon={KeyRound} title="Admin Catalog Metadata" />
         <label>Vault account<select value={sourceAccountId} onChange={(event) => setCatalogForm((current) => ({ ...current, sourceAccountId: event.target.value }))}>
           {api.accounts.map((account) => <option key={account.id} value={account.id}>{account.label}</option>)}
         </select></label>
@@ -1524,7 +1541,7 @@ function RequestsView({ api }: { api: ReturnType<typeof useWardSenApi> }) {
         <button className="primary full" disabled={!sourceAccountId}><KeyRound size={16} aria-hidden="true" /> Publish metadata</button>
       </form>
       <form className="panel formGrid" onSubmit={submitAccessRequest}>
-        <PanelTitle icon={Archive} title="Admin-Assisted Request" action="Refresh" onAction={api.refresh} />
+        <PanelTitle icon={Archive} title="Admin-Assisted Request" />
         <label>Employee<select required value={requestForm.employeeId} onChange={(event) => {
           setRequestForm((current) => ({ ...current, employeeId: event.target.value, catalogEntryId: "" }));
         }}>
@@ -1881,7 +1898,9 @@ function SettingsView({ credentialProviders, deliveryProviders, optionalDelivery
                 <h3>{provider.displayName}</h3>
                 <p>{provider.optInWarning ?? "This provider requires an operator opt-in before it can be selected for delivery."}</p>
               </div>
-              <button type="button" className="dangerAction" onClick={() => void setWeakerProviderEnabled(provider, true)}>Enable with confirmation</button>
+              <button type="button" className="warningAction" onClick={() => void setWeakerProviderEnabled(provider, true)}>
+                <ShieldCheck size={15} aria-hidden="true" /> Enable {provider.displayName}
+              </button>
             </article>
           ))}
           {optionalDeliveryProviders.length === 0 ? <EmptyState text="No weaker delivery providers are waiting for opt-in." /> : null}
@@ -2108,13 +2127,20 @@ function DeliveryComposer({ api, selectedCredential }: { api: ReturnType<typeof 
       {submit.status !== "idle" && submit.status !== "error" && (
         <div className="notice compact" role="status" aria-live="polite">
           {submit.message}
-          {submit.url && <DeliveryLinkAction delivery={submit.delivery} url={submit.url} label={form.mode === "shared" ? "Copy shared link" : "Copy link"} />}
+          {submit.url && <DeliveryLinkAction
+            delivery={submit.delivery}
+            url={submit.url}
+            label={form.mode === "shared" ? "Copy shared link" : "Copy link"}
+            method={form.deliveryMethod}
+            recipient={form.mode === "individual" ? recipient : undefined}
+          />}
         </div>
       )}
       {bulkResults.length > 0 && (
         <BulkHandoffResults
           results={bulkResults}
           personName={personName}
+          personFor={(id) => api.people.find((person) => person.id === id)}
           method={form.deliveryMethod}
           onCopy={(url) => copyTextToClipboard(url)}
         />
@@ -2248,14 +2274,19 @@ function DeliveryLinkAction({
   delivery,
   url,
   label,
-  copiedLabel = "Link copied"
+  copiedLabel = "Link copied",
+  method = delivery?.deliveryMethod ?? "copy",
+  recipient
 }: {
-  delivery?: Pick<CreatedDeliveryRecord, "deliveryProviderId" | "status">;
+  delivery?: Pick<CreatedDeliveryRecord, "credentialName" | "deliveryMethod" | "deliveryProviderId" | "status">;
   url: string;
   label: string;
   copiedLabel?: string;
+  method?: "copy" | "whatsapp" | "email";
+  recipient?: Pick<PersonRecord, "email" | "phone">;
 }) {
   const [clipboardState, setClipboardState] = useState<"idle" | "clearing" | "cleared" | "error">("idle");
+  const [handoffState, setHandoffState] = useState<"idle" | "ready" | "error">("idle");
 
   async function clearManualClipboard() {
     const providerId = delivery?.deliveryProviderId;
@@ -2266,6 +2297,16 @@ function DeliveryLinkAction({
       setClipboardState("cleared");
     } catch {
       setClipboardState("error");
+    }
+  }
+
+  async function openHandoff() {
+    setHandoffState("idle");
+    try {
+      await copyAndOpenDeliveryHandoff(method, url, delivery?.credentialName, recipient);
+      setHandoffState("ready");
+    } catch {
+      setHandoffState("error");
     }
   }
 
@@ -2285,17 +2326,29 @@ function DeliveryLinkAction({
     );
   }
 
-  return <CopyFeedbackButton value={url} label={label} copiedLabel={copiedLabel} />;
+  return (
+    <span className="copyFeedback deliveryHandoffAction">
+      <CopyFeedbackButton value={url} label={label} copiedLabel={copiedLabel} />
+      {method !== "copy" ? <button type="button" disabled={!url} onClick={() => void openHandoff()}>
+        {method === "email" ? <Mail size={15} aria-hidden="true" /> : <Send size={15} aria-hidden="true" />}
+        {method === "email" ? "Copy and open email" : "Copy and open WhatsApp"}
+      </button> : null}
+      {handoffState === "ready" ? <small className="copyFeedbackStatus" role="status" aria-live="polite">{method === "email" ? "Link copied; email draft opened." : "Link copied; WhatsApp opened."}</small> : null}
+      {handoffState === "error" ? <small className="copyFeedbackError" role="alert">WardSen could not copy the link or open the selected handoff app.</small> : null}
+    </span>
+  );
 }
 
 function BulkHandoffResults({
   results,
   personName,
+  personFor,
   method,
   onCopy
 }: {
   results: BulkDeliveryItemResult[];
   personName: (id?: string) => string;
+  personFor: (id?: string) => PersonRecord | undefined;
   method: "copy" | "whatsapp" | "email";
   onCopy: (url: string) => Promise<void>;
 }) {
@@ -2305,23 +2358,10 @@ function BulkHandoffResults({
     const delivery = result.delivery;
     if (!delivery?.oneTimeDeliveryUrl) return;
     try {
-      await onCopy(delivery.oneTimeDeliveryUrl);
+      const status = await copyAndOpenDeliveryHandoff(method, delivery.oneTimeDeliveryUrl, delivery.credentialName, personFor(result.recipientId), onCopy);
+      setHandoffStatus((current) => ({ ...current, [resultKey(result)]: status }));
     } catch {
-      setHandoffStatus((current) => ({ ...current, [resultKey(result)]: "Copy failed; draft not opened" }));
-      return;
-    }
-    if (method === "email") {
-      window.open(
-        `mailto:?subject=${encodeURIComponent(`WardSen delivery: ${delivery.credentialName}`)}&body=${encodeURIComponent("Paste the WardSen delivery link copied to your clipboard. Do not forward this message after the recipient opens it.")}`,
-        "_blank",
-        "noopener,noreferrer"
-      );
-      setHandoffStatus((current) => ({ ...current, [resultKey(result)]: "Link copied; email draft opened" }));
-      return;
-    }
-    if (method === "whatsapp") {
-      window.open("https://wa.me/", "_blank", "noopener,noreferrer");
-      setHandoffStatus((current) => ({ ...current, [resultKey(result)]: "Link copied; WhatsApp opened" }));
+      setHandoffStatus((current) => ({ ...current, [resultKey(result)]: "Copy failed or WardSen could not open the selected handoff app" }));
     }
   }
 
@@ -2351,7 +2391,10 @@ function BulkHandoffResults({
                   disabled={!url}
                   onCopied={() => setHandoffStatus((current) => ({ ...current, [key]: "Link copied" }))}
                 />
-                <button type="button" disabled={!url || method === "copy"} onClick={() => void openDraft(result)}><Mail size={15} aria-hidden="true" /> Copy and open</button>
+                <button type="button" disabled={!url || method === "copy"} onClick={() => void openDraft(result)}>
+                  {method === "email" ? <Mail size={15} aria-hidden="true" /> : <Send size={15} aria-hidden="true" />}
+                  {method === "email" ? "Copy and open email" : "Copy and open WhatsApp"}
+                </button>
               </div>
             </div>
           );
@@ -2365,6 +2408,37 @@ function resultKey(result: BulkDeliveryItemResult): string {
   return result.recipientId ?? result.delivery?.id ?? result.error ?? "bulk-result";
 }
 
+async function copyAndOpenDeliveryHandoff(
+  method: "copy" | "whatsapp" | "email",
+  url: string,
+  credentialName?: string,
+  recipient?: Pick<PersonRecord, "email" | "phone">,
+  copy: (value: string) => Promise<void> = copyTextToClipboard
+): Promise<string> {
+  await copy(url);
+  if (method === "email") {
+    await openMailDraft(deliveryHandoffMailtoHref(credentialName, recipient?.email));
+    return "Link copied; email draft opened";
+  }
+  if (method === "whatsapp") {
+    await openExternalUrl(deliveryWhatsAppHref(recipient?.phone));
+    return "Link copied; WhatsApp opened";
+  }
+  return "Link copied";
+}
+
+function deliveryHandoffMailtoHref(credentialName?: string, recipientEmail?: string): string {
+  const recipient = recipientEmail ? encodeURIComponent(recipientEmail) : "";
+  const subject = encodeURIComponent(`WardSen delivery: ${credentialName ?? "secure link"}`);
+  const body = encodeURIComponent("Paste the WardSen delivery link copied to your clipboard. Do not forward this message after the recipient opens it.");
+  return `mailto:${recipient}?subject=${subject}&body=${body}`;
+}
+
+function deliveryWhatsAppHref(recipientPhone?: string): string {
+  const phone = recipientPhone?.replace(/\D/g, "") ?? "";
+  return phone ? `https://wa.me/${phone}` : "https://wa.me/";
+}
+
 function Metric({ label, value, detail }: { label: string; value: string; detail: string }) {
   return (
     <section className="metric">
@@ -2375,11 +2449,11 @@ function Metric({ label, value, detail }: { label: string; value: string; detail
   );
 }
 
-function PanelTitle({ icon: Icon, title, action, onAction }: { icon: React.ElementType; title: string; action: string; onAction?: () => void }) {
+function PanelTitle({ icon: Icon, title, action, onAction }: { icon: React.ElementType; title: string; action?: string; onAction?: () => void }) {
   return (
     <div className="panelTitle">
       <h2><Icon size={18} aria-hidden="true" /> {title}</h2>
-      {onAction ? <button type="button" onClick={onAction}>{action}</button> : null}
+      {action && onAction ? <button type="button" onClick={onAction}>{action}</button> : null}
     </div>
   );
 }
@@ -2736,7 +2810,7 @@ async function refreshSupportedDeliveryStatuses(deliveries: DeliveryRecord[], pr
 }
 
 function refreshSummaryText(summary: DeliveryRefreshSummary): string {
-  if (summary.total === 0) return "No active deliveries from a provider that supports status checks.";
+  if (summary.total === 0) return "No active links support a live status refresh. Expired and historical deliveries remain visible below.";
   const detail = [
     summary.blocked ? `${summary.blocked} waiting for ${summary.blockedAccountLabels.join(", ")} to be unlocked` : undefined,
     summary.failed ? `${summary.failed} failed${summary.failureDetail ? `: ${summary.failureDetail}` : ""}` : undefined

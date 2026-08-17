@@ -132,12 +132,21 @@ describe("web UI regression guards", () => {
 
   it("does not put bearer delivery links into external email or WhatsApp URLs", () => {
     expect(webSource).toContain("Paste the WardSen delivery link copied to your clipboard");
-    expect(webSource).toContain("window.open(\"https://wa.me/\"");
+    expect(webSource).toContain("copyAndOpenDeliveryHandoff");
+    expect(webSource).toContain("await openMailDraft(deliveryHandoffMailtoHref");
+    expect(webSource).toContain("await openExternalUrl(deliveryWhatsAppHref");
     expect(webSource).toContain("Link copied; WhatsApp opened");
     expect(webSource).toContain("Copied to clipboard.");
     expect(webSource).toContain("copySuccess");
     expect(webSource).not.toContain("https://wa.me/?text=");
     expect(webSource).not.toContain("Secure link for ${label}: ${delivery.oneTimeDeliveryUrl}");
+  });
+
+  it("uses the selected delivery method only for an explicit post-creation handoff", () => {
+    expect(webSource).toContain('method={form.deliveryMethod}');
+    expect(webSource).toContain('recipient={form.mode === "individual" ? recipient : undefined}');
+    expect(webSource).toContain("Copy and open email");
+    expect(webSource).toContain("Copy and open WhatsApp");
   });
 
   it("keeps employee identities separate from People while allowing editable request records", () => {

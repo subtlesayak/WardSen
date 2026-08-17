@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0-rc.63 - 2026-08-17
+
+- Simplified the Vaults > Account Access panel so Bitwarden accounts clearly use terminal-only password entry, while KeePassXC-only fields appear only for KeePassXC accounts.
+- Improved Vaults form responsiveness and removed duplicate inline refresh buttons from dense forms.
+- Changed Email and WhatsApp delivery methods into explicit post-creation handoffs: WardSen copies the secure link, then opens the selected email or WhatsApp draft without embedding the bearer link in the external URL.
+- Added regression coverage for the external handoff behavior and refreshed the empty-status wording for delivery refreshes.
+
 ## 0.1.0-rc.62 - 2026-08-17
 
 - Disabled Ente Paste and Yopass by default. Their diagnostics remain available, but an operator must review the lifecycle/telemetry warning and supply an exact server-enforced confirmation phrase before either provider is offered for delivery.
