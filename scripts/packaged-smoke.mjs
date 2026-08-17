@@ -115,9 +115,11 @@ function assertPackagedInputs() {
   if (config.bundle?.resources?.["gen/runtime"] !== "runtime") {
     throw new Error("Tauri resources must bundle the prepared Node.js runtime directory.");
   }
-  if (!String(config.app?.security?.csp ?? "").includes("http://127.0.0.1:*")) {
-    throw new Error("Tauri CSP must allow the packaged UI to reach its dynamically allocated local API port.");
+  const csp = String(config.app?.security?.csp ?? "");
+  if (!csp.includes("connect-src 'self'") || csp.includes("http://127.0.0.1:*")) {
+    throw new Error("Tauri CSP must keep local API traffic behind the desktop proxy with connect-src 'self'.");
   }
+  assertDesktopProxyCommand();
 }
 
 function startServerBundle(port, apiToken) {
@@ -210,9 +212,16 @@ function packagedArtifactEvidence() {
       path: relativePath(tauriConfigPath),
       serverResource: "server/index.cjs",
       runtimeResource: "runtime",
-      apiOrigin: "http://127.0.0.1:<dynamic>"
+      apiOrigin: "tauri proxy command"
     }
   };
+}
+
+function assertDesktopProxyCommand() {
+  const desktopSource = readFileSync(path.join(tauriDir, "src", "lib.rs"), "utf8");
+  if (!desktopSource.includes("proxy_local_service_request") || !desktopSource.includes("tauri::generate_handler!")) {
+    throw new Error("Desktop command proxy_local_service_request must be registered for packaged local API access.");
+  }
 }
 
 function fileEvidence(filePath) {

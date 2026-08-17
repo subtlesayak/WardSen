@@ -1,10 +1,11 @@
 # Changelog
 
-## 0.1.0-rc.61 - 2026-08-14
+## 0.1.0-rc.62 - 2026-08-17
 
 - Disabled Ente Paste and Yopass by default. Their diagnostics remain available, but an operator must review the lifecycle/telemetry warning and supply an exact server-enforced confirmation phrase before either provider is offered for delivery.
 - Replaced the desktop webview's direct loopback API connection with a bounded Rust proxy. The desktop API token and dynamically selected service port no longer enter the web frontend, and desktop CSP now uses `connect-src 'self'` instead of allowing every localhost port.
 - Added desktop proxy response decoding for `Content-Length` and chunked local-service responses.
+- Updated the packaged-installer smoke gate so release builds now verify the proxy-only desktop CSP instead of the old direct localhost connection.
 
 ## 0.1.0-rc.60 - 2026-08-14
 
