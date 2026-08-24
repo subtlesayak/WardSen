@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0-rc.65 - 2026-08-24
+
+- Added multi-credential selection in Credential Search, with a clear choice between separate secure links and one explicitly confirmed bundle link.
+- Added `/api/deliveries/bundle` for confirmed bundle delivery, limited to 2-20 credentials and blocked for manual Ente Paste handoff.
+- Kept bundle delivery projection narrow: title, username and password only; notes, TOTP seeds and URLs stay out of grouped delivery text.
+- Extended provider redaction so bundle text and individual bundle secrets are treated as sensitive values during provider execution and error handling.
+- Made desktop terminal opening fully detached from the UI invoke and bounded terminal-handoff response reads, improving Windows responsiveness while preserving manual command fallback.
+
 ## 0.1.0-rc.64 - 2026-08-17
 
 - Fixed Terminal login / unlock responsiveness by moving the desktop terminal handoff into Tauri's blocking task pool, so the WardSen window stays responsive while Windows opens PowerShell.

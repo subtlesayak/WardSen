@@ -123,6 +123,40 @@ describe("Bitwarden Send delivery provider", () => {
     expect(calls[1].stdin).toBe(encodedSendPayload());
   });
 
+  it("uses an explicitly supplied bundle projection and redacts the entire bundle", async () => {
+    const calls: CliCommandInput[] = [];
+    const bundleText = [
+      "Credential 1: CMS",
+      "Username: mira",
+      "Password: first-secret",
+      "",
+      "Credential 2: CMS backup",
+      "Username: ops",
+      "Password: second-secret"
+    ].join("\n");
+    const provider = new BitwardenSendDeliveryProvider({
+      getSessionToken: () => "session-token",
+      runCommand: async (input) => {
+        calls.push(input);
+        if (input.args[0] === "encode") return ok(encodedSendPayload());
+        return ok(JSON.stringify({ id: "send-bundle", accessUrl: "https://send.example.test/#bundle" }));
+      }
+    });
+
+    await provider.createDelivery({
+      operationId: "bundle-op-1",
+      deliveryAccountId: "acct-1",
+      expiresAt: new Date("2026-08-01T12:00:00.000Z"),
+      sourceCredential: { title: "Credential bundle (2)", urls: [] },
+      deliveryText: bundleText,
+      sensitiveValues: ["first-secret", "second-secret"]
+    });
+
+    expect(calls[0].stdin).toContain('"name":"Credential bundle (2)"');
+    expect(JSON.parse(String(calls[0].stdin)).text.text).toBe(bundleText);
+    expect(calls[0].redact).toEqual(expect.arrayContaining([bundleText, "first-secret", "second-secret"]));
+  });
+
   it("supports access passwords through encoded JSON without exposing them as process arguments", async () => {
     const calls: CliCommandInput[] = [];
     const provider = new BitwardenSendDeliveryProvider({

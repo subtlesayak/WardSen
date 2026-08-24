@@ -14,6 +14,7 @@ import {
   assertDeliveryOptionsSupported,
   assertFutureExpiry,
   builtInProviderManifests,
+  formatDeliveryCredentialBundleText,
   providerManifestFor,
   parseViewLimit
 } from "@wardsen/core";
@@ -27,7 +28,8 @@ import type {
   DeliveryProvider,
   DeliveryRecord,
   EmployeeRecord,
-  EmployeeSessionRecord
+  EmployeeSessionRecord,
+  SensitiveCredential
 } from "@wardsen/core";
 import { InMemoryWardSenRepository } from "@wardsen/database";
 import type { WardSenRepository } from "@wardsen/database";
@@ -1058,6 +1060,68 @@ export async function buildApp(options: BuildAppOptions = {}) {
     });
   });
 
+  app.post("/api/deliveries/bundle", async (request) => {
+    const body = deliveryBundleSchema.parse(request.body);
+    if (body.confirmBundle !== true) {
+      throw new Error("Credential bundle requires explicit confirmation.");
+    }
+    if (isManualHandoffProvider(body.deliveryProviderId)) {
+      throw new Error("Manual Ente Paste handoff does not support grouped credentials. Use separate links or an audited provider.");
+    }
+    const uniqueSourceCredentials = new Map<string, z.infer<typeof deliveryCredentialReferenceSchema>>();
+    for (const source of body.sourceCredentials) {
+      const key = `${source.sourceProviderId}:${source.sourceAccountId}:${source.sourceItemId}`;
+      if (uniqueSourceCredentials.has(key)) {
+        throw new Error("Credential bundle cannot include the same credential more than once.");
+      }
+      uniqueSourceCredentials.set(key, source);
+    }
+
+    await assertDeliveryProviderEnabled(body.deliveryProviderId);
+    const deliveryAccount = await findAccount(repository, body.deliveryAccountId);
+    rememberAccountProfile(deliveryAccount);
+    assertDeliveryAccountMatchesProvider(body.deliveryProviderId, deliveryAccount);
+    const deliveryProvider = registry.getDeliveryProvider(body.deliveryProviderId);
+    await assertDeliveryProviderReady(deliveryProvider, body.deliveryAccountId, deliveryAccount);
+
+    const bundledCredentials = await Promise.all(body.sourceCredentials.map(async (source) => {
+      const sourceAccount = await findAccount(repository, source.sourceAccountId);
+      rememberAccountProfile(sourceAccount);
+      if (sourceAccount.providerId !== source.sourceProviderId) {
+        throw new Error("A selected source account does not belong to its requested credential provider.");
+      }
+      const sourceProvider = registry.getCredentialProvider(source.sourceProviderId);
+      return {
+        source,
+        credential: await sourceProvider.getCredential(source.sourceAccountId, source.sourceItemId)
+      };
+    }));
+    const primary = bundledCredentials[0]!;
+    const credentialName = `Credential bundle (${bundledCredentials.length})`;
+    const bundleText = formatDeliveryCredentialBundleText(bundledCredentials.map((item) => item.credential));
+    return createOneDelivery({
+      operationId: operationIdFromRequest(request.headers["x-wardsen-idempotency-key"], body.operationId),
+      sourceProviderId: primary.source.sourceProviderId,
+      sourceAccountId: primary.source.sourceAccountId,
+      sourceItemId: primary.source.sourceItemId,
+      deliveryProviderId: body.deliveryProviderId,
+      deliveryAccountId: body.deliveryAccountId,
+      recipient: body.recipient,
+      expiresAt: body.expiresAt,
+      viewLimit: body.viewLimit,
+      viewOnce: body.viewOnce,
+      accessPassword: body.accessPassword,
+      hideText: body.hideText,
+      deliveryMethod: body.deliveryMethod,
+      bundleSourceCredentials: body.sourceCredentials
+    }, {
+      sourceCredential: { title: credentialName, urls: [] },
+      credentialName,
+      deliveryText: bundleText,
+      sensitiveValues: bundledCredentials.flatMap((item) => sensitiveCredentialValues(item.credential))
+    });
+  });
+
   app.post("/api/deliveries/bulk", async (request) => {
     const body = bulkDeliverySchema.parse(request.body);
     const bulkOperationId = operationIdFromRequest(request.headers["x-wardsen-idempotency-key"], body.operationId);
@@ -1245,12 +1309,12 @@ export async function buildApp(options: BuildAppOptions = {}) {
     return { delivery, deliveryAccessCode: issued ? deliveryAccessCode : undefined };
   }
 
-  async function createOneDelivery(body: z.infer<typeof deliverySchema> & { batchId?: string; deliveryAccessCodeIssuedAt?: string }) {
+  async function createOneDelivery(body: DeliveryCreateBody, contentOverride?: DeliveryContentOverride) {
     const operationId = body.operationId ?? nanoid();
-    return withDeliveryOperation(operationId, () => createOneDeliveryLocked(body, operationId));
+    return withDeliveryOperation(operationId, () => createOneDeliveryLocked(body, operationId, contentOverride));
   }
 
-  async function createOneDeliveryLocked(body: z.infer<typeof deliverySchema> & { batchId?: string; deliveryAccessCodeIssuedAt?: string }, operationId: string) {
+  async function createOneDeliveryLocked(body: DeliveryCreateBody, operationId: string, contentOverride?: DeliveryContentOverride) {
     const viewLimit = parseViewLimit(body.viewLimit);
     const expiresAt = new Date(body.expiresAt);
     const policySnapshot = deliveryPolicySnapshot(body, expiresAt, viewLimit);
@@ -1278,7 +1342,9 @@ export async function buildApp(options: BuildAppOptions = {}) {
       accessPassword: body.accessPassword,
       hideText: body.hideText
     });
-    const sensitiveCredential = await sourceProvider.getCredential(body.sourceAccountId, body.sourceItemId);
+    const sensitiveCredential = contentOverride?.sourceCredential ?? await sourceProvider.getCredential(body.sourceAccountId, body.sourceItemId);
+    const credentialName = contentOverride?.credentialName ?? sensitiveCredential.title;
+    const sensitiveValues = contentOverride?.sensitiveValues ?? sensitiveCredentialValues(sensitiveCredential);
     const pending = await repository.createDelivery({
       operationId,
       operationFingerprint,
@@ -1288,7 +1354,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
       sourceItemId: body.sourceItemId,
       deliveryProviderId: body.deliveryProviderId,
       deliveryAccountId: body.deliveryAccountId,
-      credentialName: sensitiveCredential.title,
+      credentialName,
       personId: body.recipient?.id,
       batchId: body.batchId,
       deliveryMethod: body.deliveryMethod,
@@ -1303,6 +1369,8 @@ export async function buildApp(options: BuildAppOptions = {}) {
       result = await deliveryProvider.createDelivery({
         operationId: pending.operationId ?? pending.id,
         sourceCredential: sensitiveCredential,
+        deliveryText: contentOverride?.deliveryText,
+        sensitiveValues: contentOverride?.sensitiveValues,
         recipient: body.recipient,
         expiresAt,
         viewLimit,
@@ -1333,7 +1401,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
       }
       deliveryUrlCache.delete(pending.id);
       await repository.updateDelivery(pending.id, { status: "failed", providerDeliveryId: result?.deliveryId }).catch(() => undefined);
-      const safeMessage = safeErrorMessage(error, sensitiveCredentialValues(sensitiveCredential, body.accessPassword));
+      const safeMessage = safeErrorMessage(error, [...sensitiveValues, body.accessPassword].filter((value): value is string => Boolean(value)));
       await audit("delivery.create", "failure", {
         sourceAccountId: body.sourceAccountId,
         deliveryAccountId: body.deliveryAccountId,
@@ -2183,6 +2251,30 @@ const deliverySchema = z.object({
   hideText: z.boolean().optional(),
   deliveryMethod: z.enum(["copy", "whatsapp", "email"]).optional()
 });
+const deliveryCredentialReferenceSchema = z.object({
+  sourceProviderId: z.string().min(1),
+  sourceAccountId: z.string().min(1),
+  sourceItemId: z.string().min(1)
+});
+const deliveryBundleSchema = deliverySchema.omit({
+  sourceProviderId: true,
+  sourceAccountId: true,
+  sourceItemId: true
+}).extend({
+  sourceCredentials: z.array(deliveryCredentialReferenceSchema).min(2).max(20),
+  confirmBundle: z.boolean().optional()
+});
+type DeliveryCreateBody = z.infer<typeof deliverySchema> & {
+  batchId?: string;
+  deliveryAccessCodeIssuedAt?: string;
+  bundleSourceCredentials?: Array<z.infer<typeof deliveryCredentialReferenceSchema>>;
+};
+interface DeliveryContentOverride {
+  sourceCredential: SensitiveCredential;
+  credentialName: string;
+  deliveryText?: string;
+  sensitiveValues: string[];
+}
 const bulkDeliverySchema = deliverySchema.omit({ recipient: true }).extend({
   recipients: z.array(z.object({ id: z.string(), name: z.string(), email: z.string().optional(), phone: z.string().optional() })).min(1).max(500),
   concurrency: z.number().int().positive().max(5).optional(),
@@ -2474,7 +2566,7 @@ function childOperationId(parentOperationId: string, childId: string): string {
   return `${parentOperationId}:${createHash("sha256").update(childId).digest("hex").slice(0, 16)}`;
 }
 
-function deliveryPolicySnapshot(body: z.infer<typeof deliverySchema> & { batchId?: string }, expiresAt: Date, viewLimit?: number): DeliveryPolicySnapshot {
+function deliveryPolicySnapshot(body: DeliveryCreateBody, expiresAt: Date, viewLimit?: number): DeliveryPolicySnapshot {
   return {
     sourceProviderId: body.sourceProviderId,
     sourceAccountId: body.sourceAccountId,
@@ -2487,7 +2579,8 @@ function deliveryPolicySnapshot(body: z.infer<typeof deliverySchema> & { batchId
     viewLimit,
     viewOnce: body.viewOnce === true,
     accessSecretRequired: Boolean(body.accessPassword),
-    hideText: body.hideText === true
+    hideText: body.hideText === true,
+    bundleSourceCredentials: body.bundleSourceCredentials
   };
 }
 

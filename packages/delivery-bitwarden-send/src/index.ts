@@ -53,7 +53,7 @@ export class BitwardenSendDeliveryProvider implements DeliveryProvider {
   async createDelivery(input: CreateDeliveryInput): Promise<DeliveryResult> {
     const accountId = input.deliveryAccountId;
     if (!accountId) throw new Error("Bitwarden Send delivery account is required");
-    const text = formatCredentialText(input.sourceCredential);
+    const text = formatCredentialText(input);
     const sendJson = JSON.stringify(buildTextSendObject(input, text));
     const encoded = (await this.run(accountId, ["encode"], sendJson, sensitiveValues(input, sendJson, text))).stdout.trim();
     if (!encoded) throw new Error("Bitwarden CLI did not encode the Send payload");
@@ -149,8 +149,8 @@ function bitwardenExecutableCandidates(): string[] {
   return candidates;
 }
 
-function formatCredentialText(credential: CreateDeliveryInput["sourceCredential"]): string {
-  return formatDeliveryCredentialText(credential);
+function formatCredentialText(input: CreateDeliveryInput): string {
+  return input.deliveryText ?? formatDeliveryCredentialText(input.sourceCredential);
 }
 
 function buildTextSendObject(input: CreateDeliveryInput, text: string): Record<string, unknown> {
@@ -181,6 +181,8 @@ function operationMarker(operationId: string): string {
 function sensitiveValues(input: CreateDeliveryInput, ...values: Array<string | undefined>): string[] {
   return [
     ...values.filter((value): value is string => Boolean(value)),
+    input.deliveryText,
+    ...(input.sensitiveValues ?? []),
     input.sourceCredential.password,
     input.accessPassword
   ].filter((value): value is string => Boolean(value));

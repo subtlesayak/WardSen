@@ -564,7 +564,9 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
   font-size: 13px;
   overflow-wrap: anywhere;
 }
-.result { width: 100%; text-align: left; background: #f2f7f5; }
+.result { width: 100%; text-align: left; background: #f2f7f5; cursor: pointer; grid-template-columns: auto minmax(0, 1fr); }
+.result > input { width: 18px; min-height: 18px; margin: 0; accent-color: #12684d; }
+.result > span { display: grid; gap: 3px; min-width: 0; }
 .result:hover { background: #e8f2ee; }
 .result.selected {
   background: #dff3ec;
@@ -709,7 +711,12 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
 
 .composer { display: grid; gap: 12px; }
 .composer label { display: grid; gap: 7px; color: #52665e; font-size: 13px; }
+.selectionSummary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid #b9dfd1; background: #f1faf6; color: #35584b; font-size: 13px; font-weight: 700; }
+.selectionSummary button { flex: 0 0 auto; }
 .bulkHandoff { display: grid; gap: 10px; }
+.multiCredentialHandoff { display: grid; gap: 10px; }
+.tableHead.multiCredential, .tableRow.multiCredential { grid-template-columns: minmax(180px, 1fr) minmax(90px, 0.55fr) minmax(260px, 1.3fr); min-width: 620px; }
+.multiCredentialError { color: #7b2f2f !important; font-weight: 700; }
 .riskSummary {
   display: grid;
   gap: 8px;

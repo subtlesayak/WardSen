@@ -67,7 +67,7 @@ export class EntePasteManualDeliveryProvider implements DeliveryProvider {
       throw new Error("Ente Paste manual handoff cannot apply WardSen hidden-text settings.");
     }
 
-    const text = formatCredentialText(input.sourceCredential);
+    const text = formatCredentialText(input);
     if (text.length > ENTE_PASTE_CHARACTER_LIMIT) {
       throw new Error(`Ente Paste accepts up to ${ENTE_PASTE_CHARACTER_LIMIT} characters. This credential handoff is ${text.length} characters.`);
     }
@@ -97,8 +97,9 @@ export class EntePasteManualDeliveryProvider implements DeliveryProvider {
   }
 }
 
-export function formatCredentialText(credential: SensitiveCredential): string {
-  return formatDeliveryCredentialText(credential);
+export function formatCredentialText(input: Pick<CreateDeliveryInput, "sourceCredential" | "deliveryText"> | SensitiveCredential): string {
+  if ("sourceCredential" in input) return input.deliveryText ?? formatDeliveryCredentialText(input.sourceCredential);
+  return formatDeliveryCredentialText(input);
 }
 
 async function writeSystemClipboard(text: string): Promise<void> {

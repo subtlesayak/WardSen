@@ -17,6 +17,10 @@ export type ExternalDeliveryCommandRunner = (input: CliCommandInput) => Promise<
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MINUTE_MS = 60 * 1000;
 
+function deliveryText(input: CreateDeliveryInput): string {
+  return input.deliveryText ?? formatDeliveryCredentialText(input.sourceCredential);
+}
+
 export interface PasswordPusherDeliveryOptions {
   baseUrl?: string;
   apiToken?: string;
@@ -66,7 +70,7 @@ export class PasswordPusherDeliveryProvider implements DeliveryProvider {
     const expiryDays = wholeDayExpiry(input.expiresAt, now, "Password Pusher");
     const viewLimit = input.viewLimit ?? (input.viewOnce ? 1 : undefined);
     const form = new URLSearchParams({
-      "password[payload]": formatDeliveryCredentialText(input.sourceCredential),
+      "password[payload]": deliveryText(input),
       "password[expire_after_days]": String(expiryDays),
       "password[deletable_by_viewer]": "false"
     });
@@ -204,7 +208,7 @@ export class OnetimeSecretDeliveryProvider implements DeliveryProvider {
           recipient: input.recipient?.email,
           passphrase: input.accessPassword,
           ttl: String(ttlSeconds),
-          secret: formatDeliveryCredentialText(input.sourceCredential)
+          secret: deliveryText(input)
         }
       })
     }, "create an Onetime Secret link");
@@ -327,14 +331,14 @@ export class YopassDeliveryProvider implements DeliveryProvider {
     const expiration = yopassExpiry(input.expiresAt, now);
     const apiUrl = secureProviderBaseUrl(this.options.apiUrl ?? process.env.WARDSEN_YOPASS_API_URL ?? "https://api.yopass.se", "Yopass API");
     const publicUrl = secureProviderBaseUrl(this.options.publicUrl ?? process.env.WARDSEN_YOPASS_PUBLIC_URL ?? "https://yopass.se", "Yopass public link");
-    const text = formatDeliveryCredentialText(input.sourceCredential);
+    const text = deliveryText(input);
     let result: CliCommandResult;
     try {
       result = await this.runCommand({
         executable: this.executable,
         args: ["--api", apiUrl, "--url", publicUrl, "--expiration", expiration, "--one-time"],
         stdin: text,
-        redact: [input.sourceCredential.password ?? ""].filter(Boolean),
+        redact: [text, ...(input.sensitiveValues ?? []), input.sourceCredential.password ?? ""].filter(Boolean),
         rawOutput: true,
         timeoutMs: 30_000
       });

@@ -88,7 +88,7 @@ fn local_service_status(
 }
 
 #[tauri::command]
-async fn open_terminal_session(
+fn open_terminal_session(
     account_id: String,
     launch_id: String,
     config: tauri::State<'_, ServerLaunchConfig>,
@@ -98,7 +98,9 @@ async fn open_terminal_session(
     validate_terminal_launch_id(&launch_id)?;
     let config = config.inner().clone();
     let token = token.0.clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    // Terminal startup is intentionally detached from the UI invoke. Windows can take a
+    // noticeable moment to create a new console; WardSen should remain responsive while it does.
+    let _ = tauri::async_runtime::spawn_blocking(move || {
         let command = fetch_terminal_handoff_command(&config, &token, &account_id, &launch_id)
             .map_err(|_| "WardSen could not retrieve the one-time terminal login command. Start Terminal login / unlock again.".to_string())?;
         validate_terminal_handoff_command(&command)?;
@@ -107,9 +109,8 @@ async fn open_terminal_session(
                 "WardSen could not open a terminal for Bitwarden login: {error}. Copy the terminal command and run it manually."
             )
         })
-    })
-    .await
-    .map_err(|error| format!("WardSen terminal launch task failed: {error}."))?
+    });
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -536,8 +537,7 @@ fn fetch_terminal_handoff_command(
         config.port
     );
     stream.write_all(request.as_bytes())?;
-    let mut response = Vec::new();
-    stream.read_to_end(&mut response)?;
+    let response = read_terminal_handoff_response(&mut stream)?;
     let header_end = response
         .windows(4)
         .position(|window| window == b"\r\n\r\n")
@@ -572,6 +572,67 @@ fn fetch_terminal_handoff_command(
         ));
     }
     Ok(command)
+}
+
+fn read_terminal_handoff_response(stream: &mut TcpStream) -> io::Result<Vec<u8>> {
+    const MAX_RESPONSE_BYTES: usize = 32 * 1024;
+    let mut response = Vec::with_capacity(4096);
+    let mut chunk = [0_u8; 4096];
+    let mut expected_length: Option<usize> = None;
+
+    loop {
+        let read = stream.read(&mut chunk)?;
+        if read == 0 {
+            return Ok(response);
+        }
+        response.extend_from_slice(&chunk[..read]);
+        if response.len() > MAX_RESPONSE_BYTES {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "local service terminal response was too large",
+            ));
+        }
+
+        if expected_length.is_none() {
+            if let Some(header_end) = response.windows(4).position(|window| window == b"\r\n\r\n") {
+                let headers = std::str::from_utf8(&response[..header_end]).map_err(|_| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "local service response headers were invalid",
+                    )
+                })?;
+                expected_length = header_value(headers, "content-length")
+                    .map(|value| {
+                        value.parse::<usize>().map_err(|_| {
+                            io::Error::new(
+                                io::ErrorKind::InvalidData,
+                                "local service response content length was invalid",
+                            )
+                        })
+                    })
+                    .transpose()?;
+                if let Some(length) = expected_length {
+                    if header_end + 4 + length > MAX_RESPONSE_BYTES {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "local service terminal response was too large",
+                        ));
+                    }
+                }
+            }
+        }
+
+        if let (Some(header_end), Some(length)) = (
+            response.windows(4).position(|window| window == b"\r\n\r\n"),
+            expected_length,
+        ) {
+            let total_length = header_end + 4 + length;
+            if response.len() >= total_length {
+                response.truncate(total_length);
+                return Ok(response);
+            }
+        }
+    }
 }
 
 fn validate_terminal_handoff_command(command: &str) -> Result<(), String> {

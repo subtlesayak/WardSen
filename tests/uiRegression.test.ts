@@ -130,6 +130,18 @@ describe("web UI regression guards", () => {
     expect(webSource).toContain("personId: current.personId || activePeople[0]?.id || \"\"");
   });
 
+  it("supports selecting several credentials while keeping bundle links explicit", () => {
+    expect(webSource).toContain("Select up to 20 credentials at once");
+    expect(webSource).toContain('aria-label="Credential link arrangement"');
+    expect(webSource).toContain("Separate links");
+    expect(webSource).toContain("One bundle link");
+    expect(webSource).toContain("/api/deliveries/bundle");
+    expect(webSource).toContain('name="confirmBundle"');
+    expect(webSource).toContain("one recipient link will contain all");
+    expect(webSource).toContain("Manual Ente Paste cannot safely group credentials");
+    expect(webSource).toContain("Create bundle link");
+  });
+
   it("does not put bearer delivery links into external email or WhatsApp URLs", () => {
     expect(webSource).toContain("Paste the WardSen delivery link copied to your clipboard");
     expect(webSource).toContain("copyAndOpenDeliveryHandoff");
@@ -149,10 +161,10 @@ describe("web UI regression guards", () => {
     expect(webSource).toContain("Copy and open WhatsApp");
   });
 
-  it("keeps terminal launch failures from leaving the UI in a loading state", () => {
-    expect(webSource).toContain("TERMINAL_LAUNCH_TIMEOUT_MS");
-    expect(webSource).toContain("openTerminalSessionWithUiTimeout");
-    expect(webSource).toContain("WardSen asked the desktop app to open Terminal, but it did not respond quickly");
+  it("keeps terminal launch responsive while the native console starts", () => {
+    expect(webSource).toContain("Opening Terminal for Bitwarden login. It may appear in a moment");
+    expect(webSource).not.toContain("TERMINAL_LAUNCH_TIMEOUT_MS");
+    expect(webSource).not.toContain("openTerminalSessionWithUiTimeout");
     expect(webSource).toContain("Copy terminal command");
   });
 

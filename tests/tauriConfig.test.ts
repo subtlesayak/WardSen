@@ -37,9 +37,10 @@ describe("Tauri packaging config", () => {
     expect(rustLauncher).toContain("proxy_local_service_request");
     expect(rustLauncher).toContain("validate_local_service_proxy_request");
     expect(rustLauncher).toContain("open_terminal_session");
-    expect(rustLauncher).toContain("async fn open_terminal_session");
+    expect(rustLauncher).toContain("fn open_terminal_session");
     expect(rustLauncher).toContain("tauri::async_runtime::spawn_blocking");
     expect(rustLauncher).toContain("fetch_terminal_handoff_command");
+    expect(rustLauncher).toContain("read_terminal_handoff_response");
     expect(rustLauncher).not.toContain("open_terminal_session(command: String)");
     expect(rustLauncher).toContain("WardSen is starting Bitwarden login");
     expect(rustLauncher).toContain("exec /bin/zsh -l");

@@ -25,7 +25,12 @@ export const deliveryPolicySnapshotSchema = z.object({
   viewLimit: z.number().int().positive().optional(),
   viewOnce: z.boolean(),
   accessSecretRequired: z.boolean(),
-  hideText: z.boolean()
+  hideText: z.boolean(),
+  bundleSourceCredentials: z.array(z.object({
+    sourceProviderId: z.string().min(1),
+    sourceAccountId: z.string().min(1),
+    sourceItemId: z.string().min(1)
+  })).min(2).max(20).optional()
 });
 
 export const deliveryRecordSchema = z.object({

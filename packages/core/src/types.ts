@@ -118,6 +118,17 @@ export function formatDeliveryCredentialText(credential: SensitiveCredential): s
   return lines.join("\n");
 }
 
+/** Formats a deliberately grouped handoff without projecting notes, TOTP, or URLs. */
+export function formatDeliveryCredentialBundleText(credentials: SensitiveCredential[]): string {
+  if (credentials.length < 2) throw new Error("A credential bundle needs at least two credentials.");
+  return credentials.map((credential, index) => {
+    const lines = [`Credential ${index + 1}: ${credential.title}`];
+    if (credential.username) lines.push(`Username: ${credential.username}`);
+    if (credential.password) lines.push(`Password: ${credential.password}`);
+    return lines.join("\n");
+  }).join("\n\n");
+}
+
 export interface DeliveryRecipient {
   id: string;
   name: string;
@@ -128,6 +139,10 @@ export interface DeliveryRecipient {
 export interface CreateDeliveryInput {
   operationId?: string;
   sourceCredential: SensitiveCredential;
+  /** Server-created delivery text for an explicitly confirmed credential bundle. */
+  deliveryText?: string;
+  /** Additional server-only redaction values for grouped delivery text. */
+  sensitiveValues?: string[];
   recipient?: DeliveryRecipient;
   expiresAt: Date;
   viewLimit?: number;
@@ -166,6 +181,14 @@ export interface DeliveryPolicySnapshot {
   viewOnce: boolean;
   accessSecretRequired: boolean;
   hideText: boolean;
+  /** Non-secret source references retained for an explicitly confirmed bundled link. */
+  bundleSourceCredentials?: DeliveryCredentialReference[];
+}
+
+export interface DeliveryCredentialReference {
+  sourceProviderId: string;
+  sourceAccountId: string;
+  sourceItemId: string;
 }
 
 export interface DeliveryProvider {

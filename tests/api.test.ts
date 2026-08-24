@@ -1708,6 +1708,52 @@ describe("WardSen API", () => {
     await app.close();
   });
 
+  it("creates an explicitly confirmed credential bundle without persisting credential content", async () => {
+    const deliveryProvider = new MockDeliveryProvider();
+    const sessions = new AccountSessionManager();
+    const app = await buildApp({
+      sessions,
+      credentialProviders: [new MockCredentialProvider()],
+      deliveryProviders: [deliveryProvider]
+    });
+    const headers = { host: "127.0.0.1:4777", origin: "http://127.0.0.1:4777" };
+    await app.inject({ method: "POST", url: "/api/accounts", headers, payload: { id: "source", providerId: "mock-source", label: "Mock source" } });
+    await app.inject({ method: "POST", url: "/api/accounts", headers, payload: { id: "delivery", providerId: "mock-source", label: "Mock delivery" } });
+    sessions.markUnlocked("source", "mock-source", "source-token");
+    const payload = {
+      operationId: "bundle-operation",
+      sourceCredentials: [
+        { sourceProviderId: "mock-source", sourceAccountId: "source", sourceItemId: "cms" },
+        { sourceProviderId: "mock-source", sourceAccountId: "source", sourceItemId: "cms-backup" }
+      ],
+      deliveryProviderId: "mock-delivery",
+      deliveryAccountId: "delivery",
+      expiresAt: new Date(Date.now() + 3600000).toISOString()
+    };
+
+    const missingConfirmation = await app.inject({ method: "POST", url: "/api/deliveries/bundle", headers, payload });
+    expect(missingConfirmation.statusCode).not.toBe(200);
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/deliveries/bundle",
+      headers,
+      payload: { ...payload, confirmBundle: true }
+    });
+
+    expect(created.statusCode).toBe(200);
+    expect(created.json()).toMatchObject({ credentialName: "Credential bundle (2)" });
+    expect(deliveryProvider.inputs).toHaveLength(1);
+    expect(deliveryProvider.inputs[0]).toMatchObject({
+      sourceCredential: { title: "Credential bundle (2)" }
+    });
+    expect(deliveryProvider.inputs[0]?.deliveryText).toContain("Credential 1: CMS Login");
+    expect(deliveryProvider.inputs[0]?.deliveryText).toContain("Password: Password123");
+    expect(deliveryProvider.inputs[0]?.deliveryText).not.toContain("Internal incident instructions.");
+    expect(deliveryProvider.inputs[0]?.deliveryText).not.toContain("JBSWY3DPEHPK3PXP");
+    expect(JSON.stringify((await app.inject({ method: "GET", url: "/api/deliveries", headers })).json()).replaceAll("Credential bundle (2)", "")).not.toContain("Password123");
+    await app.close();
+  });
+
   it("marks expired delivery metadata as expired when a provider status check is unavailable", async () => {
     // Keep creation future relative to the real clock used by validation, then
     // advance only Date.now() to exercise expiry reconciliation deterministically.

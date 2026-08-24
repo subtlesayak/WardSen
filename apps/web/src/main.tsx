@@ -29,7 +29,6 @@ import { BatchDeliveryTable, BatchTable } from "./deliveryBatchTables";
 import { DeliveryHistoryTable, type DeliveryHistoryAction } from "./deliveryHistoryTable";
 import { EmployeePortalPage, isEmployeePortalView } from "./employeePortal";
 
-const TERMINAL_LAUNCH_TIMEOUT_MS = 2500;
 import { appReleaseMetadata, appVersion } from "./version";
 import "./styles.css";
 
@@ -194,6 +193,11 @@ interface EmployeeSignInCodeResponse {
 type CreatedDeliveryRecord = CreatedDeliveryRecordContract;
 type BulkDeliveryResult = BulkDeliveryResultContract;
 type BulkDeliveryItemResult = BulkDeliveryItemResultContract;
+interface MultiCredentialDeliveryResult {
+  credential: CredentialSummary;
+  delivery?: CreatedDeliveryRecord;
+  error?: string;
+}
 type CredentialAccessRequestCreateResponse = CredentialAccessRequestRecord | {
   request: CredentialAccessRequestRecord;
   delivery?: CreatedDeliveryRecord;
@@ -603,8 +607,8 @@ function Vaults({ api, confirmDestructiveAction }: { api: ReturnType<typeof useW
       setTerminalHandoff({ accountId: account.id, ...response });
       if (canLaunchTerminalSession()) {
         try {
-          await openTerminalSessionWithUiTimeout(account.id, response.launchId);
-          setMessage({ status: "ready", text: "Terminal opened for Bitwarden login. Type the Bitwarden password only in its prompt. WardSen will update this account automatically." });
+          await openTerminalSession(account.id, response.launchId);
+          setMessage({ status: "ready", text: "Opening Terminal for Bitwarden login. It may appear in a moment; type the Bitwarden password only in its prompt. WardSen will update this account automatically." });
           return;
         } catch (error) {
           try {
@@ -630,26 +634,10 @@ function Vaults({ api, confirmDestructiveAction }: { api: ReturnType<typeof useW
   async function openBitwardenTerminalAgain(handoff: NonNullable<typeof terminalHandoff>) {
     setMessage({ status: "loading", text: "Opening Terminal for Bitwarden login..." });
     try {
-      await openTerminalSessionWithUiTimeout(handoff.accountId, handoff.launchId);
-      setMessage({ status: "ready", text: "Terminal opened for Bitwarden login. Type the Bitwarden password only in its prompt." });
+      await openTerminalSession(handoff.accountId, handoff.launchId);
+      setMessage({ status: "ready", text: "Opening Terminal for Bitwarden login. It may appear in a moment; type the Bitwarden password only in its prompt." });
     } catch (error) {
       setMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
-    }
-  }
-
-  async function openTerminalSessionWithUiTimeout(accountId: string, launchId: string): Promise<void> {
-    let timedOut = false;
-    await Promise.race([
-      openTerminalSession(accountId, launchId),
-      new Promise<void>((resolve) => {
-        window.setTimeout(() => {
-          timedOut = true;
-          resolve();
-        }, TERMINAL_LAUNCH_TIMEOUT_MS);
-      })
-    ]);
-    if (timedOut) {
-      throw new Error("WardSen asked the desktop app to open Terminal, but it did not respond quickly. Use Copy terminal command and run it in Terminal or PowerShell.");
     }
   }
 
@@ -848,6 +836,8 @@ function Credentials({ api }: { api: ReturnType<typeof useWardSenApi> }) {
     items: [],
     errors: []
   });
+  const [selectedCredentials, setSelectedCredentials] = useState<CredentialSummary[]>([]);
+  const [selectionNotice, setSelectionNotice] = useState<string>();
   const searchableAccounts = api.accounts.filter((account) =>
     account.status === "unlocked" &&
     (!search.accountId || account.id === search.accountId) &&
@@ -873,12 +863,24 @@ function Credentials({ api }: { api: ReturnType<typeof useWardSenApi> }) {
         status: "ready",
         items: result.items,
         total: result.total,
-        errors: result.errors,
-        selected: result.items.find((item) => item.id === current.selected?.id && item.accountId === current.selected.accountId)
+        errors: result.errors
       }));
     } catch (error) {
       setSearch((current) => ({ ...current, status: "error", error: error instanceof Error ? error.message : String(error) }));
     }
+  }
+
+  function toggleCredential(item: CredentialSummary) {
+    const key = credentialSelectionKey(item);
+    const isSelected = selectedCredentials.some((credential) => credentialSelectionKey(credential) === key);
+    if (!isSelected && selectedCredentials.length >= 20) {
+      setSelectionNotice("Select up to 20 credentials at once. Create this set before selecting more.");
+      return;
+    }
+    setSelectedCredentials((current) => isSelected
+      ? current.filter((credential) => credentialSelectionKey(credential) !== key)
+      : [...current, item]);
+    setSelectionNotice(undefined);
   }
 
   return (
@@ -908,27 +910,42 @@ function Credentials({ api }: { api: ReturnType<typeof useWardSenApi> }) {
             </div>
           </div>
         )}
+        {selectedCredentials.length > 0 ? (
+          <div className="selectionSummary" role="status" aria-live="polite">
+            <span>{selectedCredentials.length} credential{selectedCredentials.length === 1 ? "" : "s"} selected. Choose separate links or one explicitly confirmed bundle link.</span>
+            <button type="button" onClick={() => {
+              setSelectedCredentials([]);
+              setSelectionNotice(undefined);
+            }}>Clear selection</button>
+          </div>
+        ) : null}
+        {selectionNotice ? <div className="notice compact" role="status" aria-live="polite">{selectionNotice}</div> : null}
         <div className="resultList">
           {search.status === "idle" && <EmptyState text="Run a search after unlocking a vault. Credential secrets stay on the backend." />}
           {search.status === "loading" && <EmptyState text="Searching unlocked vaults..." />}
           {search.status === "ready" && search.items.length === 0 && lockedSelectedAccount && <EmptyState text={`Unlock ${lockedSelectedAccount.label} in Vaults > Account Access before searching credentials. For Bitwarden, use Terminal login / unlock and wait for WardSen to update the account automatically.`} />}
           {search.status === "ready" && search.items.length === 0 && !lockedSelectedAccount && searchableAccounts.length === 0 && <EmptyState text="No unlocked vaults match this search filter. Go to Vaults > Account Access, unlock a vault, then search again." />}
           {search.status === "ready" && search.items.length === 0 && !lockedSelectedAccount && searchableAccounts.length > 0 && <EmptyState text="No credential summaries matched this search." />}
-          {search.items.map((item) => (
-            <button
-              className={search.selected?.id === item.id && search.selected.accountId === item.accountId ? "result selected" : "result"}
-              type="button"
-              aria-pressed={search.selected?.id === item.id && search.selected.accountId === item.accountId}
-              key={`${item.providerId}-${item.accountId}-${item.id}`}
-              onClick={() => setSearch((current) => ({ ...current, selected: item }))}
-            >
-              <strong>{item.title}</strong>
-              <span>{item.username ?? "No username"} / {item.domain ?? item.uriPreview ?? "No domain"} / {accountLabel(api.accounts, item.accountId)}</span>
-            </button>
-          ))}
+          {search.items.map((item) => {
+            const isSelected = selectedCredentials.some((credential) => credentialSelectionKey(credential) === credentialSelectionKey(item));
+            return (
+              <label className={isSelected ? "result selected" : "result"} key={credentialSelectionKey(item)}>
+                <input
+                  type="checkbox"
+                  checked={isSelected}
+                  aria-label={`Select ${item.title}`}
+                  onChange={() => toggleCredential(item)}
+                />
+                <span>
+                  <strong>{item.title}</strong>
+                  <span>{item.username ?? "No username"} / {item.domain ?? item.uriPreview ?? "No domain"} / {accountLabel(api.accounts, item.accountId)}</span>
+                </span>
+              </label>
+            );
+          })}
         </div>
       </section>
-      <DeliveryComposer api={api} selectedCredential={search.selected} />
+      <DeliveryComposer api={api} selectedCredentials={selectedCredentials} />
     </div>
   );
 }
@@ -1978,7 +1995,7 @@ function ProviderDiagnostics({ diagnostic }: { diagnostic: ProviderDiagnostic })
   );
 }
 
-function DeliveryComposer({ api, selectedCredential }: { api: ReturnType<typeof useWardSenApi>; selectedCredential?: CredentialSummary }) {
+function DeliveryComposer({ api, selectedCredentials }: { api: ReturnType<typeof useWardSenApi>; selectedCredentials: CredentialSummary[] }) {
   const [form, setForm] = useState({
     mode: "shared" as "shared" | "individual" | "bulk",
     personId: "",
@@ -1989,15 +2006,22 @@ function DeliveryComposer({ api, selectedCredential }: { api: ReturnType<typeof 
     viewOnce: false,
     hideText: false,
     accessPassword: "",
-    deliveryMethod: "copy" as "copy" | "whatsapp" | "email"
+    deliveryMethod: "copy" as "copy" | "whatsapp" | "email",
+    linkArrangement: "separate" as "separate" | "bundle",
+    bundleConfirmed: false
   });
   const [submit, setSubmit] = useState<{ status: "idle" | "loading" | "ready" | "error"; message?: string; url?: string; delivery?: CreatedDeliveryRecord }>({ status: "idle" });
   const [bulkResults, setBulkResults] = useState<BulkDeliveryItemResult[]>([]);
+  const [multiCredentialResults, setMultiCredentialResults] = useState<MultiCredentialDeliveryResult[]>([]);
+  const selectedCredential = selectedCredentials[0];
+  const selectedSourceAccounts = [...new Set(selectedCredentials.map((credential) => credential.accountId))];
   const deliveryProviderId = form.deliveryProviderId || api.deliveryProviders[0]?.id || "";
   const deliveryAccountId = form.deliveryAccountId || selectedCredential?.accountId || api.accounts[0]?.id || "";
   const selectedDeliveryProvider = api.deliveryProviders.find((provider) => provider.id === deliveryProviderId);
   const capabilities = selectedDeliveryProvider?.capabilities ?? {};
   const manualHandoff = isManualHandoffProvider(selectedDeliveryProvider);
+  const useBundleLink = selectedCredentials.length > 1 && form.linkArrangement === "bundle";
+  const selectedCredentialSetKey = selectedCredentials.map(credentialSelectionKey).join("|");
   const activePeople = api.people.filter((person) => person.active);
   const recipient = activePeople.find((person) => person.id === form.personId);
   const personName = (id?: string) => api.people.find((person) => person.id === id)?.name ?? id ?? "Shared link";
@@ -2014,30 +2038,52 @@ function DeliveryComposer({ api, selectedCredential }: { api: ReturnType<typeof 
       })
     : "";
 
+  useEffect(() => {
+    setForm((current) => current.bundleConfirmed ? { ...current, bundleConfirmed: false } : current);
+  }, [selectedCredentialSetKey]);
+
   async function createDelivery(event: React.FormEvent) {
     event.preventDefault();
-    if (!selectedCredential) {
-      setSubmit({ status: "error", message: "Select a credential from search before creating a link." });
+    const [firstCredential] = selectedCredentials;
+    if (!firstCredential) {
+      setSubmit({ status: "error", message: "Select one or more credentials from search before creating links." });
       return;
     }
     if (!deliveryProviderId || !deliveryAccountId) {
       setSubmit({ status: "error", message: "Choose a delivery provider and delivery account." });
       return;
     }
+    if (manualHandoff && selectedCredentials.length > 1) {
+      setSubmit({ status: "error", message: "Ente Paste manual handoff supports one credential at a time because it uses the local clipboard." });
+      return;
+    }
+    if (useBundleLink && form.mode === "bulk") {
+      setSubmit({ status: "error", message: "One bundle link is for one shared or individual handoff. Use separate links when delivering to all active people." });
+      return;
+    }
+    if (useBundleLink && !form.bundleConfirmed) {
+      setSubmit({ status: "error", message: "Confirm that the selected credentials will share one link before creating it." });
+      return;
+    }
     if (manualHandoff && form.mode === "bulk") {
       setSubmit({ status: "error", message: "Ente Paste manual handoff is single-delivery only because WardSen copies one credential handoff to the local clipboard." });
+      return;
+    }
+    if (form.mode === "bulk" && selectedCredentials.length > 1) {
+      setSubmit({ status: "error", message: "All-active delivery uses one selected credential per batch. Select one credential before creating links for everyone." });
       return;
     }
     const expiryHours = capabilities.customExpiry === false ? 24 : Number(form.expiryHours);
     const expiresAt = new Date(Date.now() + expiryHours * 60 * 60 * 1000).toISOString();
     setSubmit({ status: "loading", message: "Creating secure delivery..." });
     setBulkResults([]);
+    setMultiCredentialResults([]);
     try {
-      const payload = {
-        operationId: newOperationId(form.mode === "bulk" ? "bulk" : "delivery"),
-        sourceProviderId: selectedCredential.providerId,
-        sourceAccountId: selectedCredential.accountId,
-        sourceItemId: selectedCredential.id,
+      const payloadForCredential = (credential: CredentialSummary, operationId: string) => ({
+        operationId,
+        sourceProviderId: credential.providerId,
+        sourceAccountId: credential.accountId,
+        sourceItemId: credential.id,
         deliveryProviderId,
         deliveryAccountId,
         expiresAt,
@@ -2046,7 +2092,7 @@ function DeliveryComposer({ api, selectedCredential }: { api: ReturnType<typeof 
         hideText: capabilities.hideText ? form.hideText : undefined,
         accessPassword: capabilities.accessPassword ? form.accessPassword || undefined : undefined,
         deliveryMethod: form.deliveryMethod
-      };
+      });
       if (form.mode === "bulk") {
         if (activePeople.length === 0) {
           setSubmit({ status: "error", message: "Add at least one active person before creating a bulk batch." });
@@ -2061,6 +2107,7 @@ function DeliveryComposer({ api, selectedCredential }: { api: ReturnType<typeof 
           setSubmit({ status: "error", message: `Large batch cancelled. Confirmation phrase must be SEND ${activePeople.length}.` });
           return;
         }
+        const payload = payloadForCredential(firstCredential, newOperationId("bulk"));
         const batch: BulkDeliveryResult = parseBulkDeliveryResult(await apiSend<unknown>("/api/deliveries/bulk", {
           body: JSON.stringify({
             ...payload,
@@ -2075,15 +2122,61 @@ function DeliveryComposer({ api, selectedCredential }: { api: ReturnType<typeof 
           message: `Batch ${batch.batchId}: ${batch.completedCount}/${batch.requestedCount} links created, ${batch.failedCount} failed.`
         });
         setBulkResults(batch.results);
-      } else {
+      } else if (useBundleLink) {
+        const created = parseCreatedDeliveryRecord(await apiSend<unknown>("/api/deliveries/bundle", {
+          body: JSON.stringify({
+            operationId: newOperationId("bundle"),
+            sourceCredentials: selectedCredentials.map((credential) => ({
+              sourceProviderId: credential.providerId,
+              sourceAccountId: credential.accountId,
+              sourceItemId: credential.id
+            })),
+            deliveryProviderId,
+            deliveryAccountId,
+            recipient: form.mode === "individual" && recipient ? { id: recipient.id, name: recipient.name, email: recipient.email, phone: recipient.phone } : undefined,
+            expiresAt,
+            viewLimit: capabilities.arbitraryViewLimit ? form.viewLimit || undefined : undefined,
+            viewOnce: capabilities.viewOnce ? form.viewOnce : undefined,
+            hideText: capabilities.hideText ? form.hideText : undefined,
+            accessPassword: capabilities.accessPassword ? form.accessPassword || undefined : undefined,
+            deliveryMethod: form.deliveryMethod,
+            confirmBundle: true
+          })
+        }));
+        setSubmit({ status: "ready", message: deliveryMessage(`Bundle link created for ${selectedCredentials.length} credentials.`, created), url: created.oneTimeDeliveryUrl, delivery: created });
+      } else if (selectedCredentials.length === 1) {
         const created = parseCreatedDeliveryRecord(await apiSend<unknown>("/api/deliveries", {
           body: JSON.stringify({
-            ...payload,
+            ...payloadForCredential(firstCredential, newOperationId("delivery")),
             recipient: form.mode === "individual" && recipient ? { id: recipient.id, name: recipient.name, email: recipient.email, phone: recipient.phone } : undefined
           })
         }));
         setSubmit({ status: "ready", message: deliveryMessage("Delivery created.", created), url: created.oneTimeDeliveryUrl, delivery: created });
-        setBulkResults([]);
+      } else {
+        const handoffTarget = form.mode === "individual" && recipient ? recipient.name : "a shared handoff";
+        if (!window.confirm(`Create ${selectedCredentials.length} separate secure links for ${handoffTarget}? Each link grants access to one credential only.`)) {
+          setSubmit({ status: "idle" });
+          return;
+        }
+        const results = await Promise.all(selectedCredentials.map(async (credential): Promise<MultiCredentialDeliveryResult> => {
+          try {
+            const delivery = parseCreatedDeliveryRecord(await apiSend<unknown>("/api/deliveries", {
+              body: JSON.stringify({
+                ...payloadForCredential(credential, newOperationId("delivery")),
+                recipient: form.mode === "individual" && recipient ? { id: recipient.id, name: recipient.name, email: recipient.email, phone: recipient.phone } : undefined
+              })
+            }));
+            return { credential, delivery };
+          } catch (error) {
+            return { credential, error: error instanceof Error ? error.message : String(error) };
+          }
+        }));
+        const completedCount = results.filter((result) => result.delivery).length;
+        setMultiCredentialResults(results);
+        setSubmit({
+          status: completedCount > 0 ? "ready" : "error",
+          message: `${completedCount}/${results.length} separate credential links created${completedCount === results.length ? "." : "; review failed rows below."}`
+        });
       }
       await api.refresh();
     } catch (error) {
@@ -2094,8 +2187,8 @@ function DeliveryComposer({ api, selectedCredential }: { api: ReturnType<typeof 
   return (
     <form className="panel composer" onSubmit={createDelivery}>
       <PanelTitle icon={Send} title="Delivery Form" action="Create" />
-      <label>Source vault<input name="sourceVault" value={selectedCredential ? accountLabel(api.accounts, selectedCredential.accountId) : "Select from credential search"} readOnly /></label>
-      <label>Selected credential<input name="selectedCredential" value={selectedCredential ? `${selectedCredential.title} (${accountLabel(api.accounts, selectedCredential.accountId)})` : "Select from credential search"} readOnly /></label>
+      <label>Source vault<input name="sourceVault" value={selectedCredentials.length === 0 ? "Select from credential search" : selectedSourceAccounts.length === 1 ? accountLabel(api.accounts, selectedSourceAccounts[0]!) : `${selectedSourceAccounts.length} selected source vaults`} readOnly /></label>
+      <label>Selected credentials<input name="selectedCredentials" value={selectedCredentials.length === 0 ? "Select from credential search" : selectedCredentials.length === 1 ? `${selectedCredential!.title} (${accountLabel(api.accounts, selectedCredential!.accountId)})` : `${selectedCredentials.length} selected: ${selectedCredentials.slice(0, 2).map((credential) => credential.title).join(", ")}${selectedCredentials.length > 2 ? " and more" : ""}`} readOnly /></label>
       <label>Recipient<select name="recipientId" value={form.personId} disabled={form.mode !== "individual"} onChange={(event) => setForm((current) => ({ ...current, personId: event.target.value }))}>
         <option value="">{recipientPlaceholder}</option>
         {activePeople.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
@@ -2111,8 +2204,14 @@ function DeliveryComposer({ api, selectedCredential }: { api: ReturnType<typeof 
       <div className="segmented" role="group" aria-label="Delivery recipient mode">
         <button type="button" aria-pressed={form.mode === "shared"} className={form.mode === "shared" ? "selected" : ""} onClick={() => setForm((current) => ({ ...current, mode: "shared", personId: "" }))}>Shared</button>
         <button type="button" aria-pressed={form.mode === "individual"} className={form.mode === "individual" ? "selected" : ""} onClick={() => setForm((current) => ({ ...current, mode: "individual", personId: current.personId || activePeople[0]?.id || "" }))}>Individual</button>
-        <button type="button" aria-pressed={form.mode === "bulk"} disabled={manualHandoff} className={form.mode === "bulk" ? "selected" : ""} onClick={() => setForm((current) => ({ ...current, mode: "bulk", personId: "" }))}>All active</button>
+        <button type="button" aria-pressed={form.mode === "bulk"} disabled={manualHandoff || selectedCredentials.length > 1} title={selectedCredentials.length > 1 ? "All-active delivery uses one selected credential per batch" : undefined} className={form.mode === "bulk" ? "selected" : ""} onClick={() => setForm((current) => ({ ...current, mode: "bulk", personId: "" }))}>All active</button>
       </div>
+      {selectedCredentials.length > 1 ? (
+        <div className="segmented linkArrangement" role="group" aria-label="Credential link arrangement">
+          <button type="button" aria-pressed={form.linkArrangement === "separate"} className={form.linkArrangement === "separate" ? "selected" : ""} onClick={() => setForm((current) => ({ ...current, linkArrangement: "separate", bundleConfirmed: false }))}>Separate links</button>
+          <button type="button" aria-pressed={form.linkArrangement === "bundle"} disabled={manualHandoff || form.mode === "bulk"} title={manualHandoff ? "Manual Ente Paste cannot safely group credentials" : form.mode === "bulk" ? "One bundle link is limited to a shared or individual handoff" : undefined} className={form.linkArrangement === "bundle" ? "selected" : ""} onClick={() => setForm((current) => ({ ...current, linkArrangement: "bundle", bundleConfirmed: false }))}>One bundle link</button>
+        </div>
+      ) : null}
       <label>Expiry<select name="expiryHours" value={capabilities.customExpiry === false ? "24" : form.expiryHours} disabled={capabilities.customExpiry === false} onChange={(event) => setForm((current) => ({ ...current, expiryHours: event.target.value }))}>
         <option value="24">24 hours</option>
         <option value="72">3 days</option>
@@ -2127,13 +2226,32 @@ function DeliveryComposer({ api, selectedCredential }: { api: ReturnType<typeof 
       <label className="check"><input name="viewOnce" checked={capabilities.viewOnce ? (manualHandoff ? true : form.viewOnce) : false} disabled={!capabilities.viewOnce || manualHandoff} type="checkbox" onChange={(event) => setForm((current) => ({ ...current, viewOnce: event.target.checked }))} /> View once</label>
       <label className="check"><input name="hideText" checked={capabilities.hideText ? form.hideText : false} disabled={!capabilities.hideText} type="checkbox" onChange={(event) => setForm((current) => ({ ...current, hideText: event.target.checked }))} /> Hide text in provider link</label>
       <label>Access password<input name="accessPassword" value={capabilities.accessPassword ? form.accessPassword : ""} disabled={!capabilities.accessPassword} onChange={(event) => setForm((current) => ({ ...current, accessPassword: event.target.value }))} placeholder="Optional provider password" type="password" /></label>
-      {form.mode === "bulk" && selectedCredential && (
+      {form.mode === "bulk" && selectedCredential && selectedCredentials.length === 1 && (
         <div className="riskSummary">
           <strong>Bulk confirmation summary</strong>
           <span>{bulkSummary}</span>
           <span>Expiry and view limits control link access; they cannot stop someone from saving a viewed credential.</span>
         </div>
       )}
+      {selectedCredentials.length > 1 && form.mode === "bulk" ? (
+        <div className="riskSummary">
+          <strong>All-active delivery needs one credential</strong>
+          <span>Choose one credential for a per-recipient batch. This prevents one action from creating a large credentials-by-people set of links.</span>
+        </div>
+      ) : null}
+      {useBundleLink ? (
+        <div className="riskSummary">
+          <strong>One bundle link</strong>
+          <span>This link contains {selectedCredentials.length} selected credentials. It uses only title, username and password, and excludes notes, TOTP and URLs.</span>
+          <label className="checkboxLine"><input name="confirmBundle" type="checkbox" checked={form.bundleConfirmed} onChange={(event) => setForm((current) => ({ ...current, bundleConfirmed: event.target.checked }))} /> I understand that one recipient link will contain all {selectedCredentials.length} selected credentials.</label>
+        </div>
+      ) : null}
+      {manualHandoff && selectedCredentials.length > 1 ? (
+        <div className="riskSummary">
+          <strong>Ente Paste needs one credential</strong>
+          <span>Manual handoff writes one credential to the local clipboard. Select one credential before using Ente Paste.</span>
+        </div>
+      ) : null}
       {manualHandoff && (
         <div className="riskSummary">
           <strong>Ente Paste manual handoff</strong>
@@ -2148,7 +2266,7 @@ function DeliveryComposer({ api, selectedCredential }: { api: ReturnType<typeof 
           {submit.url && <DeliveryLinkAction
             delivery={submit.delivery}
             url={submit.url}
-            label={form.mode === "shared" ? "Copy shared link" : "Copy link"}
+            label={useBundleLink ? "Copy bundle link" : form.mode === "shared" ? "Copy shared link" : "Copy link"}
             method={form.deliveryMethod}
             recipient={form.mode === "individual" ? recipient : undefined}
           />}
@@ -2163,8 +2281,16 @@ function DeliveryComposer({ api, selectedCredential }: { api: ReturnType<typeof 
           onCopy={(url) => copyTextToClipboard(url)}
         />
       )}
-      <button className="primary full" disabled={submit.status === "loading" || !selectedCredential || (form.mode === "individual" && !recipient) || (manualHandoff && form.mode === "bulk")}>
-        <Send size={16} aria-hidden="true" /> {form.mode === "bulk" ? "Create secure links" : "Create secure link"}
+      {multiCredentialResults.length > 0 && (
+        <MultiCredentialHandoffResults
+          results={multiCredentialResults}
+          accounts={api.accounts}
+          method={form.deliveryMethod}
+          recipient={form.mode === "individual" ? recipient : undefined}
+        />
+      )}
+      <button className="primary full" disabled={submit.status === "loading" || selectedCredentials.length === 0 || (form.mode === "individual" && !recipient) || (manualHandoff && (form.mode === "bulk" || selectedCredentials.length > 1)) || (form.mode === "bulk" && selectedCredentials.length > 1) || (useBundleLink && !form.bundleConfirmed)}>
+        <Send size={16} aria-hidden="true" /> {useBundleLink ? "Create bundle link" : form.mode === "bulk" || selectedCredentials.length > 1 ? "Create secure links" : "Create secure link"}
       </button>
     </form>
   );
@@ -2357,6 +2483,49 @@ function DeliveryLinkAction({
   );
 }
 
+function MultiCredentialHandoffResults({
+  results,
+  accounts,
+  method,
+  recipient
+}: {
+  results: MultiCredentialDeliveryResult[];
+  accounts: AccountRecord[];
+  method: "copy" | "whatsapp" | "email";
+  recipient?: Pick<PersonRecord, "email" | "phone">;
+}) {
+  const createdCount = results.filter((result) => result.delivery).length;
+  return (
+    <section className="multiCredentialHandoff">
+      <div className="riskSummary">
+        <strong>Separate credential links</strong>
+        <span>{createdCount}/{results.length} links created. Each successful row has its own link and handoff action.</span>
+      </div>
+      <div className="table">
+        <div className="tableHead multiCredential">
+          <span>Credential</span><span>Creation</span><span>Handoff</span>
+        </div>
+        {results.map((result) => (
+          <div className="tableRow multiCredential" key={credentialSelectionKey(result.credential)}>
+            <div>
+              <strong>{result.credential.title}</strong>
+              <span>{accountLabel(accounts, result.credential.accountId)}</span>
+            </div>
+            <Status value={result.delivery ? "Created" : "Failed"} />
+            {result.delivery ? <DeliveryLinkAction
+              delivery={result.delivery}
+              url={result.delivery.oneTimeDeliveryUrl}
+              label="Copy link"
+              method={method}
+              recipient={recipient}
+            /> : <span className="multiCredentialError">{result.error ?? "Delivery creation failed."}</span>}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function BulkHandoffResults({
   results,
   personName,
@@ -2424,6 +2593,10 @@ function BulkHandoffResults({
 
 function resultKey(result: BulkDeliveryItemResult): string {
   return result.recipientId ?? result.delivery?.id ?? result.error ?? "bulk-result";
+}
+
+function credentialSelectionKey(credential: Pick<CredentialSummary, "providerId" | "accountId" | "id">): string {
+  return `${credential.providerId}:${credential.accountId}:${credential.id}`;
 }
 
 async function copyAndOpenDeliveryHandoff(
@@ -2842,7 +3015,7 @@ function deliveryMessage(message: string, delivery?: Pick<CreatedDeliveryRecord,
     : message;
 }
 
-function newOperationId(prefix: "delivery" | "bulk"): string {
+function newOperationId(prefix: "delivery" | "bulk" | "bundle"): string {
   const random = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   return `${prefix}-${random}`;
 }
