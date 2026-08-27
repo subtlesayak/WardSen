@@ -10,6 +10,22 @@ function ok(stdout = "{}"): CliCommandResult {
   return { exitCode: 0, stdout, stderr: "", durationMs: 1 };
 }
 
+const terminalIdentity = {
+  username: "work@example.test",
+  serverUrl: "https://vault.example.test",
+  providerPrincipalId: "user-work"
+};
+
+function unlockedTerminalStatus(overrides: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    status: "unlocked",
+    userEmail: "Work@Example.Test",
+    serverUrl: "https://vault.example.test/",
+    userId: "user-work",
+    ...overrides
+  });
+}
+
 describe("Bitwarden credential provider", () => {
   it("maps Bitwarden CLI status without exposing raw command details", async () => {
     const provider = new BitwardenCredentialProvider({
@@ -24,7 +40,26 @@ describe("Bitwarden credential provider", () => {
     });
   });
 
-  it("reports a terminal-handoff session as unlocked without a second CLI status command", async () => {
+  it("uses a verified Bitwarden executable selected after the provider was created", async () => {
+    const calls: CliCommandInput[] = [];
+    let executable = path.resolve("first-bw");
+    const provider = new BitwardenCredentialProvider({
+      profileRoot: "profiles",
+      getExecutable: () => executable,
+      runCommand: async (input) => {
+        calls.push(input);
+        return ok(JSON.stringify({ status: "locked" }));
+      }
+    });
+
+    await provider.testConnection("acct-1");
+    executable = path.resolve("second-bw");
+    await provider.testConnection("acct-1");
+
+    expect(calls.map((input) => input.executable)).toEqual([path.resolve("first-bw"), path.resolve("second-bw")]);
+  });
+
+  it("validates terminal identity in the managed profile before the server retains the session", async () => {
     const sessions = new AccountSessionManager();
     const calls: CliCommandInput[] = [];
     const provider = new BitwardenCredentialProvider({
@@ -32,18 +67,70 @@ describe("Bitwarden credential provider", () => {
       sessions,
       runCommand: async (input) => {
         calls.push(input);
-        return ok(JSON.stringify({ status: "locked" }));
+        return ok(unlockedTerminalStatus());
       }
     });
 
-    provider.acceptTerminalSessionHandoff("acct-1", "terminal-session");
+    await expect(provider.acceptTerminalSessionHandoff("acct-1", "terminal-session", terminalIdentity)).resolves.toEqual({ providerPrincipalId: "user-work" });
+    expect(() => sessions.getSessionToken("acct-1", "bitwarden")).toThrow();
+    expect(calls[0]).toMatchObject({
+      args: ["status", "--nointeraction"],
+      env: {
+        BITWARDENCLI_APPDATA_DIR: path.join("profiles", "acct-1"),
+        BW_SESSION: "terminal-session"
+      }
+    });
+    expect(calls[0]?.redact).toContain("terminal-session");
+
+    sessions.markUnlocked("acct-1", "bitwarden", "terminal-session");
 
     await expect(provider.testConnection("acct-1")).resolves.toMatchObject({
       ok: true,
       status: "unlocked",
       safeMessage: "WardSen session active"
     });
-    expect(calls).toEqual([]);
+    expect(calls).toHaveLength(1);
+  });
+
+  it.each([
+    ["cross-account session substitution", "email_mismatch", { userEmail: "other@example.test" }],
+    ["wrong Bitwarden server", "server_mismatch", { serverUrl: "https://other.example.test" }],
+    ["changed Bitwarden user ID", "user_id_mismatch", { userId: "user-other" }],
+    ["empty Bitwarden status fields", "email_mismatch", { userEmail: "", serverUrl: "", userId: "" }],
+    ["locked Bitwarden status", "not_unlocked", { status: "locked" }]
+  ])("rejects %s without retaining the candidate session", async (_caseName, reason, overrides) => {
+    const sessions = new AccountSessionManager();
+    const calls: CliCommandInput[] = [];
+    const provider = new BitwardenCredentialProvider({
+      profileRoot: "profiles",
+      sessions,
+      runCommand: async (input) => {
+        calls.push(input);
+        return ok(unlockedTerminalStatus(overrides));
+      }
+    });
+
+    await expect(provider.acceptTerminalSessionHandoff("acct-1", "candidate-session", terminalIdentity)).rejects.toMatchObject({ reason });
+    expect(() => sessions.getSessionToken("acct-1", "bitwarden")).toThrow();
+    expect(calls.map((call) => call.args)).toEqual([["status", "--nointeraction"], ["lock"]]);
+    for (const call of calls) {
+      expect(call.env).toMatchObject({ BITWARDENCLI_APPDATA_DIR: path.join("profiles", "acct-1"), BW_SESSION: "candidate-session" });
+      expect(call.redact).toContain("candidate-session");
+    }
+  });
+
+  it("rejects malformed Bitwarden terminal status JSON and attempts a lock", async () => {
+    const calls: CliCommandInput[] = [];
+    const provider = new BitwardenCredentialProvider({
+      profileRoot: "profiles",
+      runCommand: async (input) => {
+        calls.push(input);
+        return input.args[0] === "status" ? ok("not-json") : ok();
+      }
+    });
+
+    await expect(provider.acceptTerminalSessionHandoff("acct-1", "candidate-session", terminalIdentity)).rejects.toMatchObject({ reason: "status_invalid" });
+    expect(calls.map((call) => call.args)).toEqual([["status", "--nointeraction"], ["lock"]]);
   });
 
   it("clears the local session when a Bitwarden lock command fails", async () => {
@@ -188,7 +275,7 @@ describe("Bitwarden credential provider", () => {
     expect(command).not.toContain("| bw unlock --raw");
   });
 
-  it("accepts a terminal-created session directly into memory", async () => {
+  it("uses a validated terminal-created session for later credential commands", async () => {
     const sessions = new AccountSessionManager();
     const calls: CliCommandInput[] = [];
     const provider = new BitwardenCredentialProvider({
@@ -197,14 +284,15 @@ describe("Bitwarden credential provider", () => {
       runCommand: async (input) => {
         calls.push(input);
         if (input.args[0] === "list") return ok("[]");
-        return ok();
+        return ok(unlockedTerminalStatus());
       }
     });
 
-    provider.acceptTerminalSessionHandoff("acct-1", "terminal-session\n");
+    await provider.acceptTerminalSessionHandoff("acct-1", "terminal-session\n", terminalIdentity);
+    sessions.markUnlocked("acct-1", "bitwarden", "terminal-session");
     await provider.search("acct-1", "mail", { page: 1, pageSize: 10 });
-    expect(calls[0]?.args).toEqual(["list", "items", "--search", "mail"]);
-    expect(calls[0]?.env?.BW_SESSION).toBe("terminal-session");
+    expect(calls[1]?.args).toEqual(["list", "items", "--search", "mail"]);
+    expect(calls[1]?.env?.BW_SESSION).toBe("terminal-session");
   });
 
   it("uses a custom per-account profile directory for Bitwarden commands and terminal handoff", async () => {
@@ -219,7 +307,7 @@ describe("Bitwarden credential provider", () => {
       runCommand: async (input) => {
         calls.push(input);
         if (input.args[0] === "list") return ok("[]");
-        return ok();
+        return ok(unlockedTerminalStatus());
       }
     });
 
@@ -229,7 +317,8 @@ describe("Bitwarden credential provider", () => {
         token: "one-time-token"
       });
       expect(command).toContain("wardsen-custom-bw-");
-      provider.acceptTerminalSessionHandoff("acct-1", "terminal-session");
+      await provider.acceptTerminalSessionHandoff("acct-1", "terminal-session", terminalIdentity);
+      sessions.markUnlocked("acct-1", "bitwarden", "terminal-session");
       await provider.search("acct-1", "", { page: 1, pageSize: 10 });
 
       expect(calls.at(-1)?.env?.BITWARDENCLI_APPDATA_DIR).toBe(customProfile);

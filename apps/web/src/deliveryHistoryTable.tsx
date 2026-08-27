@@ -12,9 +12,10 @@ interface DeliveryHistoryTableProps {
   canRevoke: (delivery: DeliveryRecordContract) => boolean;
   onAction: (delivery: DeliveryRecordContract, action: DeliveryHistoryAction) => void;
   onRefreshActive: () => void;
+  statusRefreshBlockedAccountLabels: string[];
 }
 
-export function DeliveryHistoryTable({ deliveries, people, canRefresh, canRevoke, onAction, onRefreshActive }: DeliveryHistoryTableProps) {
+export function DeliveryHistoryTable({ deliveries, people, canRefresh, canRevoke, onAction, onRefreshActive, statusRefreshBlockedAccountLabels }: DeliveryHistoryTableProps) {
   const [statusFilter, setStatusFilter] = useState("all");
   const [copyState, setCopyState] = useState<{ deliveryId: string; status: "copied" | "error" }>();
   const personName = (id?: string) => people.find((person) => person.id === id)?.name ?? "Shared link";
@@ -44,7 +45,7 @@ export function DeliveryHistoryTable({ deliveries, people, canRefresh, canRevoke
           <option value="all">All statuses</option>
           {statuses.map((status) => <option key={status} value={status}>{titleStatus(status)}</option>)}
         </select>
-        <button type="button" onClick={onRefreshActive}><RefreshCcw size={16} aria-hidden="true" /> Refresh active</button>
+        <button type="button" title={statusRefreshBlockedAccountLabels.length ? `Unlock ${statusRefreshBlockedAccountLabels.join(", ")} in Vaults before refreshing Bitwarden Send views.` : "Refresh provider status for live links"} onClick={onRefreshActive}><RefreshCcw size={16} aria-hidden="true" /> Refresh live status</button>
       </div>
       <div className="table">
         <div className="tableHead">
@@ -57,7 +58,7 @@ export function DeliveryHistoryTable({ deliveries, people, canRefresh, canRevoke
             <div className="tableRow" key={delivery.id}>
               <div>
                 <strong>{delivery.credentialName}</strong>
-                <span>{delivery.deliveryMethod ? titleStatus(delivery.deliveryMethod) : "Copy"} / {delivery.lastCheckedAt ? `Checked ${formatDate(delivery.lastCheckedAt)}` : "Not checked"}</span>
+                <span>{delivery.deliveryMethod ? titleStatus(delivery.deliveryMethod) : "Copy"} / {delivery.lastCheckedAt ? `Checked ${formatDate(delivery.lastCheckedAt)}` : "Status not checked"}</span>
               </div>
               <span>{personName(delivery.personId)}</span>
               <span>{delivery.deliveryProviderId}</span>

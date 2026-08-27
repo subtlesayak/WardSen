@@ -15,6 +15,29 @@ afterEach(() => {
 });
 
 describe("WardSen data root resolution", () => {
+  it("persists a non-secret Bitwarden provider principal ID", async () => {
+    const root = tempDir();
+    const databasePath = path.join(root, "wardsen.sqlite");
+    const repository = new SqliteWardSenRepository(databasePath);
+    await repository.upsertAccount({
+      id: "work",
+      providerId: "bitwarden",
+      label: "Work",
+      username: "work@example.test",
+      providerPrincipalId: "bitwarden-user-id",
+      profileDirectory: path.join(root, "profiles", "work"),
+      autoLockMinutes: 10,
+      status: "locked"
+    });
+    repository.close();
+
+    const reopened = new SqliteWardSenRepository(databasePath);
+    await expect(reopened.listAccounts()).resolves.toEqual([
+      expect.objectContaining({ id: "work", providerPrincipalId: "bitwarden-user-id" })
+    ]);
+    reopened.close();
+  });
+
   it("uses the configured data root when no previous database exists", () => {
     const root = tempDir();
     const selected = resolveWardSenDataRoot({

@@ -33,6 +33,8 @@
 - Provider CLI environment overrides must be absolute paths; relative overrides are rejected.
 - Secrets are redacted from errors and command output.
 - Session tokens are in-memory only and removed on lock/logout/shutdown.
+- Account deletion is an exclusive per-account operation. WardSen validates the exact deterministic managed profile path, rejects links and canonical redirects, clears local session/link caches, quarantines the profile within its own managed root, then deletes the account record. Failed post-delete cleanup retains only an account-id cleanup tombstone for retry on startup; it never records filesystem contents.
+- Profile cleanup is ordinary filesystem deletion, not secure erasure. SSD wear leveling, filesystem snapshots, backups and OS recovery behavior can retain data beyond WardSen's control; use device and storage disposal controls when secure destruction is required.
 - Database passwords, master passwords and delivery payloads are passed through stdin where provider CLIs allow it.
 - The packaged desktop app adds a per-launch local API token between the Tauri shell and backend service.
 - The desktop shell prefers bundled Node.js and otherwise resolves Node.js to an absolute trusted runtime path before launching the local backend.
@@ -46,7 +48,7 @@
 
 ## Adapter-Specific Notes
 
-- Bitwarden credentials: one profile directory per WardSen account, session tokens are injected as `BW_SESSION`, malformed CLI JSON fails with safe messages. First-login terminal sessions use a one-time, five-minute authenticated localhost handoff and are held in memory only; the raw token is not written to a handoff file, SQLite, audit logs or frontend responses.
+- Bitwarden credentials: one profile directory per WardSen account, session tokens are injected as `BW_SESSION`, malformed CLI JSON fails with safe messages. First-login terminal sessions use a one-time, five-minute authenticated localhost handoff and are held in memory only; the raw token is not written to a handoff file, SQLite, audit logs or frontend responses. Before WardSen retains a candidate terminal session, it runs `bw status --nointeraction` in that exact managed profile with the candidate token and requires `unlocked` status, the configured account email, the canonical configured server URL and a non-empty Bitwarden user ID. WardSen persists that non-secret user ID after the first verified handoff and requires it on later handoffs. Identity failures clear local access, attempt `bw lock`, and audit only a reason code.
 - Bitwarden Send: Send payloads and optional access passwords are supplied through encoded JSON/stdin, redacted from command output, and never passed as process arguments. Disabled, expired and max-access sends map to WardSen delivery states.
 - KeePassXC: local database path and optional key-file path are retained only as account unlock context; the database password is never written to SQLite and is cleared on lock/logout/auto-lock.
 

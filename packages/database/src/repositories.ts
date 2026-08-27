@@ -150,6 +150,7 @@ export class InMemoryWardSenRepository implements WardSenRepository {
     const existing = this.accounts.get(input.id);
     const account: AccountRecord = {
       ...input,
+      providerPrincipalId: input.providerPrincipalId ?? existing?.providerPrincipalId,
       status: input.status ?? existing?.status ?? "locked",
       createdAt: existing?.createdAt ?? now,
       updatedAt: now

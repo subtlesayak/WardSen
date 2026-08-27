@@ -60,13 +60,14 @@ export class SqliteWardSenRepository implements WardSenRepository {
     const now = new Date().toISOString();
     const existing = this.db.prepare("SELECT * FROM accounts WHERE id = ?").get(input.id) as AccountRow | undefined;
     this.db.prepare(`
-      INSERT INTO accounts (id, provider_id, label, username, server_url, profile_directory, account_type, auto_lock_minutes, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO accounts (id, provider_id, label, username, server_url, provider_principal_id, profile_directory, account_type, auto_lock_minutes, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         provider_id = excluded.provider_id,
         label = excluded.label,
         username = excluded.username,
         server_url = excluded.server_url,
+        provider_principal_id = excluded.provider_principal_id,
         profile_directory = excluded.profile_directory,
         account_type = excluded.account_type,
         auto_lock_minutes = excluded.auto_lock_minutes,
@@ -77,6 +78,7 @@ export class SqliteWardSenRepository implements WardSenRepository {
       input.label,
       input.username ?? null,
       input.serverUrl ?? null,
+      input.providerPrincipalId ?? existing?.provider_principal_id ?? null,
       input.profileDirectory,
       input.accountType ?? null,
       input.autoLockMinutes,
@@ -85,6 +87,7 @@ export class SqliteWardSenRepository implements WardSenRepository {
     );
     return {
       ...input,
+      providerPrincipalId: input.providerPrincipalId ?? existing?.provider_principal_id ?? undefined,
       status: input.status ?? "locked",
       createdAt: existing?.created_at ?? now,
       updatedAt: now
@@ -791,6 +794,7 @@ interface AccountRow {
   label: string;
   username: string | null;
   server_url: string | null;
+  provider_principal_id: string | null;
   profile_directory: string;
   account_type: string | null;
   auto_lock_minutes: number;
@@ -948,6 +952,7 @@ function accountFromRow(row: unknown): AccountRecord {
     label: item.label,
     username: item.username ?? undefined,
     serverUrl: item.server_url ?? undefined,
+    providerPrincipalId: item.provider_principal_id ?? undefined,
     profileDirectory: item.profile_directory,
     accountType: item.account_type ?? undefined,
     autoLockMinutes: item.auto_lock_minutes,

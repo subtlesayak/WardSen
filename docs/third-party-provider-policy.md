@@ -46,6 +46,12 @@ The same rule applies to planned delivery candidates such as Ente Paste, Passwor
 
 Bitwarden publishes the `bw` CLI and documents CLI-based local API use through the Vault Management API. WardSen's Bitwarden adapter should remain a local wrapper around user-installed Bitwarden tooling.
 
+### Provider Setup Wizard
+
+WardSen's Bitwarden setup wizard may probe `bw --version`, open Bitwarden's official CLI guide, and save an operator-selected absolute executable path only after an explicit trust acknowledgement and successful local version check. It must not invoke `npm`, a package manager, an installer, or a provider download in the background.
+
+Automatic provider-binary download is out of scope unless a future release adds a reviewed provider-specific manifest with a pinned artifact version, vendor-controlled HTTPS origin, checksum verification, platform signature verification where available, atomic installation, rollback handling, and test evidence. Until then, the user or their IT administrator installs the provider tool and WardSen verifies the selected local executable.
+
 Bitwarden trademark guidance states that open-source copyright licenses do not grant trademark rights. WardSen must keep Bitwarden names limited to nominative compatibility references and must not use Bitwarden logos or market WardSen as a Bitwarden product.
 
 References:

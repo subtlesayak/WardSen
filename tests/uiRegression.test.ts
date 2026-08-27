@@ -123,6 +123,19 @@ describe("web UI regression guards", () => {
     expect(webSource).toContain("/api/delivery-providers/${encodeURIComponent(provider.id)}/test");
   });
 
+  it("offers a Bitwarden CLI setup wizard without silently installing a package", () => {
+    expect(webSource).toContain("function BitwardenCliSetupWizard");
+    expect(webSource).toContain("Bitwarden CLI setup");
+    expect(webSource).toContain("Open official CLI guide");
+    expect(webSource).toContain("Locate existing CLI");
+    expect(webSource).toContain("I trust this official or IT-approved Bitwarden CLI file.");
+    expect(webSource).toContain("/api/provider-tools/bitwarden/locate");
+    expect(webSource).toContain("runs <code>bw --version</code> before it uses the file");
+    expect(webSource).toContain("never installs npm packages or downloads a provider binary");
+    expect(styles).toContain(".providerSetupWizard");
+    expect(styles).toContain(".providerSetupSteps");
+  });
+
   it("keeps delivery recipient copy aligned with the selected delivery mode", () => {
     expect(webSource).toContain("recipientPlaceholder");
     expect(webSource).toContain("Choose a person");
@@ -140,6 +153,41 @@ describe("web UI regression guards", () => {
     expect(webSource).toContain("one recipient link will contain all");
     expect(webSource).toContain("Manual Ente Paste cannot safely group credentials");
     expect(webSource).toContain("Create bundle link");
+    expect(webSource).toContain("resetDeliveryOutcome");
+    expect(webSource).toContain('aria-label="Separate credential link results"');
+    expect(webSource).toContain("multiCredentialResultList");
+    expect(styles).toContain(".multiCredentialResult");
+    expect(styles).toContain("@container (max-width: 560px)");
+    expect(styles).not.toContain(".tableHead.multiCredential");
+  });
+
+  it("keeps checked credential rows at the top of the search results", () => {
+    expect(webSource).toContain("orderSelectedCredentialsFirst(search.items, selectedCredentials)");
+    expect(webSource).toContain("{orderedSearchItems.map((item) => {");
+  });
+
+  it("lets operators choose 10, 20, 30, or all credential search results", () => {
+    expect(webSource).toContain('aria-label="Credential results per page"');
+    expect(webSource).toContain('<option value="10">10 items</option>');
+    expect(webSource).toContain('<option value="20">20 items</option>');
+    expect(webSource).toContain('<option value="30">30 items</option>');
+    expect(webSource).toContain('<option value="all">All items</option>');
+    expect(webSource).toContain('search.pageSize === "all"');
+  });
+
+  it("makes fuzzy credential search discoverable", () => {
+    expect(webSource).toContain("fuzzy matching supported");
+  });
+
+  it("offers custom secure text without placing the text in local delivery metadata", () => {
+    expect(webSource).toContain('aria-label="Delivery content type"');
+    expect(webSource).toContain("Custom text");
+    expect(webSource).toContain('name="customText"');
+    expect(webSource).toContain("/api/deliveries/custom-text");
+    expect(webSource).toContain('customText: ""');
+    expect(webSource).toContain("Custom text is shared or individual only");
+    expect(webSource).toContain("Custom secure text");
+    expect(styles).toContain(".contentType, .linkArrangement");
   });
 
   it("does not put bearer delivery links into external email or WhatsApp URLs", () => {
@@ -162,7 +210,9 @@ describe("web UI regression guards", () => {
   });
 
   it("keeps terminal launch responsive while the native console starts", () => {
-    expect(webSource).toContain("Opening Terminal for Bitwarden login. It may appear in a moment");
+    expect(webSource).toContain("Waiting for Terminal");
+    expect(webSource).toContain("formatElapsedSeconds(terminalLaunchElapsed)");
+    expect(webSource).toContain("If no prompt is visible after 10 seconds");
     expect(webSource).not.toContain("TERMINAL_LAUNCH_TIMEOUT_MS");
     expect(webSource).not.toContain("openTerminalSessionWithUiTimeout");
     expect(webSource).toContain("Copy terminal command");
@@ -260,6 +310,15 @@ describe("web UI regression guards", () => {
     expect(webSource).toContain("api.accounts.map((account) => `${account.id}:${account.status}`)");
     expect(webSource).toContain("await api.refresh();");
     expect(webSource).toContain("function refreshSupportedDeliveryStatuses");
+    expect(webSource).toContain("function isLiveStatusRefreshCandidate");
+    expect(webSource).toContain('delivery.status === "active" || delivery.status === "viewed"');
+    expect(webSource).toContain('title="Recent Dispatch Activity" action="Reload history"');
+    expect(deliveryHistorySource).toContain("Refresh live status");
+    expect(deliveryHistorySource).toContain("Status not checked");
+    expect(webSource).toContain("function blockedLiveStatusRefreshAccountLabels");
+    expect(webSource).toContain("Unlock a vault to refresh view counts");
+    expect(webSource).toContain("Reload history only shows locally saved results.");
+    expect(deliveryHistorySource).toContain("before refreshing Bitwarden Send views.");
     expect(webSource).toContain("window.setInterval(() => void refreshProviderStatus(true), 2 * 60 * 1000)");
   });
 

@@ -415,5 +415,11 @@ CREATE TABLE IF NOT EXISTS local_settings (
   updated_at TEXT NOT NULL
 );
 `
+  },
+  {
+    id: "016_account_provider_principal",
+    sql: `
+ALTER TABLE accounts ADD COLUMN provider_principal_id TEXT;
+`
   }
 ];

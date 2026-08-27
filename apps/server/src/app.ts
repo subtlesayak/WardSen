@@ -11,6 +11,7 @@ import { z } from "zod";
 import {
   AccountSessionManager,
   ProviderRegistry,
+  TerminalSessionHandoffIdentityError,
   assertDeliveryOptionsSupported,
   assertFutureExpiry,
   builtInProviderManifests,
@@ -29,7 +30,8 @@ import type {
   DeliveryRecord,
   EmployeeRecord,
   EmployeeSessionRecord,
-  SensitiveCredential
+  SensitiveCredential,
+  TerminalSessionHandoffIdentity
 } from "@wardsen/core";
 import { InMemoryWardSenRepository } from "@wardsen/database";
 import type { WardSenRepository } from "@wardsen/database";
@@ -39,7 +41,10 @@ import { OnetimeSecretDeliveryProvider, PasswordPusherDeliveryProvider, YopassDe
 import { KeePassXCCredentialProvider } from "@wardsen/provider-keepassxc";
 import { assertSameOrigin, isLocalRequest, resolveProviderExecutable, runCliCommand, safeErrorMessage } from "@wardsen/security";
 import { parsePeopleCsv, peopleToCsv } from "./csv";
+import { fuzzyFilterCredentials } from "./credentialSearch";
 import { EntePasteManualDeliveryProvider } from "../../../packages/delivery-ente-paste/src";
+import { AccountDeletionError, AccountDeletionService } from "./accountDeletionService";
+import { assertManagedProfileDirectoryTarget, managedProfileDirectory, pathsEqual } from "./managedProfileDirectory";
 
 export interface BuildAppOptions {
   repository?: WardSenRepository;
@@ -56,6 +61,7 @@ export interface BuildAppOptions {
 interface TerminalSessionHandoffRecord {
   accountId: string;
   providerId: string;
+  expectedIdentity: TerminalSessionHandoffIdentity;
   expiresAt: number;
   launchId: string;
   command?: string;
@@ -63,6 +69,7 @@ interface TerminalSessionHandoffRecord {
 
 const TERMINAL_SESSION_HANDOFF_TTL_MS = 5 * 60 * 1000;
 const RATE_LIMIT_WINDOW = "1 minute";
+const BITWARDEN_CLI_PATH_SETTING = "provider.bitwarden.cli_path";
 
 export async function buildApp(options: BuildAppOptions = {}) {
   const app = Fastify({
@@ -81,6 +88,9 @@ export async function buildApp(options: BuildAppOptions = {}) {
   });
   const repository = options.repository ?? new InMemoryWardSenRepository();
   const sessions = options.sessions ?? new AccountSessionManager();
+  const configuredBitwardenCli = {
+    executablePath: configuredExecutablePath(await repository.getLocalSetting(BITWARDEN_CLI_PATH_SETTING))
+  };
   const apiToken = options.apiToken ?? process.env.WARDSEN_API_TOKEN;
   const registry = new ProviderRegistry();
   const profileRoot = path.resolve(options.profileRoot ?? path.join(process.cwd(), ".wardsen-profiles"));
@@ -98,13 +108,16 @@ export async function buildApp(options: BuildAppOptions = {}) {
     const bitwarden = new BitwardenCredentialProvider({
       profileRoot,
       sessions,
+      getExecutable: () => configuredBitwardenCli.executablePath,
       profileDirectoryFor: managedProfileDirectoryForAccount
     });
     registry.registerCredentialProvider(bitwarden);
     registry.registerCredentialProvider(new KeePassXCCredentialProvider({ sessions }));
     registry.registerDeliveryProvider(
       new BitwardenSendDeliveryProvider({
+        getExecutable: () => configuredBitwardenCli.executablePath,
         getSessionToken: (accountId) => sessions.getSessionToken(accountId, "bitwarden"),
+        withSessionOperation: (accountId, operation) => sessions.withOperation(accountId, "bitwarden", operation),
         profileDirectoryFor: managedProfileDirectoryForAccount
       })
     );
@@ -119,6 +132,13 @@ export async function buildApp(options: BuildAppOptions = {}) {
   for (const provider of options.deliveryProviders ?? []) {
     registry.registerDeliveryProvider(provider);
   }
+  const accountDeletionService = new AccountDeletionService({
+    profileRoot,
+    sessions,
+    repository,
+    providerFor: (providerId) => registry.getCredentialProvider(providerId),
+    clearSensitiveResultCache: clearAccountSensitiveResultCache
+  });
 
   await app.register(sensible);
   await app.register(helmet, {
@@ -197,6 +217,11 @@ export async function buildApp(options: BuildAppOptions = {}) {
     }
     if (["POST", "PUT", "DELETE", "PATCH"].includes(request.method) && !terminalHandoff) {
       assertSameOrigin(request);
+    }
+    const accountId = accountIdFromAccountRequest(request);
+    if (accountId && sessions.isDeletionInProgress(accountId)) {
+      await reply.code(409).send({ error: "WardSen is deleting this account. Wait for the current operation to finish." });
+      return;
     }
     await enforceAutoLock();
   });
@@ -292,12 +317,30 @@ export async function buildApp(options: BuildAppOptions = {}) {
       providerId: id,
       displayName: provider.displayName,
       kind: manifest?.kind ?? (credentialProvider ? "credential" : "delivery"),
-      runtime: await providerRuntimeDiagnostic(id),
+      runtime: await providerRuntimeDiagnostic(id, id === "bitwarden" || id === "bitwarden-send" ? configuredBitwardenCli.executablePath : undefined),
       authentication: providerAuthenticationDiagnostic(id, accounts),
       accounts: accounts.map((account) => ({ id: account.id, label: account.label, status: account.status })),
       capabilities: await provider.getCapabilities(),
       linkPreviewRisk: providerLinkPreviewRisk(id)
     };
+  });
+
+  app.post("/api/provider-tools/bitwarden/locate", { config: { rateLimit: { max: 10, timeWindow: RATE_LIMIT_WINDOW } } }, async (request) => {
+    const body = providerExecutablePathSchema.parse(request.body);
+    try {
+      const executablePath = verifiedExecutablePath(body.executablePath);
+      const result = await runCliCommand({ executable: executablePath, args: ["--version"], timeoutMs: 5_000, maxOutputBytes: 512 });
+      configuredBitwardenCli.executablePath = executablePath;
+      await repository.setLocalSetting(BITWARDEN_CLI_PATH_SETTING, executablePath);
+      await audit("provider.cli_path_configured", "success", { safeDetails: "provider=bitwarden;verified_version=true" });
+      return {
+        providerId: "bitwarden",
+        configured: true,
+        version: cliVersion(result.stdout)
+      };
+    } catch (error) {
+      throw app.httpErrors.badRequest(`WardSen could not verify the chosen Bitwarden CLI. ${safeErrorMessage(error, [body.executablePath])}`);
+    }
   });
 
   app.post("/api/delivery-providers/:id/clear-handoff-clipboard", async (request) => {
@@ -368,6 +411,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
       label: body.label ?? existing.label,
       username: body.username ?? existing.username,
       serverUrl: body.serverUrl ?? existing.serverUrl,
+      providerPrincipalId: existing.providerPrincipalId,
       profileDirectory: existing.profileDirectory,
       accountType: body.accountType ?? existing.accountType,
       autoLockMinutes: body.autoLockMinutes ?? existing.autoLockMinutes,
@@ -397,11 +441,20 @@ export async function buildApp(options: BuildAppOptions = {}) {
     const { id } = idParams.parse(request.params);
     assertDestructiveConfirmation(request.body, confirmationPhrase("DELETE ACCOUNT", id));
     const account = await findAccount(repository, id);
-    rememberAccountProfile(account);
-    await registry.getCredentialProvider(account.providerId).logout(id).catch(() => undefined);
-    await repository.deleteAccount(id);
-    await audit("account.delete", "success", { sourceAccountId: id });
-    return { ok: true };
+    try {
+      const result = await accountDeletionService.deleteAccount(account);
+      await audit("account.delete", "success", {
+        sourceAccountId: id,
+        safeDetails: `reason=${result.profileCleanup};logout=${result.logout}`
+      });
+      return { ok: true };
+    } catch (error) {
+      await audit("account.delete", "failure", {
+        sourceAccountId: id,
+        safeDetails: `reason=${error instanceof AccountDeletionError ? error.reason : "delete_failed"}`
+      });
+      throw error;
+    }
   });
 
   app.post("/api/accounts/:id/login", { config: { rateLimit: { max: 5, timeWindow: RATE_LIMIT_WINDOW } } }, async (request) => {
@@ -424,13 +477,19 @@ export async function buildApp(options: BuildAppOptions = {}) {
     if (!provider.createTerminalSessionHandoffCommand || !provider.acceptTerminalSessionHandoff) {
       throw app.httpErrors.badRequest(`${provider.displayName} does not support a terminal session handoff.`);
     }
+    const expectedIdentity = terminalHandoffIdentityForAccount(account);
+    if (provider.id === "bitwarden" && !expectedIdentity.username) {
+      sessions.markLocked(id);
+      await audit("account.terminal_handoff.create", "failure", { sourceAccountId: id, safeDetails: "reason=account_identity_missing" });
+      throw app.httpErrors.badRequest("Edit this Bitwarden account to add its login email before using Terminal login / unlock.");
+    }
     const host = request.headers.host;
     if (!host) throw app.httpErrors.badRequest("WardSen could not determine the local service address for terminal login.");
     pruneTerminalSessionHandoffs();
     const token = nanoid(48);
     const launchId = nanoid(32);
     const expiresAt = new Date(Date.now() + TERMINAL_SESSION_HANDOFF_TTL_MS);
-    const handoff = { accountId: id, providerId: provider.id, expiresAt: expiresAt.getTime(), launchId };
+    const handoff = { accountId: id, providerId: provider.id, expectedIdentity, expiresAt: expiresAt.getTime(), launchId };
     terminalSessionHandoffs.set(token, handoff);
     try {
       const command = provider.createTerminalSessionHandoffCommand(id, body, {
@@ -477,9 +536,35 @@ export async function buildApp(options: BuildAppOptions = {}) {
     if (!provider.acceptTerminalSessionHandoff) {
       throw app.httpErrors.badRequest(`${provider.displayName} does not support a terminal session handoff.`);
     }
-    await provider.acceptTerminalSessionHandoff(id, sessionToken);
-    await audit("account.terminal_handoff.claim", "success", { sourceAccountId: id, safeDetails: "memory_only" });
-    return { ok: true };
+    try {
+      const accepted = await provider.acceptTerminalSessionHandoff(id, sessionToken, handoff.record.expectedIdentity);
+      if (!accepted.providerPrincipalId || (handoff.record.expectedIdentity.providerPrincipalId && accepted.providerPrincipalId !== handoff.record.expectedIdentity.providerPrincipalId)) {
+        throw new TerminalSessionHandoffIdentityError("user_id_mismatch");
+      }
+      const persistedAccount = await repository.upsertAccount({
+        id: account.id,
+        providerId: account.providerId,
+        label: account.label,
+        username: account.username,
+        serverUrl: account.serverUrl,
+        providerPrincipalId: accepted.providerPrincipalId,
+        profileDirectory: account.profileDirectory,
+        accountType: account.accountType,
+        autoLockMinutes: account.autoLockMinutes,
+        status: "locked"
+      });
+      rememberAccountProfile(persistedAccount);
+      sessions.markUnlocked(id, provider.id, sessionToken);
+      await audit("account.terminal_handoff.claim", "success", { sourceAccountId: id, safeDetails: "identity_verified" });
+      return { ok: true };
+    } catch (error) {
+      sessions.markLocked(id);
+      if (error instanceof TerminalSessionHandoffIdentityError) {
+        await audit("account.terminal_handoff.claim", "failure", { sourceAccountId: id, safeDetails: `reason=${error.reason}` });
+        throw app.httpErrors.unauthorized("WardSen could not verify the Bitwarden terminal session. Start Terminal login / unlock again for this account.");
+      }
+      throw error;
+    }
   });
 
   app.post("/api/accounts/:id/unlock", { config: { rateLimit: { max: 5, timeWindow: RATE_LIMIT_WINDOW } } }, async (request) => {
@@ -532,6 +617,9 @@ export async function buildApp(options: BuildAppOptions = {}) {
 
   app.get("/api/credentials/search", async (request) => {
     const query = credentialSearchSchema.parse(request.query);
+    const searchPagination = query.pageSize === "all"
+      ? { page: 1, pageSize: Number.MAX_SAFE_INTEGER }
+      : { page: query.page, pageSize: query.pageSize };
     const accounts = await accountsWithLiveStatus();
     const selectedAccounts = query.accountId ? accounts.filter((account) => account.id === query.accountId) : accounts;
     const results: CredentialSummary[] = [];
@@ -550,12 +638,18 @@ export async function buildApp(options: BuildAppOptions = {}) {
       }
       const provider = registry.getCredentialProvider(account.providerId);
       try {
-        results.push(...(await provider.search(account.id, query.q, { page: query.page, pageSize: query.pageSize })));
+        const providerResults = await provider.search(account.id, query.q, searchPagination);
+        if (providerResults.length > 0 || !query.q.trim()) {
+          results.push(...providerResults);
+        } else {
+          const fuzzyCandidates = await provider.search(account.id, "", { page: 1, pageSize: Number.MAX_SAFE_INTEGER });
+          results.push(...fuzzyFilterCredentials(fuzzyCandidates, query.q, searchPagination));
+        }
       } catch (error) {
         errors.push({ accountId: account.id, providerId: account.providerId, safeMessage: safeErrorMessage(error) });
       }
     }
-    return { items: results, page: query.page, pageSize: query.pageSize, total: results.length, errors };
+    return { items: results, page: searchPagination.page, pageSize: query.pageSize, total: results.length, errors };
   });
 
   app.get("/api/people", async (request) => {
@@ -1060,6 +1154,25 @@ export async function buildApp(options: BuildAppOptions = {}) {
     });
   });
 
+  app.post("/api/deliveries/custom-text", async (request) => {
+    const body = customTextDeliverySchema.parse(request.body);
+    const { text, ...delivery } = body;
+    const deliveryAccount = await findAccount(repository, body.deliveryAccountId);
+    return createOneDelivery({
+      ...delivery,
+      operationId: operationIdFromRequest(request.headers["x-wardsen-idempotency-key"], body.operationId),
+      sourceProviderId: deliveryAccount.providerId,
+      sourceAccountId: deliveryAccount.id,
+      sourceItemId: "custom-text"
+    }, {
+      sourceCredential: { title: "Custom secure text", urls: [] },
+      credentialName: "Custom secure text",
+      deliveryText: text,
+      sensitiveValues: [text],
+      rejectExistingOperation: true
+    });
+  });
+
   app.post("/api/deliveries/bundle", async (request) => {
     const body = deliveryBundleSchema.parse(request.body);
     if (body.confirmBundle !== true) {
@@ -1320,7 +1433,12 @@ export async function buildApp(options: BuildAppOptions = {}) {
     const policySnapshot = deliveryPolicySnapshot(body, expiresAt, viewLimit);
     const operationFingerprint = deliveryOperationFingerprint(policySnapshot);
     const existing = await repository.getDeliveryByOperationId(operationId);
-    if (existing) return existingOperationResponse(existing, operationFingerprint);
+    if (existing) {
+      if (contentOverride?.rejectExistingOperation) {
+        throw app.httpErrors.conflict("Custom text delivery cannot reuse an operation id. Create a new link instead.");
+      }
+      return existingOperationResponse(existing, operationFingerprint);
+    }
 
     assertFutureExpiry(expiresAt);
     await assertDeliveryProviderEnabled(body.deliveryProviderId);
@@ -1479,6 +1597,16 @@ export async function buildApp(options: BuildAppOptions = {}) {
       deliveries.push(...result.items.filter((delivery) => delivery.sourceAccountId === accountId || delivery.deliveryAccountId === accountId));
       if (page * result.pageSize >= result.total || result.items.length === 0) return deliveries;
       page += 1;
+    }
+  }
+
+  async function clearAccountSensitiveResultCache(accountId: string): Promise<void> {
+    accountProfileDirectories.delete(accountId);
+    for (const [token, handoff] of terminalSessionHandoffs) {
+      if (handoff.accountId === accountId) terminalSessionHandoffs.delete(token);
+    }
+    for (const delivery of await listAllDeliveriesForAccount(accountId)) {
+      deliveryUrlCache.delete(delivery.id);
     }
   }
 
@@ -1699,6 +1827,12 @@ export async function buildApp(options: BuildAppOptions = {}) {
     sessions.lockAll();
   });
 
+  for (const retry of await accountDeletionService.retryPendingProfileCleanup()) {
+    await audit("account.profile_cleanup.retry", retry.outcome === "pending" ? "failure" : "success", {
+      sourceAccountId: retry.accountId,
+      safeDetails: `reason=${retry.reason ?? retry.outcome}`
+    });
+  }
   await reconcileStuckDeliveries();
 
   return app;
@@ -2080,7 +2214,9 @@ const loginSchema = z.object({
   serverUrl: z.string().url().optional(),
   sso: z.boolean().optional()
 });
-const credentialSearchSchema = paginationSchema.extend({
+const credentialSearchSchema = z.object({
+  page: z.coerce.number().int().positive().default(1),
+  pageSize: z.union([z.literal("all"), z.coerce.number().int().positive().max(100)]).default(25),
   q: z.string().default(""),
   providerId: z.string().optional(),
   accountId: z.string().optional()
@@ -2100,6 +2236,10 @@ const hardDeleteSchema = z.object({
 });
 const destructiveConfirmationSchema = z.object({
   confirm: z.string()
+});
+const providerExecutablePathSchema = z.object({
+  executablePath: z.string().trim().min(1).max(2048),
+  trustAcknowledged: z.literal(true)
 });
 const retentionPruneSchema = destructiveConfirmationSchema.extend({
   auditLogBefore: z.string().datetime().optional(),
@@ -2264,6 +2404,13 @@ const deliveryBundleSchema = deliverySchema.omit({
   sourceCredentials: z.array(deliveryCredentialReferenceSchema).min(2).max(20),
   confirmBundle: z.boolean().optional()
 });
+const customTextDeliverySchema = deliverySchema.omit({
+  sourceProviderId: true,
+  sourceAccountId: true,
+  sourceItemId: true
+}).extend({
+  text: z.string().max(16 * 1024).refine((value) => value.trim().length > 0, "Custom text cannot be blank.")
+});
 type DeliveryCreateBody = z.infer<typeof deliverySchema> & {
   batchId?: string;
   deliveryAccessCodeIssuedAt?: string;
@@ -2274,6 +2421,7 @@ interface DeliveryContentOverride {
   credentialName: string;
   deliveryText?: string;
   sensitiveValues: string[];
+  rejectExistingOperation?: boolean;
 }
 const bulkDeliverySchema = deliverySchema.omit({ recipient: true }).extend({
   recipients: z.array(z.object({ id: z.string(), name: z.string(), email: z.string().optional(), phone: z.string().optional() })).min(1).max(500),
@@ -2292,6 +2440,14 @@ async function findAccount(repository: WardSenRepository, id: string): Promise<A
   const account = (await repository.listAccounts()).find((candidate) => candidate.id === id);
   if (!account) throw new Error(`Account not found: ${id}`);
   return account;
+}
+
+function terminalHandoffIdentityForAccount(account: AccountRecord): TerminalSessionHandoffIdentity {
+  return {
+    username: account.username?.trim() ?? "",
+    serverUrl: account.serverUrl,
+    providerPrincipalId: account.providerPrincipalId
+  };
 }
 
 async function findCredentialAccessRequest(repository: WardSenRepository, id: string): Promise<CredentialAccessRequestRecord> {
@@ -2379,6 +2535,16 @@ function isManualHandoffProvider(deliveryProviderId: string): boolean {
   return builtInProviderManifests.find((manifest) => manifest.id === deliveryProviderId)?.delivery?.secureLinkCreation === "manual";
 }
 
+function accountIdFromAccountRequest(request: FastifyRequest): string | undefined {
+  const match = /^\/api\/accounts\/([^/?]+)(?:\/|$)/.exec(request.url);
+  if (!match) return undefined;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return undefined;
+  }
+}
+
 function riskTierWithinPolicy(riskTier: CredentialCatalogEntry["riskTier"], maxRiskTier: CredentialCatalogEntry["riskTier"]): boolean {
   const order: Record<CredentialCatalogEntry["riskTier"], number> = { low: 1, medium: 2, high: 3, critical: 4 };
   return order[riskTier] <= order[maxRiskTier];
@@ -2404,57 +2570,6 @@ function largeBatchConfirmation(recipientCount: number): string {
   return `SEND ${recipientCount}`;
 }
 
-function managedProfileDirectory(profileRoot: string, accountId: string): string {
-  if (accountId.includes("/") || accountId.includes("\\") || accountId === "." || accountId === "..") {
-    throw new Error("Account id cannot contain path separators because WardSen manages provider profile directories.");
-  }
-  const resolved = path.resolve(profileRoot, accountId);
-  const relative = path.relative(profileRoot, resolved);
-  if (relative.startsWith("..") || path.isAbsolute(relative)) {
-    throw new Error("Managed provider profile directory must stay inside the WardSen profile root.");
-  }
-  return resolved;
-}
-
-function assertManagedProfileDirectoryTarget(profileRoot: string, profileDirectory: string): void {
-  const resolvedProfileRoot = path.resolve(profileRoot);
-  const resolvedProfileDirectory = path.resolve(profileDirectory);
-  const relative = path.relative(resolvedProfileRoot, resolvedProfileDirectory);
-  if (relative.startsWith("..") || path.isAbsolute(relative)) {
-    throw new Error("Managed provider profile directory must stay inside the WardSen profile root.");
-  }
-
-  let directoryStats: fs.Stats;
-  try {
-    directoryStats = fs.lstatSync(resolvedProfileDirectory);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
-    throw error;
-  }
-
-  if (directoryStats.isSymbolicLink()) {
-    throw new Error("Managed provider profile directory must not be a symlink or reparse point.");
-  }
-  if (!directoryStats.isDirectory()) {
-    throw new Error("Managed provider profile path must be a directory.");
-  }
-
-  const canonicalRoot = fs.realpathSync.native(resolvedProfileRoot);
-  const canonicalDirectory = fs.realpathSync.native(resolvedProfileDirectory);
-  const expectedCanonicalDirectory = path.resolve(canonicalRoot, relative);
-  if (!pathsEqual(canonicalDirectory, expectedCanonicalDirectory)) {
-    throw new Error("Managed provider profile directory must not be a symlink or reparse point.");
-  }
-}
-
-function pathsEqual(left: string, right: string): boolean {
-  const normalizedLeft = path.resolve(left);
-  const normalizedRight = path.resolve(right);
-  return process.platform === "win32"
-    ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase()
-    : normalizedLeft === normalizedRight;
-}
-
 function confirmationPhrase(action: "DELETE ACCOUNT" | "DELETE PERSON" | "OFFBOARD PERSON" | "REVOKE DELIVERY" | "REVOKE BATCH LINKS" | "CANCEL BATCH" | "REPLACE REQUEST" | "BREAK GLASS", id: string): string {
   return `${action} ${id}`;
 }
@@ -2463,9 +2578,9 @@ function sensitiveCredentialValues(credential: { password?: string; totp?: strin
   return [credential.password, credential.totp, credential.notes, ...(credential.urls ?? []), accessPassword].filter((value): value is string => Boolean(value));
 }
 
-async function providerRuntimeDiagnostic(providerId: string) {
+async function providerRuntimeDiagnostic(providerId: string, configuredExecutable?: string) {
   if (providerId === "bitwarden" || providerId === "bitwarden-send") {
-    return cliRuntimeDiagnostic("bw", "WARDSEN_BITWARDEN_CLI_PATH", bitwardenDiagnosticCandidates());
+    return cliRuntimeDiagnostic("bw", "WARDSEN_BITWARDEN_CLI_PATH", bitwardenDiagnosticCandidates(), configuredExecutable);
   }
   if (providerId === "keepassxc") {
     return cliRuntimeDiagnostic("keepassxc-cli", "WARDSEN_KEEPASSXC_CLI_PATH", keepassXcDiagnosticCandidates());
@@ -2482,15 +2597,36 @@ async function providerRuntimeDiagnostic(providerId: string) {
   return { kind: "managed", binaryFound: false, version: "Not checked", detail: "This provider does not declare a local executable diagnostic." };
 }
 
-async function cliRuntimeDiagnostic(command: string, environmentKey: string, trustedCandidates: string[]) {
+async function cliRuntimeDiagnostic(command: string, environmentKey: string, trustedCandidates: string[], configuredExecutable?: string) {
   try {
-    const executable = resolveProviderExecutable({ toolName: command, envPathKey: environmentKey, trustedCandidates });
+    const executable = configuredExecutable ?? resolveProviderExecutable({ toolName: command, envPathKey: environmentKey, trustedCandidates });
     const result = await runCliCommand({ executable, args: ["--version"], timeoutMs: 5_000, maxOutputBytes: 512 });
-    const version = result.stdout.replace(/\s+/g, " ").trim().slice(0, 160) || "Version command completed";
-    return { kind: "cli", binaryFound: true, version, detail: `${command} is available to the local service.` };
+    const version = cliVersion(result.stdout);
+    return { kind: "cli", binaryFound: true, version, detail: configuredExecutable ? `${command} is available through the operator-selected local executable.` : `${command} is available to the local service.` };
   } catch (error) {
     return { kind: "cli", binaryFound: false, version: "Unavailable", detail: safeErrorMessage(error) };
   }
+}
+
+function cliVersion(output: string): string {
+  return output.replace(/\s+/g, " ").trim().slice(0, 160) || "Version command completed";
+}
+
+function configuredExecutablePath(value: string | undefined): string | undefined {
+  return value && path.isAbsolute(value) ? value : undefined;
+}
+
+function verifiedExecutablePath(value: string): string {
+  if (!path.isAbsolute(value)) throw new Error("Choose an absolute path to the official bw executable.");
+  const executablePath = path.resolve(value);
+  let stats: fs.Stats;
+  try {
+    stats = fs.statSync(executablePath);
+  } catch {
+    throw new Error("The chosen executable was not found.");
+  }
+  if (!stats.isFile()) throw new Error("The chosen path must point to an executable file, not a folder.");
+  return executablePath;
 }
 
 function providerAuthenticationDiagnostic(providerId: string, accounts: AccountRecord[]) {

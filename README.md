@@ -34,7 +34,7 @@ For dedicated recipient links, say **"Asha's link was viewed"**, not **"Asha vie
 
 ## Release status
 
-`v0.1.0-rc.65` is the current security-review release candidate. A trusted public installer release still requires Windows code signing and Apple Developer ID signing plus macOS notarization.
+`v0.1.0-rc.66` is the current security-review release candidate. A trusted public installer release still requires Windows code signing and Apple Developer ID signing plus macOS notarization.
 
 | Area | Current position |
 | --- | --- |
@@ -65,36 +65,26 @@ This removes macOS quarantine for that local review copy. It is not code signing
 
 ### 2. Connect a Bitwarden vault
 
-WardSen does not bundle Bitwarden's command-line tool. Install it once on the operator machine that will open the vault; WardSen then keeps its own isolated local Bitwarden profile and does not ask for the master password in the app.
+WardSen does not bundle, download, or silently install Bitwarden's command-line tool. It uses the official `bw` CLI selected by the operator, then keeps an isolated local Bitwarden profile and never asks for the master password in the app.
 
-1. Install the current **Node.js LTS** release from [nodejs.org](https://nodejs.org/en/download). Node supplies `npm`, which installs the Bitwarden CLI.
-2. Open a **new** terminal window and confirm both commands work:
-
-   ```bash
-   node -v
-   npm -v
-   ```
-
-3. Install Bitwarden's official CLI:
-
-   **Windows PowerShell or Command Prompt**
-
-   ```powershell
-   npm.cmd install -g @bitwarden/cli
-   bw --version
-   ```
-
-   **macOS Terminal**
-
-   ```bash
-   npm install -g @bitwarden/cli
-   bw --version
-   ```
-
-   If macOS reports `EACCES`, do not use `sudo`. Follow [npm's user-owned prefix guide](https://docs.npmjs.com/resolving-eacces-permissions-errors-when-installing-packages-globally/), then open a new Terminal and run `bw --version` again.
-
-4. Fully quit WardSen, reopen it, then go to **Vaults**. Add a Bitwarden account with a label and email, keeping the ten-minute auto-lock unless your policy requires less.
+1. In WardSen, open **Settings > Provider Capabilities**, select **Bitwarden**, and use **Bitwarden CLI setup**.
+2. If the CLI is missing, choose **Open official CLI guide** and install the provider-supported CLI for your computer. Node.js and npm are optional, not a WardSen prerequisite.
+3. Select **Check again** when installation is complete. If the app cannot discover a known CLI location, select **Locate existing CLI**, enter the absolute path to the official or IT-approved `bw` executable, acknowledge the trust boundary, and select **Verify and use CLI**. WardSen runs only `bw --version` before saving that local path; it does not run an installer or a package manager.
+4. Open **Vaults** and add a Bitwarden account with a label and email, keeping the ten-minute auto-lock unless your policy requires less.
 5. Select that account in **Account Access** and choose **Terminal login / unlock**. The packaged WardSen desktop app opens Terminal on macOS or PowerShell on Windows and starts the short-lived handoff command. Enter the Bitwarden password only at Bitwarden's own prompt. If terminal launch is unavailable, use **Copy terminal command** and run it manually. Return to WardSen after the command confirms the local session handoff; the account should change to **Unlocked** automatically.
+
+<details>
+<summary><strong>Optional Node.js and npm route</strong></summary>
+
+If your organization chooses Bitwarden's npm route, install the current [Node.js LTS](https://nodejs.org/en/download), then run the provider's documented command yourself in a terminal. WardSen does not run this command:
+
+```bash
+npm install -g @bitwarden/cli
+bw --version
+```
+
+On Windows PowerShell, use `npm.cmd install -g @bitwarden/cli` when PowerShell blocks `npm.ps1`. If macOS reports `EACCES`, do not use `sudo`; follow [npm's user-owned prefix guide](https://docs.npmjs.com/resolving-eacces-permissions-errors-when-installing-packages-globally/). Then return to the setup wizard and select **Locate existing CLI** if the new command is not discovered automatically.
+</details>
 
 For a new password-manager account, create and secure the Bitwarden account first through Bitwarden's official app or website, then use the steps above to connect WardSen. Never paste a Bitwarden password, session key, recovery code, or API token into WardSen, email, chat, or a support ticket.
 

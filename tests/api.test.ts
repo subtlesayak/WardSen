@@ -14,6 +14,7 @@ import type {
   DeliveryStatus,
   PaginationInput,
   ProviderLoginInput,
+  TerminalSessionHandoffIdentity,
   ProviderUnlockInput,
   SensitiveCredential,
   CreateDeliveryInput
@@ -445,7 +446,7 @@ describe("WardSen API", () => {
 
   it("uses a one-time authenticated, memory-only terminal session handoff", async () => {
     const sessions = new AccountSessionManager();
-    const provider = new TerminalHandoffCredentialProvider(sessions);
+    const provider = new TerminalHandoffCredentialProvider();
     const app = await buildApp({
       apiToken: "desktop-token",
       registerBuiltInProviders: false,
@@ -461,7 +462,13 @@ describe("WardSen API", () => {
       method: "POST",
       url: "/api/accounts",
       headers: desktopHeaders,
-      payload: { id: "bitwarden-account", providerId: "bitwarden", label: "Work" }
+      payload: {
+        id: "bitwarden-account",
+        providerId: "bitwarden",
+        label: "Work",
+        username: "work@example.test",
+        serverUrl: "https://vault.example.test"
+      }
     });
 
     const created = await app.inject({
@@ -502,10 +509,11 @@ describe("WardSen API", () => {
     });
     expect(claim.statusCode).toBe(200);
     expect(provider.acceptedTokens).toEqual(["terminal-session-raw"]);
+    expect(provider.acceptedIdentities).toEqual([{ username: "work@example.test", serverUrl: "https://vault.example.test", providerPrincipalId: undefined }]);
     expect(sessions.getSessionToken("bitwarden-account", "bitwarden")).toBe("terminal-session-raw");
 
     const unlockedAccounts = await app.inject({ method: "GET", url: "/api/accounts", headers: desktopHeaders });
-    expect(unlockedAccounts.json()[0]).toMatchObject({ id: "bitwarden-account", status: "unlocked" });
+    expect(unlockedAccounts.json()[0]).toMatchObject({ id: "bitwarden-account", status: "unlocked", providerPrincipalId: "user-work" });
 
     const replay = await app.inject({
       method: "POST",
@@ -515,10 +523,55 @@ describe("WardSen API", () => {
     });
     expect(replay.statusCode).toBe(401);
 
+    provider.providerPrincipalId = "user-other";
+    const changedIdentityHandoff = await app.inject({
+      method: "POST",
+      url: "/api/accounts/bitwarden-account/terminal-handoff",
+      headers: desktopHeaders,
+      payload: { username: "work@example.test" }
+    });
+    const changedIdentityClaim = await app.inject({
+      method: "POST",
+      url: "/api/accounts/bitwarden-account/terminal-handoff/claim",
+      headers: {
+        host: "127.0.0.1:4777",
+        "content-type": "text/plain; charset=utf-8",
+        "x-wardsen-terminal-handoff": provider.handoffs[1]!.token
+      },
+      payload: "candidate-session-other-user"
+    });
+    expect(changedIdentityHandoff.statusCode).toBe(200);
+    expect(changedIdentityClaim.statusCode).toBe(401);
+    expect(changedIdentityClaim.json().error).toBe("WardSen could not verify the Bitwarden terminal session. Start Terminal login / unlock again for this account.");
+    expect(() => sessions.getSessionToken("bitwarden-account", "bitwarden")).toThrow();
+
     const audit = await app.inject({ method: "GET", url: "/api/audit-log", headers: desktopHeaders });
     expect(JSON.stringify(audit.json())).not.toContain("terminal-session-raw");
     expect(JSON.stringify(audit.json())).not.toContain(provider.handoffs[0]!.token);
     expect(JSON.stringify(audit.json())).not.toContain(created.json().command);
+    expect(JSON.stringify(audit.json())).not.toContain("candidate-session-other-user");
+    expect(JSON.stringify(audit.json())).toContain("reason=user_id_mismatch");
+    await app.close();
+  });
+
+  it("requires legacy Bitwarden accounts to be edited with a login email before terminal handoff", async () => {
+    const app = await buildApp({ registerBuiltInProviders: false, credentialProviders: [new TerminalHandoffCredentialProvider()] });
+    const headers = { host: "127.0.0.1:4777", origin: "http://127.0.0.1:4777" };
+    await app.inject({
+      method: "POST",
+      url: "/api/accounts",
+      headers,
+      payload: { id: "legacy-bitwarden", providerId: "bitwarden", label: "Legacy" }
+    });
+
+    const handoff = await app.inject({
+      method: "POST",
+      url: "/api/accounts/legacy-bitwarden/terminal-handoff",
+      headers,
+      payload: { username: "work@example.test" }
+    });
+    expect(handoff.statusCode).toBe(400);
+    expect(handoff.json().error).toBe("Edit this Bitwarden account to add its login email before using Terminal login / unlock.");
     await app.close();
   });
 
@@ -604,6 +657,58 @@ describe("WardSen API", () => {
       linkPreviewRisk: expect.stringContaining("WardSen cannot see")
     });
     await app.close();
+  });
+
+  it("verifies an operator-selected Bitwarden CLI path before storing it locally", async () => {
+    const repository = new InMemoryWardSenRepository();
+    const app = await buildApp({ repository });
+    const headers = { host: "127.0.0.1:4777" };
+
+    const rejected = await app.inject({
+      method: "POST",
+      url: "/api/provider-tools/bitwarden/locate",
+      headers,
+      payload: { executablePath: "bw", trustAcknowledged: true }
+    });
+    expect(rejected.statusCode).toBe(400);
+    expect(rejected.json().error).toContain("absolute path");
+
+    const missingAcknowledgement = await app.inject({
+      method: "POST",
+      url: "/api/provider-tools/bitwarden/locate",
+      headers,
+      payload: { executablePath: process.execPath }
+    });
+    expect(missingAcknowledgement.statusCode).toBe(400);
+
+    const configured = await app.inject({
+      method: "POST",
+      url: "/api/provider-tools/bitwarden/locate",
+      headers,
+      payload: { executablePath: process.execPath, trustAcknowledged: true }
+    });
+    expect(configured.statusCode).toBe(200);
+    expect(configured.json()).toMatchObject({ providerId: "bitwarden", configured: true, version: expect.any(String) });
+    expect(configured.body).not.toContain(process.execPath);
+    expect(await repository.getLocalSetting("provider.bitwarden.cli_path")).toBe(process.execPath);
+
+    const [diagnostics, audit] = await Promise.all([
+      app.inject({ method: "GET", url: "/api/provider-diagnostics/bitwarden", headers }),
+      app.inject({ method: "GET", url: "/api/audit-log", headers })
+    ]);
+    expect(diagnostics.statusCode).toBe(200);
+    expect(diagnostics.json()).toMatchObject({ runtime: { binaryFound: true, detail: expect.stringContaining("operator-selected") } });
+    expect(diagnostics.body).not.toContain(process.execPath);
+    expect(audit.body).toContain("provider.cli_path_configured");
+    expect(audit.body).not.toContain(process.execPath);
+    await app.close();
+
+    const restarted = await buildApp({ repository });
+    const afterRestart = await restarted.inject({ method: "GET", url: "/api/provider-diagnostics/bitwarden", headers });
+    expect(afterRestart.statusCode).toBe(200);
+    expect(afterRestart.json()).toMatchObject({ runtime: { binaryFound: true, detail: expect.stringContaining("operator-selected") } });
+    expect(afterRestart.body).not.toContain(process.execPath);
+    await restarted.close();
   });
 
   it("tracks cancellable delivery batches", async () => {
@@ -1754,6 +1859,55 @@ describe("WardSen API", () => {
     await app.close();
   });
 
+  it("creates custom secure text without persisting the text in delivery metadata or audit records", async () => {
+    const deliveryProvider = new MockDeliveryProvider();
+    const app = await buildApp({
+      credentialProviders: [new MockCredentialProvider()],
+      deliveryProviders: [deliveryProvider]
+    });
+    const headers = { host: "127.0.0.1:4777", origin: "http://127.0.0.1:4777" };
+    const text = "Private dispatch note: north-wing-4";
+    const payload = {
+      operationId: "custom-text-operation",
+      text,
+      deliveryProviderId: "mock-delivery",
+      deliveryAccountId: "delivery",
+      expiresAt: new Date(Date.now() + 3_600_000).toISOString()
+    };
+    await app.inject({
+      method: "POST",
+      url: "/api/accounts",
+      headers,
+      payload: { id: "delivery", providerId: "mock-source", label: "Mock delivery" }
+    });
+
+    const created = await app.inject({ method: "POST", url: "/api/deliveries/custom-text", headers, payload });
+    expect(created.statusCode).toBe(200);
+    expect(created.json()).toMatchObject({ credentialName: "Custom secure text" });
+    expect(JSON.stringify(created.json())).not.toContain(text);
+    expect(deliveryProvider.inputs).toHaveLength(1);
+    expect(deliveryProvider.inputs[0]).toMatchObject({
+      sourceCredential: { title: "Custom secure text" },
+      deliveryText: text,
+      sensitiveValues: [text]
+    });
+
+    const deliveries = await app.inject({ method: "GET", url: "/api/deliveries", headers });
+    const audit = await app.inject({ method: "GET", url: "/api/audit-log", headers });
+    expect(JSON.stringify(deliveries.json())).not.toContain(text);
+    expect(JSON.stringify(audit.json())).not.toContain(text);
+
+    const repeated = await app.inject({
+      method: "POST",
+      url: "/api/deliveries/custom-text",
+      headers,
+      payload: { ...payload, text: "Different custom text" }
+    });
+    expect(repeated.statusCode).toBe(409);
+    expect(deliveryProvider.inputs).toHaveLength(1);
+    await app.close();
+  });
+
   it("marks expired delivery metadata as expired when a provider status check is unavailable", async () => {
     // Keep creation future relative to the real clock used by validation, then
     // advance only Date.now() to exercise expiry reconciliation deterministically.
@@ -2227,6 +2381,43 @@ describe("WardSen API", () => {
     await app.close();
   });
 
+  it("returns all matching credential summaries when explicitly requested", async () => {
+    const sessions = new AccountSessionManager();
+    const app = await buildApp({ sessions, credentialProviders: [new MockCredentialProvider()] });
+    const headers = { host: "127.0.0.1:4777", origin: "http://127.0.0.1:4777" };
+    await app.inject({ method: "POST", url: "/api/accounts", headers, payload: { id: "source", providerId: "mock-source", label: "Mock source" } });
+    sessions.markUnlocked("source", "mock-source", "source-token");
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/credentials/search?providerId=mock-source&accountId=source&q=cms&page=4&pageSize=all",
+      headers
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ page: 1, pageSize: "all", total: 2 });
+    expect(response.json().items).toHaveLength(2);
+    await app.close();
+  });
+
+  it("falls back to fuzzy matching when the provider has no direct credential result", async () => {
+    const sessions = new AccountSessionManager();
+    const app = await buildApp({ sessions, credentialProviders: [new FuzzySearchCredentialProvider()] });
+    const headers = { host: "127.0.0.1:4777", origin: "http://127.0.0.1:4777" };
+    await app.inject({ method: "POST", url: "/api/accounts", headers, payload: { id: "source", providerId: "fuzzy-source", label: "Fuzzy source" } });
+    sessions.markUnlocked("source", "fuzzy-source", "source-token");
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/credentials/search?providerId=fuzzy-source&accountId=source&q=githb&page=1&pageSize=10",
+      headers
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().items).toEqual([expect.objectContaining({ id: "github", title: "GitHub Production" })]);
+    await app.close();
+  });
+
   it("creates individual bulk deliveries with persisted batch counts", async () => {
     const deliveryProvider = new MockDeliveryProvider();
     const app = await buildApp({
@@ -2459,22 +2650,39 @@ class MockBitwardenCredentialProvider extends MockCredentialProvider {
   readonly displayName: string = "Bitwarden";
 }
 
+class FuzzySearchCredentialProvider extends MockCredentialProvider {
+  readonly id = "fuzzy-source";
+  readonly displayName = "Fuzzy Source";
+
+  async search(accountId: string, query: string, pagination: PaginationInput): Promise<CredentialSummary[]> {
+    const rows: CredentialSummary[] = [
+      { id: "github", accountId, providerId: this.id, title: "GitHub Production", username: "deploy", domain: "github.com", itemType: "login" },
+      { id: "proton", accountId, providerId: this.id, title: "Proton VPN", username: "ops", domain: "account.protonvpn.com", itemType: "login" }
+    ];
+    const normalizedQuery = query.toLocaleLowerCase();
+    const matches = normalizedQuery
+      ? rows.filter((item) => [item.title, item.username, item.domain].filter(Boolean).some((field) => field!.toLocaleLowerCase().includes(normalizedQuery)))
+      : rows;
+    const start = (pagination.page - 1) * pagination.pageSize;
+    return matches.slice(start, start + pagination.pageSize);
+  }
+}
+
 class TerminalHandoffCredentialProvider extends MockBitwardenCredentialProvider {
   readonly handoffs: Array<{ claimUrl: string; token: string }> = [];
   readonly acceptedTokens: string[] = [];
-
-  constructor(private readonly sessions: AccountSessionManager) {
-    super();
-  }
+  readonly acceptedIdentities: TerminalSessionHandoffIdentity[] = [];
+  providerPrincipalId = "user-work";
 
   createTerminalSessionHandoffCommand(_accountId: string, _input: ProviderLoginInput, handoff: { claimUrl: string; token: string }): string {
     this.handoffs.push(handoff);
     return `terminal-handoff ${handoff.claimUrl}`;
   }
 
-  acceptTerminalSessionHandoff(accountId: string, sessionToken: string): void {
+  async acceptTerminalSessionHandoff(_accountId: string, sessionToken: string, expectedIdentity: TerminalSessionHandoffIdentity): Promise<{ providerPrincipalId: string }> {
     this.acceptedTokens.push(sessionToken);
-    this.sessions.markUnlocked(accountId, this.id, sessionToken);
+    this.acceptedIdentities.push(expectedIdentity);
+    return { providerPrincipalId: this.providerPrincipalId };
   }
 }
 

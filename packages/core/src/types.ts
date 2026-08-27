@@ -52,6 +52,31 @@ export interface TerminalSessionHandoff {
   token: string;
 }
 
+export interface TerminalSessionHandoffIdentity {
+  username: string;
+  serverUrl?: string;
+  providerPrincipalId?: string;
+}
+
+export interface TerminalSessionHandoffAcceptance {
+  providerPrincipalId: string;
+}
+
+export type TerminalSessionHandoffRejectionReason =
+  | "account_identity_missing"
+  | "email_mismatch"
+  | "server_mismatch"
+  | "user_id_mismatch"
+  | "not_unlocked"
+  | "status_invalid";
+
+export class TerminalSessionHandoffIdentityError extends Error {
+  constructor(readonly reason: TerminalSessionHandoffRejectionReason) {
+    super("Bitwarden terminal session identity could not be verified.");
+    this.name = "TerminalSessionHandoffIdentityError";
+  }
+}
+
 export interface CredentialSummary {
   id: string;
   accountId: string;
@@ -89,12 +114,12 @@ export interface CredentialProvider {
   login(accountId: string, input: ProviderLoginInput): Promise<void>;
   unlock(accountId: string, input: ProviderUnlockInput): Promise<void>;
   lock(accountId: string): Promise<void>;
-  logout(accountId: string): Promise<void>;
+  logout(accountId: string, options?: { timeoutMs?: number }): Promise<void>;
   sync(accountId: string): Promise<void>;
   search(accountId: string, query: string, pagination: PaginationInput): Promise<CredentialSummary[]>;
   getCredential(accountId: string, itemId: string): Promise<SensitiveCredential>;
   createTerminalSessionHandoffCommand?(accountId: string, input: ProviderLoginInput, handoff: TerminalSessionHandoff): string;
-  acceptTerminalSessionHandoff?(accountId: string, sessionToken: string): Promise<void> | void;
+  acceptTerminalSessionHandoff?(accountId: string, sessionToken: string, expectedIdentity: TerminalSessionHandoffIdentity): Promise<TerminalSessionHandoffAcceptance>;
 }
 
 export interface DeliveryProviderCapabilities {
@@ -139,9 +164,9 @@ export interface DeliveryRecipient {
 export interface CreateDeliveryInput {
   operationId?: string;
   sourceCredential: SensitiveCredential;
-  /** Server-created delivery text for an explicitly confirmed credential bundle. */
+  /** Server-created delivery text for an explicit credential bundle or custom secure text. */
   deliveryText?: string;
-  /** Additional server-only redaction values for grouped delivery text. */
+  /** Additional server-only redaction values for delivery text that must never reach logs. */
   sensitiveValues?: string[];
   recipient?: DeliveryRecipient;
   expiresAt: Date;
@@ -210,6 +235,7 @@ export interface AccountRecord {
   label: string;
   username?: string;
   serverUrl?: string;
+  providerPrincipalId?: string;
   profileDirectory: string;
   accountType?: string;
   autoLockMinutes: number;

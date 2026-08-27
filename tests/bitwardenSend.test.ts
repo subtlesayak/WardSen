@@ -97,6 +97,25 @@ describe("Bitwarden Send delivery provider", () => {
     expect(calls[0].env?.BITWARDENCLI_APPDATA_DIR).toBe("profiles/acct-1");
   });
 
+  it("uses a verified Bitwarden executable selected after the Send provider was created", async () => {
+    const calls: CliCommandInput[] = [];
+    let executable = path.resolve("first-bw");
+    const provider = new BitwardenSendDeliveryProvider({
+      getExecutable: () => executable,
+      getSessionToken: () => "session-token",
+      runCommand: async (input) => {
+        calls.push(input);
+        return ok("[]");
+      }
+    });
+
+    await provider.testConnection("acct-1");
+    executable = path.resolve("second-bw");
+    await provider.testConnection("acct-1");
+
+    expect(calls.map((input) => input.executable)).toEqual([path.resolve("first-bw"), path.resolve("second-bw")]);
+  });
+
   it("pipes Bitwarden Send payloads through stdin without exposing the secret as an argument", async () => {
     const calls: CliCommandInput[] = [];
     const provider = new BitwardenSendDeliveryProvider({

@@ -14,7 +14,9 @@ export type BitwardenSendCommandRunner = (input: CliCommandInput) => Promise<Cli
 
 export interface BitwardenSendDeliveryOptions {
   executable?: string;
+  getExecutable?: () => string | undefined;
   getSessionToken(accountId: string): string;
+  withSessionOperation?: <T>(accountId: string, operation: () => Promise<T>) => Promise<T>;
   profileDirectoryFor?: (accountId: string) => string | undefined;
   runCommand?: BitwardenSendCommandRunner;
 }
@@ -22,11 +24,10 @@ export interface BitwardenSendDeliveryOptions {
 export class BitwardenSendDeliveryProvider implements DeliveryProvider {
   readonly id = "bitwarden-send";
   readonly displayName = "Bitwarden Send";
-  private readonly executable: string;
   private readonly runCommand: BitwardenSendCommandRunner;
 
   constructor(private readonly options: BitwardenSendDeliveryOptions) {
-    this.executable = options.executable ?? resolveBitwardenExecutable();
+    if (!options.executable && options.getExecutable?.() === undefined) resolveBitwardenExecutable();
     this.runCommand = options.runCommand ?? runCliCommand;
   }
 
@@ -46,42 +47,52 @@ export class BitwardenSendDeliveryProvider implements DeliveryProvider {
   }
 
   async testConnection(accountId: string): Promise<ConnectionResult> {
-    await this.run(accountId, ["send", "list"]);
-    return { ok: true, status: "unlocked" };
+    return await this.withSessionOperation(accountId, async () => {
+      await this.run(accountId, ["send", "list"]);
+      return { ok: true, status: "unlocked" };
+    });
   }
 
   async createDelivery(input: CreateDeliveryInput): Promise<DeliveryResult> {
     const accountId = input.deliveryAccountId;
     if (!accountId) throw new Error("Bitwarden Send delivery account is required");
-    const text = formatCredentialText(input);
-    const sendJson = JSON.stringify(buildTextSendObject(input, text));
-    const encoded = (await this.run(accountId, ["encode"], sendJson, sensitiveValues(input, sendJson, text))).stdout.trim();
-    if (!encoded) throw new Error("Bitwarden CLI did not encode the Send payload");
-    const result = await this.run(accountId, ["send", "--fullObject", "create"], encoded, sensitiveValues(input, sendJson, text, encoded));
-    const parsed = safeJsonObject(result.stdout, "Bitwarden Send create response");
-    const id = optionalString(parsed.id);
-    const url = optionalString(parsed.accessUrl) ?? optionalString(parsed.url);
-    if (!id) throw new Error("Bitwarden Send did not return a delivery id");
-    if (!url) throw new Error("Bitwarden Send did not return an access URL");
-    return { deliveryId: id, url, expiresAt: input.expiresAt, viewLimit: input.viewLimit };
+    return await this.withSessionOperation(accountId, async () => {
+      const text = formatCredentialText(input);
+      const sendJson = JSON.stringify(buildTextSendObject(input, text));
+      const encoded = (await this.run(accountId, ["encode"], sendJson, sensitiveValues(input, sendJson, text))).stdout.trim();
+      if (!encoded) throw new Error("Bitwarden CLI did not encode the Send payload");
+      const result = await this.run(accountId, ["send", "--fullObject", "create"], encoded, sensitiveValues(input, sendJson, text, encoded));
+      const parsed = safeJsonObject(result.stdout, "Bitwarden Send create response");
+      const id = optionalString(parsed.id);
+      const url = optionalString(parsed.accessUrl) ?? optionalString(parsed.url);
+      if (!id) throw new Error("Bitwarden Send did not return a delivery id");
+      if (!url) throw new Error("Bitwarden Send did not return an access URL");
+      return { deliveryId: id, url, expiresAt: input.expiresAt, viewLimit: input.viewLimit };
+    });
   }
 
   async revoke(accountId: string, deliveryId: string): Promise<void> {
-    await this.run(accountId, ["send", "delete", deliveryId]);
+    await this.withSessionOperation(accountId, () => this.run(accountId, ["send", "delete", deliveryId]));
   }
 
   async findDeliveryByOperationId(accountId: string, operationId: string): Promise<DeliveryStatus | undefined> {
-    const result = await this.run(accountId, ["send", "list"]);
-    const sends = safeJsonArray(result.stdout, "Bitwarden Send list response");
-    const match = sends.find((send) => {
-      return optionalString(send.notes)?.split(/\r?\n/).some((line) => line.trim() === operationMarker(operationId)) === true;
+    return await this.withSessionOperation(accountId, async () => {
+      const result = await this.run(accountId, ["send", "list"]);
+      const sends = safeJsonArray(result.stdout, "Bitwarden Send list response");
+      const match = sends.find((send) => {
+        return optionalString(send.notes)?.split(/\r?\n/).some((line) => line.trim() === operationMarker(operationId)) === true;
+      });
+      const id = match ? optionalString(match.id) : undefined;
+      if (!id) return undefined;
+      return await this.getStatusForSession(accountId, id);
     });
-    const id = match ? optionalString(match.id) : undefined;
-    if (!id) return undefined;
-    return this.getStatus(accountId, id);
   }
 
   async getStatus(accountId: string, deliveryId: string): Promise<DeliveryStatus> {
+    return await this.withSessionOperation(accountId, () => this.getStatusForSession(accountId, deliveryId));
+  }
+
+  private async getStatusForSession(accountId: string, deliveryId: string): Promise<DeliveryStatus> {
     const result = await this.run(accountId, ["send", "get", deliveryId]);
     const parsed = safeJsonObject(result.stdout, "Bitwarden Send status response");
     const id = optionalString(parsed.id);
@@ -102,7 +113,7 @@ export class BitwardenSendDeliveryProvider implements DeliveryProvider {
     const sessionToken = this.options.getSessionToken(accountId);
     const stdinValue = Array.isArray(stdin) ? undefined : stdin;
     return await this.runCommand({
-      executable: this.executable,
+      executable: this.executable(),
       args,
       stdin: stdinValue,
       env: {
@@ -117,6 +128,14 @@ export class BitwardenSendDeliveryProvider implements DeliveryProvider {
   private profileEnvironment(accountId: string): Record<string, string> {
     const profileDirectory = this.options.profileDirectoryFor?.(accountId);
     return profileDirectory ? { BITWARDENCLI_APPDATA_DIR: profileDirectory } : {};
+  }
+
+  private executable(): string {
+    return this.options.executable ?? this.options.getExecutable?.() ?? resolveBitwardenExecutable();
+  }
+
+  private async withSessionOperation<T>(accountId: string, operation: () => Promise<T>): Promise<T> {
+    return this.options.withSessionOperation ? await this.options.withSessionOperation(accountId, operation) : await operation();
   }
 }
 

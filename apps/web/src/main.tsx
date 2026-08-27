@@ -28,6 +28,7 @@ import { DeliveryAuditPanel } from "./deliveryAuditPanel";
 import { BatchDeliveryTable, BatchTable } from "./deliveryBatchTables";
 import { DeliveryHistoryTable, type DeliveryHistoryAction } from "./deliveryHistoryTable";
 import { EmployeePortalPage, isEmployeePortalView } from "./employeePortal";
+import { credentialSelectionKey, orderSelectedCredentialsFirst } from "./credentialSelection";
 
 import { appReleaseMetadata, appVersion } from "./version";
 import "./styles.css";
@@ -215,13 +216,15 @@ interface CredentialSummary {
   itemType: string;
 }
 
+type CredentialPageSize = 10 | 20 | 30 | "all";
+
 interface CredentialSearchState {
   status: LoadState | "idle";
   query: string;
   providerId: string;
   accountId: string;
   page: number;
-  pageSize: number;
+  pageSize: CredentialPageSize;
   total: number;
   items: CredentialSummary[];
   errors: Array<{ accountId: string; providerId: string; safeMessage: string }>;
@@ -453,14 +456,16 @@ function ApiBanner({ api }: { api: ReturnType<typeof useWardSenApi> }) {
 function Overview({ api, confirmDestructiveAction }: { api: ReturnType<typeof useWardSenApi>; confirmDestructiveAction: DestructiveConfirmation }) {
   const activeDeliveries = api.deliveries.filter((delivery) => delivery.status === "active").length;
   const failedDeliveries = api.deliveries.filter((delivery) => delivery.status === "failed").length;
+  const statusRefreshBlockedAccountLabels = blockedLiveStatusRefreshAccountLabels(api.deliveries, api.accounts);
   return (
     <div className="grid two">
       <Metric label="Connected vaults" value={String(api.accounts.length)} detail={`${api.credentialProviders.length} provider adapters`} />
       <Metric label="Active deliveries" value={String(activeDeliveries)} detail={`${api.deliveries.length} total records`} />
       <Metric label="Failed deliveries" value={String(failedDeliveries)} detail="Retry from delivery history" />
       <Metric label="People" value={String(api.people.length)} detail="Server-side paginated" />
+      <LiveStatusUnlockNotice accountLabels={statusRefreshBlockedAccountLabels} wide />
       <section className="panel wide">
-        <PanelTitle icon={Database} title="Recent Dispatch Activity" action="Refresh" onAction={api.refresh} />
+        <PanelTitle icon={Database} title="Recent Dispatch Activity" action="Reload history" onAction={api.refresh} />
         <DeliveryTable api={api} confirmDestructiveAction={confirmDestructiveAction} />
       </section>
     </div>
@@ -486,6 +491,7 @@ function Vaults({ api, confirmDestructiveAction }: { api: ReturnType<typeof useW
   });
   const [verificationNeeded, setVerificationNeeded] = useState(false);
   const [terminalHandoff, setTerminalHandoff] = useState<{ accountId: string; command: string; launchId: string; expiresAt: string }>();
+  const [terminalLaunchStartedAt, setTerminalLaunchStartedAt] = useState<number>();
   const verificationCodeRef = useRef<HTMLInputElement>(null);
   const [message, setMessage] = useState<{ status: "idle" | "loading" | "ready" | "error"; text?: string }>({ status: "idle" });
   const [clockMs, setClockMs] = useState(() => Date.now());
@@ -494,6 +500,8 @@ function Vaults({ api, confirmDestructiveAction }: { api: ReturnType<typeof useW
   const providerId = accountForm.providerId || api.credentialProviders[0]?.id || "bitwarden";
   const selectedAccountIsBitwarden = selectedAccount?.providerId === "bitwarden";
   const selectedAccountIsKeePassXC = selectedAccount?.providerId === "keepassxc";
+  const terminalLaunchWaiting = terminalHandoff?.accountId === selectedAccount?.id && terminalLaunchStartedAt !== undefined;
+  const terminalLaunchElapsed = terminalLaunchWaiting ? Math.max(0, Math.floor((clockMs - terminalLaunchStartedAt) / 1000)) : 0;
 
   useEffect(() => {
     if (verificationNeeded) verificationCodeRef.current?.focus();
@@ -511,6 +519,7 @@ function Vaults({ api, confirmDestructiveAction }: { api: ReturnType<typeof useW
       if (Date.now() >= Date.parse(terminalHandoff.expiresAt)) {
         if (!cancelled) {
           setTerminalHandoff(undefined);
+          setTerminalLaunchStartedAt(undefined);
           setMessage({ status: "error", text: "The Terminal login command expired before WardSen received a session. Start Terminal login / unlock again." });
         }
         return;
@@ -519,6 +528,7 @@ function Vaults({ api, confirmDestructiveAction }: { api: ReturnType<typeof useW
         const result = await apiGet<{ ok: boolean; status: string }>(`/api/accounts/${terminalHandoff.accountId}/status`);
         if (!cancelled && result.ok && result.status === "unlocked") {
           setTerminalHandoff(undefined);
+          setTerminalLaunchStartedAt(undefined);
           setMessage({ status: "ready", text: `${selectedAccount.label} unlocked from the terminal session.` });
           void api.refresh();
         }
@@ -607,10 +617,13 @@ function Vaults({ api, confirmDestructiveAction }: { api: ReturnType<typeof useW
       setTerminalHandoff({ accountId: account.id, ...response });
       if (canLaunchTerminalSession()) {
         try {
+          setTerminalLaunchStartedAt(Date.now());
+          setMessage({ status: "loading", text: "Opening Terminal. Wait for the Bitwarden password prompt..." });
           await openTerminalSession(account.id, response.launchId);
-          setMessage({ status: "ready", text: "Opening Terminal for Bitwarden login. It may appear in a moment; type the Bitwarden password only in its prompt. WardSen will update this account automatically." });
+          setMessage({ status: "ready", text: "Terminal launch requested. Wait for the Bitwarden password prompt; WardSen will update this account automatically." });
           return;
         } catch (error) {
+          setTerminalLaunchStartedAt(undefined);
           try {
             await copyTextToClipboard(response.command);
             setMessage({ status: "error", text: `WardSen could not open Terminal. The command was copied so you can run it manually. Detail: ${error instanceof Error ? error.message : String(error)}` });
@@ -632,11 +645,13 @@ function Vaults({ api, confirmDestructiveAction }: { api: ReturnType<typeof useW
   }
 
   async function openBitwardenTerminalAgain(handoff: NonNullable<typeof terminalHandoff>) {
-    setMessage({ status: "loading", text: "Opening Terminal for Bitwarden login..." });
+    setTerminalLaunchStartedAt(Date.now());
+    setMessage({ status: "loading", text: "Opening Terminal. Wait for the Bitwarden password prompt..." });
     try {
       await openTerminalSession(handoff.accountId, handoff.launchId);
-      setMessage({ status: "ready", text: "Opening Terminal for Bitwarden login. It may appear in a moment; type the Bitwarden password only in its prompt." });
+      setMessage({ status: "ready", text: "Terminal launch requested. Wait for the Bitwarden password prompt." });
     } catch (error) {
+      setTerminalLaunchStartedAt(undefined);
       setMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
     }
   }
@@ -644,6 +659,7 @@ function Vaults({ api, confirmDestructiveAction }: { api: ReturnType<typeof useW
   function selectVault(vault: AccountRecord) {
     setVerificationNeeded(false);
     setTerminalHandoff(undefined);
+    setTerminalLaunchStartedAt(undefined);
     setAccessForm((current) => ({ ...current, accountId: vault.id, verificationCode: "" }));
     setMessage({ status: "ready", text: `${vault.label} selected for account access.` });
   }
@@ -725,8 +741,8 @@ function Vaults({ api, confirmDestructiveAction }: { api: ReturnType<typeof useW
         ) : null}
         {terminalHandoff && terminalHandoff.accountId === selectedAccount?.id ? (
           <div className="notice compact terminalHandoffNotice" role="status" aria-live="polite">
-            <strong>Terminal command ready</strong>
-            <span>Expires {formatDate(terminalHandoff.expiresAt)}. The command contains a one-time local handoff authorization, not your Bitwarden password or session token.</span>
+            <strong>{terminalLaunchWaiting ? "Waiting for Terminal" : "Terminal command ready"}</strong>
+            {terminalLaunchWaiting ? <span className="terminalLaunchWaiting">Waiting {formatElapsedSeconds(terminalLaunchElapsed)} for the Bitwarden password prompt. Terminal can take a few seconds to appear. If no prompt is visible after 10 seconds, select Open Terminal again or Copy terminal command.</span> : <span>Expires {formatDate(terminalHandoff.expiresAt)}. The command contains a one-time local handoff authorization, not your Bitwarden password or session token.</span>}
             {canLaunchTerminalSession() ? <button type="button" className="secondary" onClick={() => void openBitwardenTerminalAgain(terminalHandoff)}><Terminal size={16} aria-hidden="true" /> Open Terminal again</button> : null}
             <CopyFeedbackButton value={terminalHandoff.command} label="Copy terminal command" copiedLabel="Terminal command copied" />
           </div>
@@ -734,6 +750,8 @@ function Vaults({ api, confirmDestructiveAction }: { api: ReturnType<typeof useW
         <div className="accountAccessFields">
           <label>Account<select value={selectedAccount?.id ?? ""} onChange={(event) => {
             setVerificationNeeded(false);
+            setTerminalHandoff(undefined);
+            setTerminalLaunchStartedAt(undefined);
             setAccessForm((current) => ({ ...current, accountId: event.target.value, verificationCode: "" }));
           }}>
             {api.accounts.map((account) => <option key={account.id} value={account.id}>{account.label}</option>)}
@@ -824,6 +842,11 @@ function formatAutoLockCountdown(account: AccountRecord, nowMs: number): string 
   return remainingSeconds === 0 ? "Locking..." : `Locks in ${minutes}:${seconds}`;
 }
 
+function formatElapsedSeconds(totalSeconds: number): string {
+  const seconds = Math.max(0, Math.floor(totalSeconds));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
 function Credentials({ api }: { api: ReturnType<typeof useWardSenApi> }) {
   const [search, setSearch] = useState<CredentialSearchState>({
     status: "idle",
@@ -844,11 +867,15 @@ function Credentials({ api }: { api: ReturnType<typeof useWardSenApi> }) {
     (!search.providerId || account.providerId === search.providerId)
   );
   const lockedSelectedAccount = search.accountId ? api.accounts.find((account) => account.id === search.accountId && account.status !== "unlocked") : undefined;
+  const orderedSearchItems = useMemo(
+    () => orderSelectedCredentialsFirst(search.items, selectedCredentials),
+    [search.items, selectedCredentials]
+  );
 
-  async function runSearch(event?: React.FormEvent, page = search.page) {
+  async function runSearch(event?: React.FormEvent, page = search.page, pageSize = search.pageSize) {
     event?.preventDefault();
-    setSearch((current) => ({ ...current, page, status: "loading", error: undefined, errors: [] }));
-    const params = new URLSearchParams({ q: search.query, page: String(page), pageSize: String(search.pageSize) });
+    setSearch((current) => ({ ...current, page, pageSize, status: "loading", error: undefined, errors: [] }));
+    const params = new URLSearchParams({ q: search.query, page: String(page), pageSize: String(pageSize) });
     if (search.providerId) params.set("providerId", search.providerId);
     if (search.accountId) params.set("accountId", search.accountId);
     try {
@@ -896,23 +923,32 @@ function Credentials({ api }: { api: ReturnType<typeof useWardSenApi> }) {
             <option value="">All providers</option>
             {api.credentialProviders.map((provider) => <option key={provider.id} value={provider.id}>{provider.displayName}</option>)}
           </select>
-          <input aria-label="Credential search query" value={search.query} onChange={(event) => setSearch((current) => ({ ...current, query: event.target.value, page: 1 }))} placeholder="Search credential names, usernames or domains" />
+          <select aria-label="Credential results per page" value={String(search.pageSize)} onChange={(event) => {
+            const pageSize: CredentialPageSize = event.target.value === "all" ? "all" : Number(event.target.value) as Exclude<CredentialPageSize, "all">;
+            void runSearch(undefined, 1, pageSize);
+          }}>
+            <option value="10">10 items</option>
+            <option value="20">20 items</option>
+            <option value="30">30 items</option>
+            <option value="all">All items</option>
+          </select>
+          <input aria-label="Credential search query" value={search.query} onChange={(event) => setSearch((current) => ({ ...current, query: event.target.value, page: 1 }))} placeholder="Search titles, usernames or domains (fuzzy matching supported)" />
           <button className="primary"><Search size={16} aria-hidden="true" /> Search</button>
         </form>
         {search.status === "error" && <ErrorNotice message={search.error} />}
         {search.errors.length > 0 && <ErrorNotice message={formatCredentialSearchIssues(api, search.errors)} />}
         {search.status === "ready" && (
           <div className="pager" role="status" aria-live="polite">
-            <span>{search.total} result{search.total === 1 ? "" : "s"} on page {search.page}</span>
-            <div className="buttonRow">
+            <span>{search.total} result{search.total === 1 ? "" : "s"} {search.pageSize === "all" ? "shown" : `on page ${search.page}`}</span>
+            {search.pageSize !== "all" ? <div className="buttonRow">
               <button type="button" disabled={search.page <= 1} onClick={() => void runSearch(undefined, search.page - 1)}>Previous</button>
               <button type="button" disabled={search.items.length < search.pageSize} onClick={() => void runSearch(undefined, search.page + 1)}>Next</button>
-            </div>
+            </div> : null}
           </div>
         )}
         {selectedCredentials.length > 0 ? (
           <div className="selectionSummary" role="status" aria-live="polite">
-            <span>{selectedCredentials.length} credential{selectedCredentials.length === 1 ? "" : "s"} selected. Choose separate links or one explicitly confirmed bundle link.</span>
+            <span>{selectedCredentials.length} credential{selectedCredentials.length === 1 ? "" : "s"} selected. Choose separate links or one bundle link, then confirm the bundle below.</span>
             <button type="button" onClick={() => {
               setSelectedCredentials([]);
               setSelectionNotice(undefined);
@@ -926,7 +962,7 @@ function Credentials({ api }: { api: ReturnType<typeof useWardSenApi> }) {
           {search.status === "ready" && search.items.length === 0 && lockedSelectedAccount && <EmptyState text={`Unlock ${lockedSelectedAccount.label} in Vaults > Account Access before searching credentials. For Bitwarden, use Terminal login / unlock and wait for WardSen to update the account automatically.`} />}
           {search.status === "ready" && search.items.length === 0 && !lockedSelectedAccount && searchableAccounts.length === 0 && <EmptyState text="No unlocked vaults match this search filter. Go to Vaults > Account Access, unlock a vault, then search again." />}
           {search.status === "ready" && search.items.length === 0 && !lockedSelectedAccount && searchableAccounts.length > 0 && <EmptyState text="No credential summaries matched this search." />}
-          {search.items.map((item) => {
+          {orderedSearchItems.map((item) => {
             const isSelected = selectedCredentials.some((credential) => credentialSelectionKey(credential) === credentialSelectionKey(item));
             return (
               <label className={isSelected ? "result selected" : "result"} key={credentialSelectionKey(item)}>
@@ -1779,7 +1815,7 @@ function Deliveries({ api, confirmDestructiveAction }: { api: ReturnType<typeof 
 
   const refreshKey = [
     api.deliveries
-      .filter((delivery) => delivery.status === "active" && deliveryProviderSupports(api.deliveryProviders, delivery.deliveryProviderId, "statusLookup"))
+      .filter((delivery) => isLiveStatusRefreshCandidate(delivery) && deliveryProviderSupports(api.deliveryProviders, delivery.deliveryProviderId, "statusLookup"))
       .map((delivery) => `${delivery.id}:${delivery.status}`)
       .join(","),
     api.accounts.map((account) => `${account.id}:${account.status}`).join(",")
@@ -1907,6 +1943,7 @@ function SettingsView({ credentialProviders, deliveryProviders, optionalDelivery
           <button type="button" disabled={isSelectedDiagnostic && diagnostic.status === "loading"} onClick={() => void refreshDiagnostics()}>{isSelectedDiagnostic && diagnostic.status === "loading" ? "Checking runtime..." : "Refresh diagnostics"}</button>
         </div>
         {selectedProvider?.notes ? <p className="providerNotes">{selectedProvider.notes}</p> : null}
+        {selectedProvider?.id === "bitwarden" || selectedProvider?.id === "bitwarden-send" ? <BitwardenCliSetupWizard onConfigured={onRefresh} /> : null}
         {selectedProvider?.setupInstructions?.length ? <ul className="providerSetup" aria-label={`${selectedProvider.displayName} setup`}>
           {selectedProvider.setupInstructions.map((instruction) => <li key={instruction}>{instruction}</li>)}
         </ul> : null}
@@ -1995,8 +2032,91 @@ function ProviderDiagnostics({ diagnostic }: { diagnostic: ProviderDiagnostic })
   );
 }
 
+function BitwardenCliSetupWizard({ onConfigured }: { onConfigured: () => void }) {
+  const [diagnostic, setDiagnostic] = useState<{ status: "loading" | "ready" | "error"; value?: ProviderDiagnostic; text?: string }>({ status: "loading" });
+  const [showLocator, setShowLocator] = useState(false);
+  const [executablePath, setExecutablePath] = useState("");
+  const [trustAcknowledged, setTrustAcknowledged] = useState(false);
+  const [saveState, setSaveState] = useState<{ status: "idle" | "loading" | "ready" | "error"; text?: string }>({ status: "idle" });
+
+  async function checkRuntime() {
+    setDiagnostic({ status: "loading" });
+    try {
+      const value = await apiGet<ProviderDiagnostic>("/api/provider-diagnostics/bitwarden");
+      setDiagnostic({ status: "ready", value });
+    } catch (error) {
+      setDiagnostic({ status: "error", text: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  useEffect(() => {
+    void checkRuntime();
+  }, []);
+
+  async function openInstallGuide() {
+    try {
+      await openExternalUrl("https://bitwarden.com/help/cli/");
+    } catch (error) {
+      setSaveState({ status: "error", text: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  async function verifyAndUseExecutable() {
+    setSaveState({ status: "loading", text: "Verifying the selected CLI with bw --version..." });
+    try {
+      const result = await apiSend<{ version: string }>("/api/provider-tools/bitwarden/locate", {
+        body: JSON.stringify({ executablePath, trustAcknowledged })
+      });
+      setExecutablePath("");
+      setTrustAcknowledged(false);
+      setShowLocator(false);
+      setSaveState({ status: "ready", text: `Bitwarden CLI verified: ${result.version}. WardSen will use it immediately.` });
+      await checkRuntime();
+      onConfigured();
+    } catch (error) {
+      setSaveState({ status: "error", text: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  const cliFound = diagnostic.status === "ready" && diagnostic.value?.runtime.kind === "cli" && diagnostic.value.runtime.binaryFound;
+  const cliVersion = cliFound ? diagnostic.value?.runtime.version : "Not found";
+  return (
+    <div className="providerSetupWizard" aria-label="Bitwarden CLI setup">
+      <div className="providerSetupWizardHeader">
+        <div>
+          <h3>Bitwarden CLI setup</h3>
+          <p>WardSen connects to Bitwarden through the provider&apos;s local <code>bw</code> CLI. It never installs npm packages or downloads a provider binary for you.</p>
+        </div>
+        <button type="button" onClick={() => void checkRuntime()} disabled={diagnostic.status === "loading"}>{diagnostic.status === "loading" ? "Checking..." : "Check again"}</button>
+      </div>
+      <ol className="providerSetupSteps">
+        <li className="ready"><CheckCircle2 size={17} aria-hidden="true" /><span><strong>WardSen desktop app</strong><small>Ready</small></span></li>
+        <li className={cliFound ? "ready" : "pending"}><CheckCircle2 size={17} aria-hidden="true" /><span><strong>Bitwarden CLI</strong><small>{cliFound ? `Found: ${cliVersion}` : diagnostic.status === "loading" ? "Checking local paths and PATH..." : "Not found"}</small></span></li>
+      </ol>
+      {!cliFound ? <p className="providerSetupGuidance">Use Bitwarden&apos;s official guide to download the correct CLI for this computer, or choose an existing IT-approved <code>bw</code> executable. WardSen checks only its version before saving the local choice.</p> : <p className="providerSetupGuidance">The local service can use this CLI. Add a Bitwarden account in Vaults, then use Terminal login / unlock.</p>}
+      <div className="providerSetupActions">
+        <button type="button" className="secondary" onClick={() => void openInstallGuide()}>Open official CLI guide</button>
+        <button type="button" onClick={() => setShowLocator((current) => !current)}>{showLocator ? "Hide CLI path" : "Locate existing CLI"}</button>
+      </div>
+      {showLocator ? <div className="providerCliLocator">
+        <label>Official <code>bw</code> executable path
+          <input value={executablePath} onChange={(event) => setExecutablePath(event.target.value)} placeholder="Absolute path to bw or bw.exe" autoComplete="off" />
+        </label>
+        <label className="checkboxLine"><input type="checkbox" checked={trustAcknowledged} onChange={(event) => setTrustAcknowledged(event.target.checked)} /> I trust this official or IT-approved Bitwarden CLI file.</label>
+        <small>WardSen runs <code>bw --version</code> before it uses the file. The selected path stays on this device; no binary, password, or session token is sent to WardSen&apos;s project.</small>
+        <div className="providerSetupActions">
+          <button type="button" className="primary" disabled={!executablePath.trim() || !trustAcknowledged || saveState.status === "loading"} onClick={() => void verifyAndUseExecutable()}>{saveState.status === "loading" ? "Verifying CLI..." : "Verify and use CLI"}</button>
+        </div>
+      </div> : null}
+      {diagnostic.status === "error" ? <ErrorNotice message={diagnostic.text} compact /> : null}
+      {saveState.status !== "idle" ? <div className={saveState.status === "error" ? "notice error compact" : "notice compact"} role="status" aria-live="polite">{saveState.text}</div> : null}
+    </div>
+  );
+}
+
 function DeliveryComposer({ api, selectedCredentials }: { api: ReturnType<typeof useWardSenApi>; selectedCredentials: CredentialSummary[] }) {
   const [form, setForm] = useState({
+    contentType: "credential" as "credential" | "custom-text",
     mode: "shared" as "shared" | "individual" | "bulk",
     personId: "",
     deliveryProviderId: "",
@@ -2008,19 +2128,21 @@ function DeliveryComposer({ api, selectedCredentials }: { api: ReturnType<typeof
     accessPassword: "",
     deliveryMethod: "copy" as "copy" | "whatsapp" | "email",
     linkArrangement: "separate" as "separate" | "bundle",
-    bundleConfirmed: false
+    bundleConfirmed: false,
+    customText: ""
   });
   const [submit, setSubmit] = useState<{ status: "idle" | "loading" | "ready" | "error"; message?: string; url?: string; delivery?: CreatedDeliveryRecord }>({ status: "idle" });
   const [bulkResults, setBulkResults] = useState<BulkDeliveryItemResult[]>([]);
   const [multiCredentialResults, setMultiCredentialResults] = useState<MultiCredentialDeliveryResult[]>([]);
   const selectedCredential = selectedCredentials[0];
   const selectedSourceAccounts = [...new Set(selectedCredentials.map((credential) => credential.accountId))];
+  const isCustomText = form.contentType === "custom-text";
   const deliveryProviderId = form.deliveryProviderId || api.deliveryProviders[0]?.id || "";
-  const deliveryAccountId = form.deliveryAccountId || selectedCredential?.accountId || api.accounts[0]?.id || "";
+  const deliveryAccountId = form.deliveryAccountId || (!isCustomText ? selectedCredential?.accountId : undefined) || api.accounts[0]?.id || "";
   const selectedDeliveryProvider = api.deliveryProviders.find((provider) => provider.id === deliveryProviderId);
   const capabilities = selectedDeliveryProvider?.capabilities ?? {};
   const manualHandoff = isManualHandoffProvider(selectedDeliveryProvider);
-  const useBundleLink = selectedCredentials.length > 1 && form.linkArrangement === "bundle";
+  const useBundleLink = !isCustomText && selectedCredentials.length > 1 && form.linkArrangement === "bundle";
   const selectedCredentialSetKey = selectedCredentials.map(credentialSelectionKey).join("|");
   const activePeople = api.people.filter((person) => person.active);
   const recipient = activePeople.find((person) => person.id === form.personId);
@@ -2038,22 +2160,34 @@ function DeliveryComposer({ api, selectedCredentials }: { api: ReturnType<typeof
       })
     : "";
 
+  function resetDeliveryOutcome() {
+    setSubmit({ status: "idle" });
+    setBulkResults([]);
+    setMultiCredentialResults([]);
+  }
+
   useEffect(() => {
     setForm((current) => current.bundleConfirmed ? { ...current, bundleConfirmed: false } : current);
+    resetDeliveryOutcome();
   }, [selectedCredentialSetKey]);
 
   async function createDelivery(event: React.FormEvent) {
     event.preventDefault();
     const [firstCredential] = selectedCredentials;
-    if (!firstCredential) {
+    const customText = form.customText;
+    if (!isCustomText && !firstCredential) {
       setSubmit({ status: "error", message: "Select one or more credentials from search before creating links." });
+      return;
+    }
+    if (isCustomText && !customText.trim()) {
+      setSubmit({ status: "error", message: "Enter the custom text before creating a secure link." });
       return;
     }
     if (!deliveryProviderId || !deliveryAccountId) {
       setSubmit({ status: "error", message: "Choose a delivery provider and delivery account." });
       return;
     }
-    if (manualHandoff && selectedCredentials.length > 1) {
+    if (!isCustomText && manualHandoff && selectedCredentials.length > 1) {
       setSubmit({ status: "error", message: "Ente Paste manual handoff supports one credential at a time because it uses the local clipboard." });
       return;
     }
@@ -2069,7 +2203,11 @@ function DeliveryComposer({ api, selectedCredentials }: { api: ReturnType<typeof
       setSubmit({ status: "error", message: "Ente Paste manual handoff is single-delivery only because WardSen copies one credential handoff to the local clipboard." });
       return;
     }
-    if (form.mode === "bulk" && selectedCredentials.length > 1) {
+    if (isCustomText && form.mode === "bulk") {
+      setSubmit({ status: "error", message: "Custom text supports one shared or individual link. Use a credential to create a delivery for all active people." });
+      return;
+    }
+    if (!isCustomText && form.mode === "bulk" && selectedCredentials.length > 1) {
       setSubmit({ status: "error", message: "All-active delivery uses one selected credential per batch. Select one credential before creating links for everyone." });
       return;
     }
@@ -2093,7 +2231,25 @@ function DeliveryComposer({ api, selectedCredentials }: { api: ReturnType<typeof
         accessPassword: capabilities.accessPassword ? form.accessPassword || undefined : undefined,
         deliveryMethod: form.deliveryMethod
       });
-      if (form.mode === "bulk") {
+      if (isCustomText) {
+        const created = parseCreatedDeliveryRecord(await apiSend<unknown>("/api/deliveries/custom-text", {
+          body: JSON.stringify({
+            operationId: newOperationId("custom-text"),
+            text: customText,
+            deliveryProviderId,
+            deliveryAccountId,
+            recipient: form.mode === "individual" && recipient ? { id: recipient.id, name: recipient.name, email: recipient.email, phone: recipient.phone } : undefined,
+            expiresAt,
+            viewLimit: capabilities.arbitraryViewLimit ? form.viewLimit || undefined : undefined,
+            viewOnce: capabilities.viewOnce ? (manualHandoff ? true : form.viewOnce) : undefined,
+            hideText: capabilities.hideText ? form.hideText : undefined,
+            accessPassword: capabilities.accessPassword ? form.accessPassword || undefined : undefined,
+            deliveryMethod: form.deliveryMethod
+          })
+        }));
+        setForm((current) => ({ ...current, customText: "" }));
+        setSubmit({ status: "ready", message: deliveryMessage("Custom secure text link created.", created), url: created.oneTimeDeliveryUrl, delivery: created });
+      } else if (form.mode === "bulk") {
         if (activePeople.length === 0) {
           setSubmit({ status: "error", message: "Add at least one active person before creating a bulk batch." });
           return;
@@ -2187,8 +2343,16 @@ function DeliveryComposer({ api, selectedCredentials }: { api: ReturnType<typeof
   return (
     <form className="panel composer" onSubmit={createDelivery}>
       <PanelTitle icon={Send} title="Delivery Form" action="Create" />
-      <label>Source vault<input name="sourceVault" value={selectedCredentials.length === 0 ? "Select from credential search" : selectedSourceAccounts.length === 1 ? accountLabel(api.accounts, selectedSourceAccounts[0]!) : `${selectedSourceAccounts.length} selected source vaults`} readOnly /></label>
-      <label>Selected credentials<input name="selectedCredentials" value={selectedCredentials.length === 0 ? "Select from credential search" : selectedCredentials.length === 1 ? `${selectedCredential!.title} (${accountLabel(api.accounts, selectedCredential!.accountId)})` : `${selectedCredentials.length} selected: ${selectedCredentials.slice(0, 2).map((credential) => credential.title).join(", ")}${selectedCredentials.length > 2 ? " and more" : ""}`} readOnly /></label>
+      <div className="segmented contentType" role="group" aria-label="Delivery content type">
+        <button type="button" aria-pressed={!isCustomText} className={!isCustomText ? "selected" : ""} onClick={() => { resetDeliveryOutcome(); setForm((current) => ({ ...current, contentType: "credential", bundleConfirmed: false })); }}>Credential</button>
+        <button type="button" aria-pressed={isCustomText} className={isCustomText ? "selected" : ""} onClick={() => { resetDeliveryOutcome(); setForm((current) => ({ ...current, contentType: "custom-text", mode: current.mode === "bulk" ? "shared" : current.mode, bundleConfirmed: false })); }}>Custom text</button>
+      </div>
+      {isCustomText ? (
+        <label className="wide">Custom text<textarea name="customText" value={form.customText} onChange={(event) => setForm((current) => ({ ...current, customText: event.target.value }))} placeholder="Enter the text to send in this secure link" maxLength={16 * 1024} rows={5} /></label>
+      ) : <>
+        <label>Source vault<input name="sourceVault" value={selectedCredentials.length === 0 ? "Select from credential search" : selectedSourceAccounts.length === 1 ? accountLabel(api.accounts, selectedSourceAccounts[0]!) : `${selectedSourceAccounts.length} selected source vaults`} readOnly /></label>
+        <label>Selected credentials<input name="selectedCredentials" value={selectedCredentials.length === 0 ? "Select from credential search" : selectedCredentials.length === 1 ? `${selectedCredential!.title} (${accountLabel(api.accounts, selectedCredential!.accountId)})` : `${selectedCredentials.length} selected: ${selectedCredentials.slice(0, 2).map((credential) => credential.title).join(", ")}${selectedCredentials.length > 2 ? " and more" : ""}`} readOnly /></label>
+      </>}
       <label>Recipient<select name="recipientId" value={form.personId} disabled={form.mode !== "individual"} onChange={(event) => setForm((current) => ({ ...current, personId: event.target.value }))}>
         <option value="">{recipientPlaceholder}</option>
         {activePeople.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
@@ -2202,14 +2366,14 @@ function DeliveryComposer({ api, selectedCredentials }: { api: ReturnType<typeof
       </select></label>
       {deliveryProviderId !== "bitwarden-send" ? <small className="fieldInstruction wide">This provider reads its setup from the local WardSen service environment. The selected audit account scopes metadata only; it does not supply the provider API credential.</small> : null}
       <div className="segmented" role="group" aria-label="Delivery recipient mode">
-        <button type="button" aria-pressed={form.mode === "shared"} className={form.mode === "shared" ? "selected" : ""} onClick={() => setForm((current) => ({ ...current, mode: "shared", personId: "" }))}>Shared</button>
-        <button type="button" aria-pressed={form.mode === "individual"} className={form.mode === "individual" ? "selected" : ""} onClick={() => setForm((current) => ({ ...current, mode: "individual", personId: current.personId || activePeople[0]?.id || "" }))}>Individual</button>
-        <button type="button" aria-pressed={form.mode === "bulk"} disabled={manualHandoff || selectedCredentials.length > 1} title={selectedCredentials.length > 1 ? "All-active delivery uses one selected credential per batch" : undefined} className={form.mode === "bulk" ? "selected" : ""} onClick={() => setForm((current) => ({ ...current, mode: "bulk", personId: "" }))}>All active</button>
+        <button type="button" aria-pressed={form.mode === "shared"} className={form.mode === "shared" ? "selected" : ""} onClick={() => { resetDeliveryOutcome(); setForm((current) => ({ ...current, mode: "shared", personId: "" })); }}>Shared</button>
+        <button type="button" aria-pressed={form.mode === "individual"} className={form.mode === "individual" ? "selected" : ""} onClick={() => { resetDeliveryOutcome(); setForm((current) => ({ ...current, mode: "individual", personId: current.personId || activePeople[0]?.id || "" })); }}>Individual</button>
+        <button type="button" aria-pressed={form.mode === "bulk"} disabled={isCustomText || manualHandoff || selectedCredentials.length > 1} title={isCustomText ? "Custom text is shared or individual only" : selectedCredentials.length > 1 ? "All-active delivery uses one selected credential per batch" : undefined} className={form.mode === "bulk" ? "selected" : ""} onClick={() => { resetDeliveryOutcome(); setForm((current) => ({ ...current, mode: "bulk", personId: "" })); }}>All active</button>
       </div>
-      {selectedCredentials.length > 1 ? (
+      {!isCustomText && selectedCredentials.length > 1 ? (
         <div className="segmented linkArrangement" role="group" aria-label="Credential link arrangement">
-          <button type="button" aria-pressed={form.linkArrangement === "separate"} className={form.linkArrangement === "separate" ? "selected" : ""} onClick={() => setForm((current) => ({ ...current, linkArrangement: "separate", bundleConfirmed: false }))}>Separate links</button>
-          <button type="button" aria-pressed={form.linkArrangement === "bundle"} disabled={manualHandoff || form.mode === "bulk"} title={manualHandoff ? "Manual Ente Paste cannot safely group credentials" : form.mode === "bulk" ? "One bundle link is limited to a shared or individual handoff" : undefined} className={form.linkArrangement === "bundle" ? "selected" : ""} onClick={() => setForm((current) => ({ ...current, linkArrangement: "bundle", bundleConfirmed: false }))}>One bundle link</button>
+          <button type="button" aria-pressed={form.linkArrangement === "separate"} className={form.linkArrangement === "separate" ? "selected" : ""} onClick={() => { resetDeliveryOutcome(); setForm((current) => ({ ...current, linkArrangement: "separate", bundleConfirmed: false })); }}>Separate links</button>
+          <button type="button" aria-pressed={form.linkArrangement === "bundle"} disabled={manualHandoff || form.mode === "bulk"} title={manualHandoff ? "Manual Ente Paste cannot safely group credentials" : form.mode === "bulk" ? "One bundle link is limited to a shared or individual handoff" : undefined} className={form.linkArrangement === "bundle" ? "selected" : ""} onClick={() => { resetDeliveryOutcome(); setForm((current) => ({ ...current, linkArrangement: "bundle", bundleConfirmed: false })); }}>One bundle link</button>
         </div>
       ) : null}
       <label>Expiry<select name="expiryHours" value={capabilities.customExpiry === false ? "24" : form.expiryHours} disabled={capabilities.customExpiry === false} onChange={(event) => setForm((current) => ({ ...current, expiryHours: event.target.value }))}>
@@ -2239,6 +2403,12 @@ function DeliveryComposer({ api, selectedCredentials }: { api: ReturnType<typeof
           <span>Choose one credential for a per-recipient batch. This prevents one action from creating a large credentials-by-people set of links.</span>
         </div>
       ) : null}
+      {isCustomText ? (
+        <div className="riskSummary">
+          <strong>Custom secure text</strong>
+          <span>The text is sent directly to the selected provider. WardSen stores only the neutral history label "Custom secure text", not the text itself.</span>
+        </div>
+      ) : null}
       {useBundleLink ? (
         <div className="riskSummary">
           <strong>One bundle link</strong>
@@ -2246,7 +2416,7 @@ function DeliveryComposer({ api, selectedCredentials }: { api: ReturnType<typeof
           <label className="checkboxLine"><input name="confirmBundle" type="checkbox" checked={form.bundleConfirmed} onChange={(event) => setForm((current) => ({ ...current, bundleConfirmed: event.target.checked }))} /> I understand that one recipient link will contain all {selectedCredentials.length} selected credentials.</label>
         </div>
       ) : null}
-      {manualHandoff && selectedCredentials.length > 1 ? (
+      {!isCustomText && manualHandoff && selectedCredentials.length > 1 ? (
         <div className="riskSummary">
           <strong>Ente Paste needs one credential</strong>
           <span>Manual handoff writes one credential to the local clipboard. Select one credential before using Ente Paste.</span>
@@ -2255,7 +2425,7 @@ function DeliveryComposer({ api, selectedCredentials }: { api: ReturnType<typeof
       {manualHandoff && (
         <div className="riskSummary">
           <strong>Ente Paste manual handoff</strong>
-          <span>WardSen copies only the credential title, username and password to the local clipboard, shows an Open Ente Paste action, and records this as handoff pending. Paste into Ente, create the one-time link there, then send Ente's generated link to the recipient.</span>
+          <span>{isCustomText ? "WardSen copies the custom text to the local clipboard, shows an Open Ente Paste action, and records this as handoff pending. Paste into Ente, create the one-time link there, then send Ente's generated link to the recipient." : "WardSen copies only the credential title, username and password to the local clipboard, shows an Open Ente Paste action, and records this as handoff pending. Paste into Ente, create the one-time link there, then send Ente's generated link to the recipient."}</span>
           <span>WardSen cannot verify views, access counts, IP/device details, or revoke Ente Paste links.</span>
         </div>
       )}
@@ -2266,7 +2436,7 @@ function DeliveryComposer({ api, selectedCredentials }: { api: ReturnType<typeof
           {submit.url && <DeliveryLinkAction
             delivery={submit.delivery}
             url={submit.url}
-            label={useBundleLink ? "Copy bundle link" : form.mode === "shared" ? "Copy shared link" : "Copy link"}
+            label={isCustomText ? "Copy secure text link" : useBundleLink ? "Copy bundle link" : form.mode === "shared" ? "Copy shared link" : "Copy link"}
             method={form.deliveryMethod}
             recipient={form.mode === "individual" ? recipient : undefined}
           />}
@@ -2289,8 +2459,8 @@ function DeliveryComposer({ api, selectedCredentials }: { api: ReturnType<typeof
           recipient={form.mode === "individual" ? recipient : undefined}
         />
       )}
-      <button className="primary full" disabled={submit.status === "loading" || selectedCredentials.length === 0 || (form.mode === "individual" && !recipient) || (manualHandoff && (form.mode === "bulk" || selectedCredentials.length > 1)) || (form.mode === "bulk" && selectedCredentials.length > 1) || (useBundleLink && !form.bundleConfirmed)}>
-        <Send size={16} aria-hidden="true" /> {useBundleLink ? "Create bundle link" : form.mode === "bulk" || selectedCredentials.length > 1 ? "Create secure links" : "Create secure link"}
+      <button className="primary full" disabled={submit.status === "loading" || (!isCustomText && selectedCredentials.length === 0) || (isCustomText && !form.customText.trim()) || (form.mode === "individual" && !recipient) || (manualHandoff && (form.mode === "bulk" || (!isCustomText && selectedCredentials.length > 1))) || (!isCustomText && form.mode === "bulk" && selectedCredentials.length > 1) || (useBundleLink && !form.bundleConfirmed)}>
+        <Send size={16} aria-hidden="true" /> {isCustomText ? "Create secure text link" : useBundleLink ? "Create bundle link" : form.mode === "bulk" || selectedCredentials.length > 1 ? "Create secure links" : "Create secure link"}
       </button>
     </form>
   );
@@ -2298,6 +2468,7 @@ function DeliveryComposer({ api, selectedCredentials }: { api: ReturnType<typeof
 
 function DeliveryTable({ api, confirmDestructiveAction }: { api: ReturnType<typeof useWardSenApi>; confirmDestructiveAction: DestructiveConfirmation }) {
   const [message, setMessage] = useState<{ status: "idle" | "loading" | "ready" | "error"; text?: string; url?: string; delivery?: CreatedDeliveryRecord }>({ status: "idle" });
+  const statusRefreshBlockedAccountLabels = blockedLiveStatusRefreshAccountLabels(api.deliveries, api.accounts);
 
   async function rowAction(delivery: DeliveryRecord, action: DeliveryHistoryAction) {
     setMessage({ status: "loading", text: `${titleStatus(action)} running for ${delivery.credentialName}...` });
@@ -2307,8 +2478,8 @@ function DeliveryTable({ api, confirmDestructiveAction }: { api: ReturnType<type
           setMessage({ status: "error", text: `${delivery.deliveryProviderId} does not expose sender-visible status checks through WardSen.` });
           return;
         }
-        const refreshed = parseDeliveryRecord(await apiSend<unknown>(`/api/deliveries/${delivery.id}/refresh`));
-        setMessage({ status: "ready", text: `${delivery.credentialName}: ${titleStatus(refreshed.status)} checked.` });
+        const summary = await refreshSupportedDeliveryStatuses([delivery], api.deliveryProviders, api.accounts);
+        setMessage({ status: summary.failed ? "error" : "ready", text: refreshSummaryText(summary) });
       }
       if (action === "retry") {
         const retried = parseCreatedDeliveryRecord(await apiSend<unknown>(`/api/deliveries/${delivery.id}/retry`));
@@ -2335,24 +2506,19 @@ function DeliveryTable({ api, confirmDestructiveAction }: { api: ReturnType<type
   }
 
   async function refreshAll() {
-    setMessage({ status: "loading", text: "Refreshing active deliveries..." });
-    const active = api.deliveries.filter((delivery) => delivery.status === "active" && deliveryProviderSupports(api.deliveryProviders, delivery.deliveryProviderId, "statusLookup"));
-    if (active.length === 0) {
-      setMessage({ status: "ready", text: "No active deliveries from a provider that supports status checks." });
-      return;
+    setMessage({ status: "loading", text: "Refreshing provider status for live deliveries..." });
+    try {
+      const summary = await refreshSupportedDeliveryStatuses(api.deliveries, api.deliveryProviders, api.accounts);
+      setMessage({ status: summary.failed ? "error" : "ready", text: refreshSummaryText(summary) });
+      await api.refresh();
+    } catch (error) {
+      setMessage({ status: "error", text: error instanceof Error ? error.message : String(error) });
     }
-    const results = await Promise.allSettled(active.map(async (delivery) => parseDeliveryRecord(await apiSend<unknown>(`/api/deliveries/${delivery.id}/refresh`))));
-    const rejected = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
-    const failureDetail = rejected[0]?.reason instanceof Error ? rejected[0].reason.message : rejected[0] ? String(rejected[0].reason) : undefined;
-    setMessage({
-      status: rejected.length ? "error" : "ready",
-      text: `Refreshed ${results.length - rejected.length}/${results.length} active deliveries${rejected.length ? `; ${rejected.length} failed. ${failureDetail}` : "."}`
-    });
-    await api.refresh();
   }
 
   return (
     <div className="grid">
+      <LiveStatusUnlockNotice accountLabels={statusRefreshBlockedAccountLabels} />
       {message.status === "error" && <ErrorNotice message={message.text} compact />}
       {message.status !== "idle" && message.status !== "error" && (
         <div className="notice compact" role="status" aria-live="polite">
@@ -2367,6 +2533,7 @@ function DeliveryTable({ api, confirmDestructiveAction }: { api: ReturnType<type
         canRevoke={(delivery) => deliveryProviderSupports(api.deliveryProviders, delivery.deliveryProviderId, "revokeLink")}
         onAction={(delivery, action) => void rowAction(delivery, action)}
         onRefreshActive={() => void refreshAll()}
+        statusRefreshBlockedAccountLabels={statusRefreshBlockedAccountLabels}
       />
     </div>
   );
@@ -2501,17 +2668,9 @@ function MultiCredentialHandoffResults({
         <strong>Separate credential links</strong>
         <span>{createdCount}/{results.length} links created. Each successful row has its own link and handoff action.</span>
       </div>
-      <div className="table">
-        <div className="tableHead multiCredential">
-          <span>Credential</span><span>Creation</span><span>Handoff</span>
-        </div>
+      <div className="multiCredentialResultList" aria-label="Separate credential link results">
         {results.map((result) => (
-          <div className="tableRow multiCredential" key={credentialSelectionKey(result.credential)}>
-            <div>
-              <strong>{result.credential.title}</strong>
-              <span>{accountLabel(accounts, result.credential.accountId)}</span>
-            </div>
-            <Status value={result.delivery ? "Created" : "Failed"} />
+          <article className="multiCredentialResult" key={credentialSelectionKey(result.credential)}>
             {result.delivery ? <DeliveryLinkAction
               delivery={result.delivery}
               url={result.delivery.oneTimeDeliveryUrl}
@@ -2519,7 +2678,12 @@ function MultiCredentialHandoffResults({
               method={method}
               recipient={recipient}
             /> : <span className="multiCredentialError">{result.error ?? "Delivery creation failed."}</span>}
-          </div>
+            <div>
+              <strong>{result.credential.title}</strong>
+              <span>{accountLabel(accounts, result.credential.accountId)}</span>
+            </div>
+            <Status value={result.delivery ? "Created" : "Failed"} />
+          </article>
         ))}
       </div>
     </section>
@@ -2593,10 +2757,6 @@ function BulkHandoffResults({
 
 function resultKey(result: BulkDeliveryItemResult): string {
   return result.recipientId ?? result.delivery?.id ?? result.error ?? "bulk-result";
-}
-
-function credentialSelectionKey(credential: Pick<CredentialSummary, "providerId" | "accountId" | "id">): string {
-  return `${credential.providerId}:${credential.accountId}:${credential.id}`;
 }
 
 async function copyAndOpenDeliveryHandoff(
@@ -2983,15 +3143,36 @@ function isBitwardenStatusRefreshBlocked(delivery: DeliveryRecord, accounts: Acc
   return accounts.find((account) => account.id === delivery.deliveryAccountId)?.status !== "unlocked";
 }
 
+function isLiveStatusRefreshCandidate(delivery: DeliveryRecord): boolean {
+  return delivery.status === "active" || delivery.status === "viewed";
+}
+
+function blockedLiveStatusRefreshAccountLabels(deliveries: DeliveryRecord[], accounts: AccountRecord[]): string[] {
+  return [...new Set(deliveries
+    .filter(isLiveStatusRefreshCandidate)
+    .filter((delivery) => isBitwardenStatusRefreshBlocked(delivery, accounts))
+    .map((delivery) => accounts.find((account) => account.id === delivery.deliveryAccountId)?.label ?? "the selected Bitwarden vault"))];
+}
+
+function LiveStatusUnlockNotice({ accountLabels, wide = false }: { accountLabels: string[]; wide?: boolean }) {
+  if (accountLabels.length === 0) return null;
+  return (
+    <div className={`notice compact liveStatusUnlockNotice${wide ? " wide" : ""}`} role="status">
+      <strong>Unlock a vault to refresh view counts</strong>
+      <span>Unlock {accountLabels.join(", ")} in Vaults, then select Refresh live status. WardSen needs that Bitwarden session to query Bitwarden Send; Reload history only shows locally saved results.</span>
+    </div>
+  );
+}
+
 async function refreshSupportedDeliveryStatuses(deliveries: DeliveryRecord[], providers: ProviderInfo[], accounts: AccountRecord[]): Promise<DeliveryRefreshSummary> {
-  const active = deliveries.filter((delivery) => delivery.status === "active" && deliveryProviderSupports(providers, delivery.deliveryProviderId, "statusLookup"));
-  if (active.length === 0) return { total: 0, refreshed: 0, blocked: 0, blockedAccountLabels: [], failed: 0 };
-  const blocked = active.filter((delivery) => isBitwardenStatusRefreshBlocked(delivery, accounts));
-  const refreshable = active.filter((delivery) => !isBitwardenStatusRefreshBlocked(delivery, accounts));
+  const live = deliveries.filter((delivery) => isLiveStatusRefreshCandidate(delivery) && deliveryProviderSupports(providers, delivery.deliveryProviderId, "statusLookup"));
+  if (live.length === 0) return { total: 0, refreshed: 0, blocked: 0, blockedAccountLabels: [], failed: 0 };
+  const blocked = live.filter((delivery) => isBitwardenStatusRefreshBlocked(delivery, accounts));
+  const refreshable = live.filter((delivery) => !isBitwardenStatusRefreshBlocked(delivery, accounts));
   const results = await Promise.allSettled(refreshable.map(async (delivery) => parseDeliveryRecord(await apiSend<unknown>(`/api/deliveries/${delivery.id}/refresh`))));
   const rejected = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
   return {
-    total: active.length,
+    total: live.length,
     refreshed: results.length - rejected.length,
     blocked: blocked.length,
     blockedAccountLabels: [...new Set(blocked.map((delivery) => accounts.find((account) => account.id === delivery.deliveryAccountId)?.label ?? "the selected Bitwarden vault"))],
@@ -3001,12 +3182,12 @@ async function refreshSupportedDeliveryStatuses(deliveries: DeliveryRecord[], pr
 }
 
 function refreshSummaryText(summary: DeliveryRefreshSummary): string {
-  if (summary.total === 0) return "No active links support a live status refresh. Expired and historical deliveries remain visible below.";
+  if (summary.total === 0) return "No live links support a provider status refresh. Expired and historical deliveries remain visible below.";
   const detail = [
     summary.blocked ? `${summary.blocked} waiting for ${summary.blockedAccountLabels.join(", ")} to be unlocked` : undefined,
     summary.failed ? `${summary.failed} failed${summary.failureDetail ? `: ${summary.failureDetail}` : ""}` : undefined
   ].filter(Boolean);
-  return `Refreshed ${summary.refreshed}/${summary.total} active deliveries${detail.length ? `; ${detail.join("; ")}.` : "."}`;
+  return `Refreshed ${summary.refreshed}/${summary.total} live deliveries${detail.length ? `; ${detail.join("; ")}.` : "."}`;
 }
 
 function deliveryMessage(message: string, delivery?: Pick<CreatedDeliveryRecord, "deliveryProviderId" | "status">): string {
@@ -3015,7 +3196,7 @@ function deliveryMessage(message: string, delivery?: Pick<CreatedDeliveryRecord,
     : message;
 }
 
-function newOperationId(prefix: "delivery" | "bulk" | "bundle"): string {
+function newOperationId(prefix: "delivery" | "bulk" | "bundle" | "custom-text"): string {
   const random = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   return `${prefix}-${random}`;
 }

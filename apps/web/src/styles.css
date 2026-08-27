@@ -714,8 +714,23 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
 .selectionSummary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid #b9dfd1; background: #f1faf6; color: #35584b; font-size: 13px; font-weight: 700; }
 .selectionSummary button { flex: 0 0 auto; }
 .bulkHandoff { display: grid; gap: 10px; }
-.multiCredentialHandoff { display: grid; gap: 10px; }
-.tableHead.multiCredential, .tableRow.multiCredential { grid-template-columns: minmax(180px, 1fr) minmax(90px, 0.55fr) minmax(260px, 1.3fr); min-width: 620px; }
+.multiCredentialHandoff { display: grid; gap: 10px; container-type: inline-size; }
+.multiCredentialResultList { display: grid; gap: 8px; }
+.multiCredentialResult {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 64px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #f4f8f6;
+}
+.multiCredentialResult > div { min-width: 0; }
+.multiCredentialResult strong { display: block; font-size: 14px; }
+.multiCredentialResult > div > span { display: block; margin-top: 3px; color: #5e716a; font-size: 13px; overflow-wrap: anywhere; }
+.multiCredentialResult .deliveryHandoffAction { min-width: 0; }
+.multiCredentialResult .copyFeedback { align-items: flex-start; }
 .multiCredentialError { color: #7b2f2f !important; font-weight: 700; }
 .riskSummary {
   display: grid;
@@ -743,6 +758,7 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
 }
 .check { display: flex !important; align-items: center; gap: 8px; }
 .check input { min-height: auto; width: auto; }
+.terminalLaunchWaiting { font-variant-numeric: tabular-nums; }
 .inlineCheck {
   display: inline-flex;
   align-items: center;
@@ -761,6 +777,18 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
 }
 .segmented button { padding: 0 8px; }
 .segmented button.selected { background: #ffffff; box-shadow: 0 8px 18px rgba(33, 57, 49, 0.08); }
+.contentType, .linkArrangement { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@container (max-width: 560px) {
+  .multiCredentialResult {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+  }
+  .multiCredentialResult .deliveryHandoffAction,
+  .multiCredentialResult .multiCredentialError {
+    grid-column: 1 / -1;
+    order: -1;
+  }
+}
 .capabilityGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
 .providerTable { margin-top: 2px; }
 .providerNotes { margin: 0; color: #52665e; line-height: 1.5; }
@@ -784,6 +812,60 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
 .providerDiagnostics dl > div { display: grid; gap: 3px; min-width: 0; }
 .providerDiagnostics dt { color: #64756e; font-size: 0.78rem; font-weight: 700; text-transform: uppercase; }
 .providerDiagnostics dd { margin: 0; overflow-wrap: anywhere; }
+.providerSetupWizard {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #c9ddd4;
+  border-radius: 8px;
+  background: #f7fbf9;
+}
+.providerSetupWizardHeader {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.providerSetupWizardHeader > div { min-width: 0; }
+.providerSetupWizard h3,
+.providerSetupWizard p { margin: 0; }
+.providerSetupWizard h3 { font-size: 16px; }
+.providerSetupWizard p { color: #52665e; line-height: 1.45; }
+.providerSetupSteps {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.providerSetupSteps li {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #dbe7e2;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #6d7d77;
+}
+.providerSetupSteps li.ready { border-color: #b8ded0; color: #176048; background: #e6f6ef; }
+.providerSetupSteps li.pending { color: #76624b; background: #fffaf0; border-color: #ead6ae; }
+.providerSetupSteps span { display: grid; min-width: 0; gap: 2px; }
+.providerSetupSteps strong,
+.providerSetupSteps small { overflow-wrap: anywhere; }
+.providerSetupSteps small { font-size: 12px; color: inherit; }
+.providerSetupGuidance { font-size: 13px; }
+.providerSetupActions { display: flex; flex-wrap: wrap; gap: 8px; }
+.providerCliLocator {
+  display: grid;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid #dbe7e2;
+}
+.providerCliLocator label:not(.checkboxLine) { display: grid; gap: 6px; color: #52665e; font-size: 13px; }
+.providerCliLocator small { color: #63766f; font-size: 12px; line-height: 1.45; }
 .capability {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -907,6 +989,9 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
   .optionalProvider button {
     justify-self: start;
   }
+  .providerSetupWizardHeader { align-items: stretch; flex-direction: column; }
+  .providerSetupWizardHeader button { align-self: flex-start; }
+  .providerSetupSteps { grid-template-columns: 1fr; }
   .row > div:first-child,
   .row > span,
   .actions {
