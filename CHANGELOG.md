@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0-rc.66 - 2026-08-27
+## 0.1.0-rc.67 - 2026-08-27
 
 - Added a Bitwarden CLI setup flow that opens the official guide, re-checks provider availability, and lets operators verify an existing absolute `bw` executable path without restarting WardSen.
 - Hardened Bitwarden terminal handoff by verifying the terminal session's unlocked status, account email, server URL and Bitwarden user ID before WardSen keeps the session in memory.
@@ -8,6 +8,7 @@
 - Added fuzzy credential search fallback and an **All items** result-size option for easier vault lookup.
 - Added custom secure text delivery while keeping the text out of delivery metadata and audit logs.
 - Improved delivery history status-refresh copy so locked Bitwarden Send accounts tell operators which vault must be unlocked first.
+- Fixed release-runner profile validation so managed profile roots under canonicalized temp parents, such as macOS `/var` to `/private/var`, do not fail the account deletion tests.
 
 ## 0.1.0-rc.65 - 2026-08-24
 

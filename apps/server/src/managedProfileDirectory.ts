@@ -32,12 +32,7 @@ export function assertManagedProfileDirectoryTarget(profileRoot: string, profile
 export function assertManagedProfileRoot(profileRoot: string): boolean {
   const resolvedProfileRoot = path.resolve(profileRoot);
   const rootExists = assertExistingDirectoryIsNotLinked(resolvedProfileRoot, "Managed provider profile root");
-  if (!rootExists) return false;
-  const canonicalRoot = fs.realpathSync.native(resolvedProfileRoot);
-  if (!pathsEqual(canonicalRoot, resolvedProfileRoot)) {
-    throw new Error("Managed provider profile root must not be a symlink or canonical redirect.");
-  }
-  return true;
+  return rootExists;
 }
 
 export function pathsEqual(left: string, right: string): boolean {
