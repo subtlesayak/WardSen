@@ -67,10 +67,9 @@ See [installer signing](installer-signing.md) before publishing these artifacts 
 A GitHub Release should contain a small set of named installer files, for example:
 
 ```text
-WardSen_0.1.0_windows_x64-setup.exe
-WardSen_0.1.0_windows_x64.msi
-WardSen_0.1.0_macos_aarch64.dmg
-WardSen_0.1.0_macos_x64.dmg
+WardSen_0.11.0_windows_x64.msi
+WardSen_0.11.0_macos_aarch64.dmg
+WardSen_0.11.0_macos_x64.dmg
 SHA256SUMS.txt
 RELEASE-MANIFEST.json
 WARDSEN-SBOM.json

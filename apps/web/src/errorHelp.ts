@@ -165,19 +165,39 @@ function providerToolHelp(lowerDetail: string): Pick<ErrorHelp, "guidance" | "ac
   }
   if (lowerDetail.includes('"keepassxc-cli"')) {
     return {
-      guidance: "Install KeePassXC, then close and reopen WardSen before retrying. No terminal is required if you use the official Windows or macOS download.",
+      guidance: "Open Settings > Provider Capabilities, choose KeePassXC, and complete the KeePassXC CLI setup. No terminal is required when you use the official Windows or macOS download; return to WardSen and select Check now after installation.",
       actionLabel: "Open KeePassXC download",
       actionHref: "https://keepassxc.org/download/",
       terminalCommands: [
         {
           label: "Windows PowerShell or Command Prompt",
-          command: "winget install KeePassXCTeam.KeePassXC",
-          note: "Use this if winget is available. Close and reopen WardSen after it finishes."
+          command: "winget install -e --id KeePassXCTeam.KeePassXC",
+          note: "Use this if winget is available. Return to WardSen and select Check now after it finishes."
         },
         {
           label: "macOS Terminal with Homebrew",
           command: "brew install --cask keepassxc",
-          note: "Use this on macOS if Homebrew is installed. Close and reopen WardSen after it finishes."
+          note: "Use this on macOS if Homebrew is installed. Return to WardSen and select Check now after it finishes."
+        }
+      ]
+    };
+  }
+  if (lowerDetail.includes('"yopass"')) {
+    return {
+      guidance: "Open Settings > Provider Capabilities, choose Yopass, and complete the Yopass CLI setup steps. Yopass is optional and WardSen does not download it or run the Go installer for you.",
+      actionLabel: "Open Yopass CLI guide",
+      actionHref: "https://github.com/jhaals/yopass",
+      setupNotes: [
+        "Install Go 1.21 or later from go.dev, then open a new Terminal or PowerShell window.",
+        "Run go install github.com/jhaals/yopass/cmd/yopass@latest.",
+        "WardSen checks Go's standard install folder automatically: ~/go/bin/yopass on macOS/Linux or %USERPROFILE%\\go\\bin\\yopass.exe on Windows.",
+        "If your organization uses a different location, set WARDSEN_YOPASS_CLI_PATH to the absolute executable path and restart WardSen."
+      ],
+      terminalCommands: [
+        {
+          label: "Terminal or PowerShell",
+          command: "go install github.com/jhaals/yopass/cmd/yopass@latest",
+          note: "Requires Go 1.21 or later. WardSen discovers Go's standard install folder automatically."
         }
       ]
     };

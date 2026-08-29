@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Archive,
+  ArrowUpRight,
   CheckCircle2,
   Copy,
   Database,
@@ -44,6 +45,7 @@ interface ProviderInfo {
   enabled?: boolean;
   enabledByDefault?: boolean;
   requiresExplicitOptIn?: boolean;
+  configurationRequired?: boolean;
   optInWarning?: string;
   documentationUrl?: string;
   notes?: string;
@@ -61,6 +63,13 @@ interface ProviderDiagnostic {
   accounts: Array<{ id: string; label: string; status: string }>;
   capabilities: Record<string, boolean>;
   linkPreviewRisk: string;
+}
+
+interface ReleaseUpdateCheck {
+  currentVersion: string;
+  checkedAt: string;
+  updateAvailable: boolean;
+  release?: { tag: string; pageUrl: string; publishedAt: string; prerelease: boolean };
 }
 
 interface OperationImpactPreview {
@@ -264,6 +273,7 @@ const navItems: Array<{ id: NavItem; icon: React.ElementType }> = [
 function App() {
   if (isEmployeePortalView()) return <EmployeePortalPage />;
   const [active, setActive] = useState<NavItem>("Overview");
+  const [settingsProviderId, setSettingsProviderId] = useState<string>();
   const api = useWardSenApi();
   const destructiveConfirmation = useDestructiveConfirmation();
   return (
@@ -305,13 +315,16 @@ function App() {
         </header>
 
         <ApiBanner api={api} />
-        {active === "Overview" && <Overview api={api} confirmDestructiveAction={destructiveConfirmation.confirm} />}
-        {active === "Vaults" && <Vaults api={api} confirmDestructiveAction={destructiveConfirmation.confirm} />}
+        {active === "Overview" && <Overview api={api} confirmDestructiveAction={destructiveConfirmation.confirm} onNavigate={setActive} />}
+        {active === "Vaults" && <Vaults api={api} confirmDestructiveAction={destructiveConfirmation.confirm} onOpenProviderSetup={(providerId) => {
+          setSettingsProviderId(providerId);
+          setActive("Settings");
+        }} />}
         {active === "Credentials" && <Credentials api={api} />}
         {active === "People" && <People api={api} confirmDestructiveAction={destructiveConfirmation.confirm} />}
         {active === "Requests" && <RequestsView api={api} />}
         {active === "Deliveries" && <Deliveries api={api} confirmDestructiveAction={destructiveConfirmation.confirm} />}
-        {active === "Settings" && <SettingsView credentialProviders={api.credentialProviders} deliveryProviders={api.deliveryProviders} optionalDeliveryProviders={api.optionalDeliveryProviders} plannedProviders={api.plannedProviders} onRefresh={api.refresh} confirmAction={destructiveConfirmation.confirm} />}
+        {active === "Settings" && <SettingsView credentialProviders={api.credentialProviders} deliveryProviders={api.deliveryProviders} optionalDeliveryProviders={api.optionalDeliveryProviders} plannedProviders={api.plannedProviders} onRefresh={api.refresh} confirmAction={destructiveConfirmation.confirm} initialProviderId={settingsProviderId} />}
       </main>
       {destructiveConfirmation.dialog}
     </div>
@@ -453,12 +466,34 @@ function ApiBanner({ api }: { api: ReturnType<typeof useWardSenApi> }) {
   );
 }
 
-function Overview({ api, confirmDestructiveAction }: { api: ReturnType<typeof useWardSenApi>; confirmDestructiveAction: DestructiveConfirmation }) {
+function Overview({ api, confirmDestructiveAction, onNavigate }: { api: ReturnType<typeof useWardSenApi>; confirmDestructiveAction: DestructiveConfirmation; onNavigate: (view: NavItem) => void }) {
   const activeDeliveries = api.deliveries.filter((delivery) => delivery.status === "active").length;
   const failedDeliveries = api.deliveries.filter((delivery) => delivery.status === "failed").length;
   const statusRefreshBlockedAccountLabels = blockedLiveStatusRefreshAccountLabels(api.deliveries, api.accounts);
+  const unlockedVaults = api.accounts.filter((account) => account.status === "unlocked").length;
+  const showGettingStarted = api.accounts.length === 0 || unlockedVaults === 0;
   return (
     <div className="grid two">
+      {showGettingStarted ? <section className="panel onboardingChecklist wide" aria-label="Getting started">
+        <PanelTitle icon={ShieldCheck} title="Get started" />
+        <ol>
+          <li className={api.accounts.length > 0 ? "complete" : "current"}>
+            <span className="onboardingStep">1</span>
+            <div><strong>Review provider setup</strong><small>Choose the password manager and delivery provider you plan to use.</small></div>
+            <button type="button" onClick={() => onNavigate("Settings")}>Open Settings</button>
+          </li>
+          <li className={api.accounts.length > 0 ? "complete" : "current"}>
+            <span className="onboardingStep">2</span>
+            <div><strong>Add a vault</strong><small>WardSen keeps each provider profile separate on this device.</small></div>
+            <button type="button" onClick={() => onNavigate("Vaults")}>{api.accounts.length > 0 ? "Open Vaults" : "Add vault"}</button>
+          </li>
+          <li className={unlockedVaults > 0 ? "complete" : "current"}>
+            <span className="onboardingStep">3</span>
+            <div><strong>Unlock and search</strong><small>Unlock a vault before WardSen can list credential summaries or create a delivery.</small></div>
+            <button type="button" onClick={() => onNavigate(unlockedVaults > 0 ? "Credentials" : "Vaults")}>{unlockedVaults > 0 ? "Search credentials" : "Unlock vault"}</button>
+          </li>
+        </ol>
+      </section> : null}
       <Metric label="Connected vaults" value={String(api.accounts.length)} detail={`${api.credentialProviders.length} provider adapters`} />
       <Metric label="Active deliveries" value={String(activeDeliveries)} detail={`${api.deliveries.length} total records`} />
       <Metric label="Failed deliveries" value={String(failedDeliveries)} detail="Retry from delivery history" />
@@ -472,7 +507,7 @@ function Overview({ api, confirmDestructiveAction }: { api: ReturnType<typeof us
   );
 }
 
-function Vaults({ api, confirmDestructiveAction }: { api: ReturnType<typeof useWardSenApi>; confirmDestructiveAction: DestructiveConfirmation }) {
+function Vaults({ api, confirmDestructiveAction, onOpenProviderSetup }: { api: ReturnType<typeof useWardSenApi>; confirmDestructiveAction: DestructiveConfirmation; onOpenProviderSetup: (providerId: string) => void }) {
   const [accountForm, setAccountForm] = useState({
     providerId: "",
     label: "",
@@ -494,14 +529,47 @@ function Vaults({ api, confirmDestructiveAction }: { api: ReturnType<typeof useW
   const [terminalLaunchStartedAt, setTerminalLaunchStartedAt] = useState<number>();
   const verificationCodeRef = useRef<HTMLInputElement>(null);
   const [message, setMessage] = useState<{ status: "idle" | "loading" | "ready" | "error"; text?: string }>({ status: "idle" });
+  const [bitwardenCli, setBitwardenCli] = useState<{ status: "idle" | "loading" | "ready" | "error"; available?: boolean; text?: string }>({ status: "idle" });
+  const [keepassXcCli, setKeePassXcCli] = useState<{ status: "idle" | "loading" | "ready" | "error"; available?: boolean; text?: string }>({ status: "idle" });
   const [clockMs, setClockMs] = useState(() => Date.now());
   const providerLabel = (id: string) => api.credentialProviders.find((provider) => provider.id === id)?.displayName ?? id;
   const selectedAccount = api.accounts.find((account) => account.id === accessForm.accountId) ?? api.accounts[0];
   const providerId = accountForm.providerId || api.credentialProviders[0]?.id || "bitwarden";
+  const addingKeePassXC = providerId === "keepassxc";
   const selectedAccountIsBitwarden = selectedAccount?.providerId === "bitwarden";
   const selectedAccountIsKeePassXC = selectedAccount?.providerId === "keepassxc";
   const terminalLaunchWaiting = terminalHandoff?.accountId === selectedAccount?.id && terminalLaunchStartedAt !== undefined;
   const terminalLaunchElapsed = terminalLaunchWaiting ? Math.max(0, Math.floor((clockMs - terminalLaunchStartedAt) / 1000)) : 0;
+  const bitwardenCliMissing = bitwardenCli.status === "ready" && !bitwardenCli.available;
+  const bitwardenCliChecking = bitwardenCli.status === "loading";
+  const keepassXcCliMissing = keepassXcCli.status === "ready" && !keepassXcCli.available;
+  const keepassXcCliChecking = keepassXcCli.status === "loading";
+
+  async function checkBitwardenCli(): Promise<boolean> {
+    setBitwardenCli({ status: "loading" });
+    try {
+      const diagnostic = await apiGet<ProviderDiagnostic>("/api/provider-diagnostics/bitwarden");
+      const available = diagnostic.runtime.kind === "cli" && diagnostic.runtime.binaryFound;
+      setBitwardenCli({ status: "ready", available, text: diagnostic.runtime.detail });
+      return available;
+    } catch (error) {
+      setBitwardenCli({ status: "error", text: error instanceof Error ? error.message : String(error) });
+      return false;
+    }
+  }
+
+  async function checkKeePassXcCli(): Promise<boolean> {
+    setKeePassXcCli({ status: "loading" });
+    try {
+      const diagnostic = await apiGet<ProviderDiagnostic>("/api/provider-diagnostics/keepassxc");
+      const available = diagnostic.runtime.kind === "cli" && diagnostic.runtime.binaryFound;
+      setKeePassXcCli({ status: "ready", available, text: diagnostic.runtime.detail });
+      return available;
+    } catch (error) {
+      setKeePassXcCli({ status: "error", text: error instanceof Error ? error.message : String(error) });
+      return false;
+    }
+  }
 
   useEffect(() => {
     if (verificationNeeded) verificationCodeRef.current?.focus();
@@ -511,6 +579,16 @@ function Vaults({ api, confirmDestructiveAction }: { api: ReturnType<typeof useW
     const timer = window.setInterval(() => setClockMs(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (providerId !== "bitwarden" && !selectedAccountIsBitwarden) return;
+    void checkBitwardenCli();
+  }, [providerId, selectedAccountIsBitwarden]);
+
+  useEffect(() => {
+    if (providerId !== "keepassxc" && !selectedAccountIsKeePassXC) return;
+    void checkKeePassXcCli();
+  }, [providerId, selectedAccountIsKeePassXC]);
 
   useEffect(() => {
     if (!terminalHandoff || terminalHandoff.accountId !== selectedAccount?.id) return;
@@ -576,6 +654,10 @@ function Vaults({ api, confirmDestructiveAction }: { api: ReturnType<typeof useW
       await beginBitwardenTerminalLogin(account);
       return;
     }
+    if (action === "unlock" && account.providerId === "keepassxc" && !await checkKeePassXcCli()) {
+      setMessage({ status: "error", text: "KeePassXC CLI is not ready. Open KeePassXC setup, complete the official app installation, then return here to unlock the database." });
+      return;
+    }
     setMessage({ status: "loading", text: `${titleStatus(action)} running for ${account.label}...` });
     try {
       await apiSend(`/api/accounts/${account.id}/${action}`, {
@@ -608,6 +690,10 @@ function Vaults({ api, confirmDestructiveAction }: { api: ReturnType<typeof useW
   }
 
   async function beginBitwardenTerminalLogin(account: AccountRecord) {
+    if (!await checkBitwardenCli()) {
+      setMessage({ status: "error", text: "Bitwarden CLI is not ready. Open Bitwarden CLI setup, make sure bw --version succeeds, then return here to start Terminal login / unlock." });
+      return;
+    }
     setMessage({ status: "loading", text: `Preparing a one-time Terminal login command for ${account.label}...` });
     try {
       const response = parseTerminalSessionHandoffResponse(await apiSend(`/api/accounts/${account.id}/terminal-handoff`, {
@@ -720,12 +806,28 @@ function Vaults({ api, confirmDestructiveAction }: { api: ReturnType<typeof useW
           </select></label>
           <small className="fieldInstruction">Only active, verified adapters are selectable. Check Settings &gt; Provider Capabilities for planned and experimental providers, their requirements and current limits.</small>
         </div>
+        {providerId === "bitwarden" && bitwardenCliMissing ? <div className="notice compact providerCliRequired wide" role="status" aria-live="polite">
+          <div>
+            <strong>Finish Bitwarden CLI setup before the first login</strong>
+            <span>WardSen has not found a runnable <code>bw</code> command. Add this vault now if you want, but it cannot be unlocked until the CLI is verified.</span>
+          </div>
+          <button type="button" className="secondary" onClick={() => onOpenProviderSetup("bitwarden")}><Settings size={16} aria-hidden="true" /> Set up Bitwarden CLI</button>
+        </div> : null}
+        {providerId === "bitwarden" && bitwardenCli.status === "error" ? <ErrorNotice message={`WardSen could not check the Bitwarden CLI: ${bitwardenCli.text}`} compact /> : null}
+        {providerId === "keepassxc" && keepassXcCliMissing ? <div className="notice compact providerCliRequired wide" role="status" aria-live="polite">
+          <div>
+            <strong>Finish KeePassXC setup before opening a database</strong>
+            <span>WardSen has not found <code>keepassxc-cli</code>. Add this vault now if you want, but it cannot be unlocked until the official KeePassXC app or CLI is available.</span>
+          </div>
+          <button type="button" className="secondary" onClick={() => onOpenProviderSetup("keepassxc")}><Settings size={16} aria-hidden="true" /> Set up KeePassXC</button>
+        </div> : null}
+        {providerId === "keepassxc" && keepassXcCli.status === "error" ? <ErrorNotice message={`WardSen could not check KeePassXC: ${keepassXcCli.text}`} compact /> : null}
         <div className="vaultAccountFields wide">
-          <label>Label<input name="label" required value={accountForm.label} onChange={(event) => setAccountForm((current) => ({ ...current, label: event.target.value }))} placeholder="Work Bitwarden" /></label>
-          <label>Username<input name="username" autoComplete="username" value={accountForm.username} onChange={(event) => setAccountForm((current) => ({ ...current, username: event.target.value }))} placeholder="name@example.com" /></label>
-          <label>Server URL<input name="serverUrl" type="url" value={accountForm.serverUrl} onChange={(event) => setAccountForm((current) => ({ ...current, serverUrl: event.target.value }))} placeholder="Optional custom server" /></label>
+          <label>Label<input name="label" required value={accountForm.label} onChange={(event) => setAccountForm((current) => ({ ...current, label: event.target.value }))} placeholder={addingKeePassXC ? "Personal KeePassXC" : "Work Bitwarden"} /></label>
+          {!addingKeePassXC ? <label>Username<input name="username" autoComplete="username" value={accountForm.username} onChange={(event) => setAccountForm((current) => ({ ...current, username: event.target.value }))} placeholder="name@example.com" /></label> : null}
+          {!addingKeePassXC ? <label>Server URL<input name="serverUrl" type="url" value={accountForm.serverUrl} onChange={(event) => setAccountForm((current) => ({ ...current, serverUrl: event.target.value }))} placeholder="Optional custom server" /></label> : null}
           <label>Auto-lock minutes<input name="autoLockMinutes" value={accountForm.autoLockMinutes} onChange={(event) => setAccountForm((current) => ({ ...current, autoLockMinutes: event.target.value }))} inputMode="numeric" /></label>
-          <small className="fieldInstruction vaultProfileNote">WardSen creates an isolated provider profile automatically for each account.</small>
+          <small className="fieldInstruction vaultProfileNote">{addingKeePassXC ? "After adding it, choose the .kdbx database path in Account Access and unlock it locally." : "WardSen creates an isolated provider profile automatically for each account."}</small>
         </div>
         <div className="formActions wide">
           <button className="primary"><Vault size={16} aria-hidden="true" /> Add account</button>
@@ -739,6 +841,20 @@ function Vaults({ api, confirmDestructiveAction }: { api: ReturnType<typeof useW
             <span>Select <strong>Terminal login / unlock</strong>. WardSen opens PowerShell or Terminal in the desktop app; type the Bitwarden password only in Bitwarden's terminal prompt. WardSen unlocks automatically when the one-time handoff succeeds.</span>
           </div>
         ) : null}
+        {selectedAccountIsBitwarden && bitwardenCliMissing ? <div className="notice compact providerCliRequired" role="status" aria-live="polite">
+          <div>
+            <strong>Bitwarden CLI setup is required</strong>
+            <span>WardSen will not open a Terminal handoff until the local <code>bw</code> command passes its version check.</span>
+          </div>
+          <button type="button" className="secondary" onClick={() => onOpenProviderSetup("bitwarden")}><Settings size={16} aria-hidden="true" /> Set up Bitwarden CLI</button>
+        </div> : null}
+        {selectedAccountIsKeePassXC && keepassXcCliMissing ? <div className="notice compact providerCliRequired" role="status" aria-live="polite">
+          <div>
+            <strong>KeePassXC setup is required</strong>
+            <span>WardSen will not open this database until <code>keepassxc-cli</code> passes its version check.</span>
+          </div>
+          <button type="button" className="secondary" onClick={() => onOpenProviderSetup("keepassxc")}><Settings size={16} aria-hidden="true" /> Set up KeePassXC</button>
+        </div> : null}
         {terminalHandoff && terminalHandoff.accountId === selectedAccount?.id ? (
           <div className="notice compact terminalHandoffNotice" role="status" aria-live="polite">
             <strong>{terminalLaunchWaiting ? "Waiting for Terminal" : "Terminal command ready"}</strong>
@@ -800,8 +916,8 @@ function Vaults({ api, confirmDestructiveAction }: { api: ReturnType<typeof useW
           ) : null}
         </div>
         <div className="formActions accountAccessActions">
-          <button type="button" className={selectedAccountIsBitwarden || verificationNeeded ? "primary" : undefined} onClick={() => void accountAccess("login")}><ShieldCheck size={16} /> {selectedAccountIsBitwarden ? "Terminal login / unlock" : verificationNeeded ? "Submit code and login" : "Login"}</button>
-          {!selectedAccountIsBitwarden ? <button type="button" className="primary" onClick={() => void accountAccess("unlock")}><KeyRound size={16} /> Unlock</button> : null}
+          {selectedAccountIsBitwarden && bitwardenCliMissing ? <button type="button" className="primary" onClick={() => onOpenProviderSetup("bitwarden")}><Settings size={16} aria-hidden="true" /> Set up Bitwarden CLI</button> : <button type="button" className={selectedAccountIsBitwarden || verificationNeeded ? "primary" : undefined} disabled={selectedAccountIsBitwarden && bitwardenCliChecking} onClick={() => void accountAccess("login")}><ShieldCheck size={16} /> {selectedAccountIsBitwarden && bitwardenCliChecking ? "Checking Bitwarden CLI..." : selectedAccountIsBitwarden ? "Terminal login / unlock" : verificationNeeded ? "Submit code and login" : "Login"}</button>}
+          {!selectedAccountIsBitwarden ? selectedAccountIsKeePassXC && keepassXcCliMissing ? <button type="button" className="primary" onClick={() => onOpenProviderSetup("keepassxc")}><Settings size={16} aria-hidden="true" /> Set up KeePassXC</button> : <button type="button" className="primary" disabled={selectedAccountIsKeePassXC && keepassXcCliChecking} onClick={() => void accountAccess("unlock")}><KeyRound size={16} /> {selectedAccountIsKeePassXC && keepassXcCliChecking ? "Checking KeePassXC..." : "Unlock"}</button> : null}
         </div>
       </section>
       <section className="panel">
@@ -1237,8 +1353,13 @@ function RequestsView({ api }: { api: ReturnType<typeof useWardSenApi> }) {
   const requestCatalog = api.catalogEntries.filter((entry) => entry.active && (!requestForm.employeeId || catalogEntryAllowsEmployee(entry, selectedRequestEmployee)));
   const requestSelectedEntry = requestCatalog.find((entry) => entry.id === requestForm.catalogEntryId);
   const deliveryProviderId = approvalForm.deliveryProviderId || api.deliveryProviders[0]?.id || "";
-  const deliveryAccountId = approvalForm.deliveryAccountId || api.accounts[0]?.id || "";
   const selectedApprovalProvider = api.deliveryProviders.find((provider) => provider.id === deliveryProviderId);
+  const approvalDeliveryAccounts = selectedApprovalProvider?.id === "bitwarden-send"
+    ? api.accounts.filter((account) => account.providerId === "bitwarden")
+    : api.accounts;
+  const deliveryAccountId = approvalDeliveryAccounts.some((account) => account.id === approvalForm.deliveryAccountId)
+    ? approvalForm.deliveryAccountId
+    : approvalDeliveryAccounts[0]?.id || "";
   const approvalCapabilities = selectedApprovalProvider?.capabilities ?? {};
   const approvalManualHandoff = isManualHandoffProvider(selectedApprovalProvider);
   const approvalExpiryValue = approvalCapabilities.customExpiry === false ? "24" : approvalForm.expiryHours;
@@ -1422,7 +1543,7 @@ function RequestsView({ api }: { api: ReturnType<typeof useWardSenApi> }) {
 
   async function approveRequest(accessRequest: CredentialAccessRequestRecord) {
     if (!deliveryProviderId || !deliveryAccountId) {
-      setMessage({ status: "error", text: "Choose a delivery provider and delivery account before approving." });
+      setMessage({ status: "error", text: selectedApprovalProvider?.id === "bitwarden-send" ? "Bitwarden Send requires a Bitwarden vault account. Add and unlock one in Vaults before approving." : "Choose a delivery provider and delivery account before approving." });
       return;
     }
     const action = accessRequest.status === "approved" ? "Fulfill" : "Approve";
@@ -1454,7 +1575,7 @@ function RequestsView({ api }: { api: ReturnType<typeof useWardSenApi> }) {
 
   async function replaceRequestLink(accessRequest: CredentialAccessRequestRecord) {
     if (!deliveryProviderId || !deliveryAccountId) {
-      setMessage({ status: "error", text: "Choose a delivery provider and delivery account before replacing a link." });
+      setMessage({ status: "error", text: selectedApprovalProvider?.id === "bitwarden-send" ? "Bitwarden Send requires a Bitwarden vault account. Add and unlock one in Vaults before replacing a link." : "Choose a delivery provider and delivery account before replacing a link." });
       return;
     }
     if (!accessRequest.deliveryId) {
@@ -1657,13 +1778,14 @@ function RequestsView({ api }: { api: ReturnType<typeof useWardSenApi> }) {
             {api.deliveryProviders.map((provider) => <option key={provider.id} value={provider.id}>{provider.displayName}</option>)}
           </select>
           <select aria-label="Approval delivery account" value={deliveryAccountId} onChange={(event) => setApprovalForm((current) => ({ ...current, deliveryAccountId: event.target.value }))}>
-            {api.accounts.map((account) => <option key={account.id} value={account.id}>{account.label}</option>)}
+            {approvalDeliveryAccounts.length === 0 ? <option value="">Add a Bitwarden vault in Vaults</option> : approvalDeliveryAccounts.map((account) => <option key={account.id} value={account.id}>{account.label}</option>)}
           </select>
           <input aria-label="Approval expiry hours" inputMode="numeric" value={approvalExpiryValue} disabled={approvalCapabilities.customExpiry === false} onChange={(event) => setApprovalForm((current) => ({ ...current, expiryHours: event.target.value }))} placeholder="Hours" />
           <input aria-label="Approval view limit" inputMode="numeric" value={approvalViewLimitValue} disabled={!approvalCapabilities.arbitraryViewLimit} onChange={(event) => setApprovalForm((current) => ({ ...current, viewLimit: event.target.value }))} placeholder={approvalCapabilities.arbitraryViewLimit ? "Views" : "Provider fixed"} />
           <input aria-label="Replacement reason" value={approvalForm.replacementReason} onChange={(event) => setApprovalForm((current) => ({ ...current, replacementReason: event.target.value }))} placeholder="Replacement reason" />
           <label className="inlineCheck"><input type="checkbox" checked={approvalViewOnceChecked} disabled={!approvalCapabilities.viewOnce || approvalManualHandoff} onChange={(event) => setApprovalForm((current) => ({ ...current, viewOnce: event.target.checked }))} /> One access</label>
         </div>
+        {selectedApprovalProvider?.id === "bitwarden-send" && approvalDeliveryAccounts.length === 0 ? <div className="notice compact" role="status"><strong>Bitwarden Send needs a Bitwarden vault</strong><span>Add and unlock a Bitwarden account in Vaults before approving a request with Bitwarden Send.</span></div> : null}
         {approvalManualHandoff ? (
           <div className="riskSummary">
             <strong>Ente Paste approval handoff</strong>
@@ -1867,19 +1989,18 @@ function Deliveries({ api, confirmDestructiveAction }: { api: ReturnType<typeof 
   );
 }
 
-function SettingsView({ credentialProviders, deliveryProviders, optionalDeliveryProviders, plannedProviders, onRefresh, confirmAction }: { credentialProviders: ProviderInfo[]; deliveryProviders: ProviderInfo[]; optionalDeliveryProviders: ProviderInfo[]; plannedProviders: ProviderInfo[]; onRefresh: () => void; confirmAction: DestructiveConfirmation }) {
-  const [selectedProviderId, setSelectedProviderId] = useState("");
+function SettingsView({ credentialProviders, deliveryProviders, optionalDeliveryProviders, plannedProviders, onRefresh, confirmAction, initialProviderId }: { credentialProviders: ProviderInfo[]; deliveryProviders: ProviderInfo[]; optionalDeliveryProviders: ProviderInfo[]; plannedProviders: ProviderInfo[]; onRefresh: () => void; confirmAction: DestructiveConfirmation; initialProviderId?: string }) {
+  const [selectedProviderId, setSelectedProviderId] = useState(initialProviderId ?? "");
   const [connectionCheck, setConnectionCheck] = useState<{ providerId?: string; status: "idle" | "loading" | "ready" | "error"; text?: string }>({ status: "idle" });
   const [diagnostic, setDiagnostic] = useState<{ providerId?: string; status: "idle" | "loading" | "ready" | "error"; value?: ProviderDiagnostic; text?: string }>({ status: "idle" });
+  const [releaseUpdate, setReleaseUpdate] = useState<{ status: "idle" | "loading" | "ready" | "error"; value?: ReleaseUpdateCheck; text?: string }>({ status: "idle" });
   const providers = [...credentialProviders, ...deliveryProviders, ...optionalDeliveryProviders];
   const selectedProvider = providers.find((provider) => provider.id === selectedProviderId) ?? providers[0];
   const capabilities = selectedProvider?.capabilities ?? {};
   const isSelectedProviderCheck = connectionCheck.providerId === selectedProvider?.id;
   const isSelectedDiagnostic = diagnostic.providerId === selectedProvider?.id;
 
-  async function checkDeliveryProvider() {
-    if (!selectedProvider || selectedProvider.kind !== "delivery" || selectedProvider.id === "bitwarden-send") return;
-    const provider = selectedProvider;
+  async function runDeliveryProviderCheck(provider: ProviderInfo): Promise<boolean> {
     setConnectionCheck({ providerId: provider.id, status: "loading", text: `Checking ${provider.displayName} configuration...` });
     try {
       const result = await apiSend<{ ready: boolean; safeMessage?: string }>(`/api/delivery-providers/${encodeURIComponent(provider.id)}/test`);
@@ -1888,9 +2009,16 @@ function SettingsView({ credentialProviders, deliveryProviders, optionalDelivery
         status: result.ready ? "ready" : "error",
         text: result.safeMessage ?? (result.ready ? `${provider.displayName} is ready.` : `${provider.displayName} is not ready.`)
       });
+      return result.ready;
     } catch (error) {
       setConnectionCheck({ providerId: provider.id, status: "error", text: error instanceof Error ? error.message : String(error) });
+      return false;
     }
+  }
+
+  async function checkDeliveryProvider() {
+    if (!selectedProvider || selectedProvider.kind !== "delivery" || selectedProvider.id === "bitwarden-send") return;
+    await runDeliveryProviderCheck(selectedProvider);
   }
 
   async function refreshDiagnostics() {
@@ -1905,7 +2033,17 @@ function SettingsView({ credentialProviders, deliveryProviders, optionalDelivery
     }
   }
 
+  useEffect(() => {
+    if (!selectedProvider) return;
+    if (selectedProvider.id === "keepassxc") void refreshDiagnostics();
+    if (selectedProvider.id === "yopass" || selectedProvider.configurationRequired) void checkDeliveryProvider();
+  }, [selectedProvider?.id]);
+
   async function setWeakerProviderEnabled(provider: ProviderInfo, enabled: boolean) {
+    if (enabled && provider.configurationRequired) {
+      setSelectedProviderId(provider.id);
+      if (!await runDeliveryProviderCheck(provider)) return;
+    }
     const action = enabled ? "ENABLE" : "DISABLE";
     const phrase = `${action} WEAKER PROVIDER ${provider.id}`;
     const confirmed = await confirmAction(
@@ -1926,8 +2064,33 @@ function SettingsView({ credentialProviders, deliveryProviders, optionalDelivery
     }
   }
 
+  async function checkForUpdates() {
+    setReleaseUpdate({ status: "loading" });
+    try {
+      const value = await apiGet<ReleaseUpdateCheck>(`/api/release-update?currentVersion=${encodeURIComponent(appVersion)}`);
+      setReleaseUpdate({ status: "ready", value });
+    } catch (error) {
+      setReleaseUpdate({ status: "error", text: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
   return (
     <div className="grid">
+      <section className="panel">
+        <PanelTitle icon={RefreshCcw} title="Software Updates" action={releaseUpdate.status === "loading" ? "Checking..." : "Check GitHub Releases"} onAction={() => void checkForUpdates()} actionDisabled={releaseUpdate.status === "loading"} />
+        <p className="providerNotes">WardSen checks GitHub only when you select this action. It never downloads, installs or runs an update automatically.</p>
+        {releaseUpdate.status === "error" ? <ErrorNotice message={releaseUpdate.text} compact /> : null}
+        {releaseUpdate.status === "ready" && releaseUpdate.value?.updateAvailable && releaseUpdate.value.release ? (
+          <div className="notice compact" role="status" aria-live="polite">
+            <strong>{releaseUpdate.value.release.tag} is available</strong>
+            <span>Published {formatDate(releaseUpdate.value.release.publishedAt)}{releaseUpdate.value.release.prerelease ? " as a release candidate" : ""}. Review the release assets and matching checksum before installing.</span>
+            <div className="noticeActions">
+              <button type="button" className="noticeActionLink" onClick={() => void openExternalUrl(releaseUpdate.value!.release!.pageUrl)}><ArrowUpRight size={16} aria-hidden="true" /> Open release page</button>
+            </div>
+          </div>
+        ) : null}
+        {releaseUpdate.status === "ready" && !releaseUpdate.value?.updateAvailable ? <div className="notice compact" role="status" aria-live="polite">{appVersion} is current as of {formatDate(releaseUpdate.value?.checkedAt ?? new Date().toISOString())}.</div> : null}
+      </section>
       <section className="panel">
         <PanelTitle icon={Settings} title="Provider Capabilities" action="Refresh" onAction={onRefresh} />
         <div className="filters">
@@ -1944,6 +2107,9 @@ function SettingsView({ credentialProviders, deliveryProviders, optionalDelivery
         </div>
         {selectedProvider?.notes ? <p className="providerNotes">{selectedProvider.notes}</p> : null}
         {selectedProvider?.id === "bitwarden" || selectedProvider?.id === "bitwarden-send" ? <BitwardenCliSetupWizard onConfigured={onRefresh} /> : null}
+        {selectedProvider?.id === "keepassxc" ? <KeePassXcCliSetupGuide diagnostic={isSelectedDiagnostic ? diagnostic : undefined} onCheck={() => void refreshDiagnostics()} /> : null}
+        {selectedProvider?.id === "yopass" ? <YopassCliSetupGuide diagnostic={isSelectedDiagnostic ? diagnostic : undefined} onCheck={() => void refreshDiagnostics()} /> : null}
+        {selectedProvider?.configurationRequired ? <ExternalApiProviderSetupGuide provider={selectedProvider} onCheck={() => void checkDeliveryProvider()} /> : null}
         {selectedProvider?.setupInstructions?.length ? <ul className="providerSetup" aria-label={`${selectedProvider.displayName} setup`}>
           {selectedProvider.setupInstructions.map((instruction) => <li key={instruction}>{instruction}</li>)}
         </ul> : null}
@@ -1971,7 +2137,7 @@ function SettingsView({ credentialProviders, deliveryProviders, optionalDelivery
                 <p>{provider.optInWarning ?? "This provider requires an operator opt-in before it can be selected for delivery."}</p>
               </div>
               <button type="button" className="warningAction" onClick={() => void setWeakerProviderEnabled(provider, true)}>
-                <ShieldCheck size={15} aria-hidden="true" /> Enable {provider.displayName}
+                <ShieldCheck size={15} aria-hidden="true" /> {provider.configurationRequired ? `Check setup and enable ${provider.displayName}` : `Enable ${provider.displayName}`}
               </button>
             </article>
           ))}
@@ -2061,6 +2227,14 @@ function BitwardenCliSetupWizard({ onConfigured }: { onConfigured: () => void })
     }
   }
 
+  async function openNodeInstallGuide() {
+    try {
+      await openExternalUrl("https://nodejs.org/en/download");
+    } catch (error) {
+      setSaveState({ status: "error", text: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
   async function verifyAndUseExecutable() {
     setSaveState({ status: "loading", text: "Verifying the selected CLI with bw --version..." });
     try {
@@ -2080,6 +2254,10 @@ function BitwardenCliSetupWizard({ onConfigured }: { onConfigured: () => void })
 
   const cliFound = diagnostic.status === "ready" && diagnostic.value?.runtime.kind === "cli" && diagnostic.value.runtime.binaryFound;
   const cliVersion = cliFound ? diagnostic.value?.runtime.version : "Not found";
+  const isMac = typeof navigator !== "undefined" && /Mac/.test(navigator.platform || navigator.userAgent);
+  const isWindows = typeof navigator !== "undefined" && /Win/.test(navigator.platform || navigator.userAgent);
+  const installCommand = isWindows ? "npm.cmd install -g @bitwarden/cli" : "npm install -g @bitwarden/cli";
+  const locateCommand = isWindows ? "where.exe bw" : "command -v bw";
   return (
     <div className="providerSetupWizard" aria-label="Bitwarden CLI setup">
       <div className="providerSetupWizardHeader">
@@ -2093,9 +2271,30 @@ function BitwardenCliSetupWizard({ onConfigured }: { onConfigured: () => void })
         <li className="ready"><CheckCircle2 size={17} aria-hidden="true" /><span><strong>WardSen desktop app</strong><small>Ready</small></span></li>
         <li className={cliFound ? "ready" : "pending"}><CheckCircle2 size={17} aria-hidden="true" /><span><strong>Bitwarden CLI</strong><small>{cliFound ? `Found: ${cliVersion}` : diagnostic.status === "loading" ? "Checking local paths and PATH..." : "Not found"}</small></span></li>
       </ol>
-      {!cliFound ? <p className="providerSetupGuidance">Use Bitwarden&apos;s official guide to download the correct CLI for this computer, or choose an existing IT-approved <code>bw</code> executable. WardSen checks only its version before saving the local choice.</p> : <p className="providerSetupGuidance">The local service can use this CLI. Add a Bitwarden account in Vaults, then use Terminal login / unlock.</p>}
+      {!cliFound ? <div className="providerSetupGuidance">
+        <p>Choose the simple route below, then return here and select <strong>Check again</strong>. WardSen does not install npm packages or download provider software for you.</p>
+        {isMac ? <p><strong>macOS:</strong> do not double-click a downloaded <code>bw</code> file in Finder. On Apple Silicon, Bitwarden&apos;s guide directs you to its npm installation method. If Gatekeeper blocks a downloaded binary, use Bitwarden&apos;s documented installer or an IT-approved CLI instead of bypassing macOS protections.</p> : null}
+        <ol className="providerDependencySteps" aria-label="Bitwarden required dependencies">
+          <li>
+            <div><strong>Install Node.js LTS</strong><span>Skip this step when <code>node --version</code> and <code>npm --version</code> already work in Terminal.</span></div>
+            <button type="button" className="secondary" onClick={() => void openNodeInstallGuide()}><ArrowUpRight size={16} aria-hidden="true" /> Open Node.js download</button>
+          </li>
+          <li>
+            <div><strong>Install the Bitwarden CLI</strong><span>Open Terminal{isWindows ? " or PowerShell" : ""}, run this command, and wait for it to finish.</span></div>
+            <div className="providerInstallCommand"><code>{installCommand}</code><CopyFeedbackButton value={installCommand} label="Copy install command" copiedLabel="Install command copied" /></div>
+          </li>
+          <li>
+            <div><strong>Confirm it is ready</strong><span>Run this in the same Terminal{isWindows ? " or PowerShell" : ""}. Then return to WardSen and select <strong>Check again</strong>.</span></div>
+            <div className="providerInstallCommand"><code>bw --version</code><CopyFeedbackButton value="bw --version" label="Copy version check" copiedLabel="Version check copied" /></div>
+          </li>
+          <li>
+            <div><strong>Only if WardSen still says not found</strong><span>Run this command, copy the path it prints, then choose <strong>Locate existing CLI</strong> below and paste that path.</span></div>
+            <div className="providerInstallCommand"><code>{locateCommand}</code><CopyFeedbackButton value={locateCommand} label="Copy path command" copiedLabel="Path command copied" /></div>
+          </li>
+        </ol>
+      </div> : <p className="providerSetupGuidance">The local service can use this CLI. Add a Bitwarden account in Vaults, then use Terminal login / unlock.</p>}
       <div className="providerSetupActions">
-        <button type="button" className="secondary" onClick={() => void openInstallGuide()}>Open official CLI guide</button>
+        <button type="button" className="secondary" onClick={() => void openInstallGuide()}><ArrowUpRight size={16} aria-hidden="true" /> Open official Bitwarden CLI guide</button>
         <button type="button" onClick={() => setShowLocator((current) => !current)}>{showLocator ? "Hide CLI path" : "Locate existing CLI"}</button>
       </div>
       {showLocator ? <div className="providerCliLocator">
@@ -2112,6 +2311,187 @@ function BitwardenCliSetupWizard({ onConfigured }: { onConfigured: () => void })
       {saveState.status !== "idle" ? <div className={saveState.status === "error" ? "notice error compact" : "notice compact"} role="status" aria-live="polite">{saveState.text}</div> : null}
     </div>
   );
+}
+
+function KeePassXcCliSetupGuide({ diagnostic, onCheck }: { diagnostic?: { status: "idle" | "loading" | "ready" | "error"; value?: ProviderDiagnostic }; onCheck: () => void }) {
+  const [setupError, setSetupError] = useState<string>();
+  const isMac = typeof navigator !== "undefined" && /Mac/.test(navigator.platform || navigator.userAgent);
+  const isWindows = typeof navigator !== "undefined" && /Win/.test(navigator.platform || navigator.userAgent);
+  const isChecking = diagnostic?.status === "loading";
+  const cliFound = diagnostic?.status === "ready" && diagnostic.value?.runtime.kind === "cli" && diagnostic.value.runtime.binaryFound;
+  const cliVersion = cliFound ? diagnostic.value?.runtime.version : "Not found";
+  const installCommand = "winget install -e --id KeePassXCTeam.KeePassXC";
+  const versionCommand = isWindows
+    ? '& "$env:ProgramFiles\\KeePassXC\\keepassxc-cli.exe" --version'
+    : isMac
+      ? '"/Applications/KeePassXC.app/Contents/MacOS/keepassxc-cli" --version'
+      : "keepassxc-cli --version";
+
+  async function openDownload() {
+    setSetupError(undefined);
+    try {
+      await openExternalUrl("https://keepassxc.org/download/");
+    } catch (error) {
+      setSetupError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function openGuide() {
+    setSetupError(undefined);
+    try {
+      await openExternalUrl("https://keepassxc.org/docs/KeePassXC_UserGuide#_command_line_tool");
+    } catch (error) {
+      setSetupError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  return (
+    <div className="providerSetupWizard" aria-label="KeePassXC CLI setup">
+      <div className="providerSetupWizardHeader">
+        <div>
+          <h3>KeePassXC CLI setup</h3>
+          <p>KeePassXC includes <code>keepassxc-cli</code> with its official desktop app. WardSen uses it locally to open the database you select; it does not install the app or handle its installer for you.</p>
+        </div>
+        <button type="button" onClick={onCheck} disabled={isChecking}>{isChecking ? "Checking..." : cliFound ? "Check again" : "Check now"}</button>
+      </div>
+      <ol className="providerSetupSteps">
+        <li className="ready"><CheckCircle2 size={17} aria-hidden="true" /><span><strong>WardSen desktop app</strong><small>Ready</small></span></li>
+        <li className={cliFound ? "ready" : "pending"}><CheckCircle2 size={17} aria-hidden="true" /><span><strong>KeePassXC CLI</strong><small>{cliFound ? `Found: ${cliVersion}` : isChecking ? "Checking local app locations and PATH..." : "Not checked"}</small></span></li>
+      </ol>
+      {!cliFound ? <div className="providerSetupGuidance">
+        <p>Install the official KeePassXC app, then select <strong>Check now</strong>. WardSen checks the normal application location automatically, so a separate terminal command is not required.</p>
+        {isMac ? <p><strong>macOS:</strong> open KeePassXC&apos;s official DMG and drag the app to Applications. Do not bypass a macOS security warning; use the provider&apos;s signed download or an IT-approved installation.</p> : null}
+        <ol className="providerDependencySteps" aria-label="KeePassXC required dependencies">
+          <li>
+            <div><strong>Install KeePassXC</strong><span>Download the official desktop app for this computer and complete its installer.</span></div>
+            <button type="button" className="secondary" onClick={() => void openDownload()}><ArrowUpRight size={16} aria-hidden="true" /> Open KeePassXC download</button>
+          </li>
+          {isWindows ? <li>
+            <div><strong>Windows alternative</strong><span>Use this Windows Package Manager command only when <code>winget</code> is already available.</span></div>
+            <ProviderInstallCommand command={installCommand} label="Copy install command" copiedLabel="Install command copied" />
+          </li> : null}
+          <li>
+            <div><strong>Optional terminal check</strong><span>Run this only when you want to confirm the CLI yourself. Then return to WardSen and select <strong>Check now</strong>.</span></div>
+            <ProviderInstallCommand command={versionCommand} label="Copy version check" copiedLabel="Version check copied" />
+          </li>
+          <li>
+            <div><strong>Only if WardSen still cannot find it</strong><span>Confirm the official app is installed in its normal location. For a custom CLI location, set <code>WARDSEN_KEEPASSXC_CLI_PATH</code> to its absolute path in the local service environment, then restart WardSen.</span></div>
+          </li>
+        </ol>
+      </div> : <p className="providerSetupGuidance">The local service can use the KeePassXC CLI. Add a KeePassXC account in Vaults, choose its database path and unlock it locally.</p>}
+      <div className="providerSetupActions">
+        <button type="button" className="secondary" onClick={() => void openGuide()}><ArrowUpRight size={16} aria-hidden="true" /> Open official KeePassXC CLI guide</button>
+      </div>
+      {setupError ? <ErrorNotice message={setupError} compact /> : null}
+    </div>
+  );
+}
+
+function YopassCliSetupGuide({ diagnostic, onCheck }: { diagnostic?: { status: "idle" | "loading" | "ready" | "error"; value?: ProviderDiagnostic }; onCheck: () => void }) {
+  const [setupError, setSetupError] = useState<string>();
+  const isMac = typeof navigator !== "undefined" && /Mac/.test(navigator.platform || navigator.userAgent);
+  const isWindows = typeof navigator !== "undefined" && /Win/.test(navigator.platform || navigator.userAgent);
+  const isChecking = diagnostic?.status === "loading";
+  const cliFound = diagnostic?.status === "ready" && diagnostic.value?.runtime.kind === "cli" && diagnostic.value.runtime.binaryFound;
+  const cliVersion = cliFound ? diagnostic.value?.runtime.version : "Not found";
+  const installCommand = "go install github.com/jhaals/yopass/cmd/yopass@latest";
+  const versionCommand = isWindows ? '& "$env:USERPROFILE\\go\\bin\\yopass.exe" --version' : isMac ? '"$HOME/go/bin/yopass" --version' : "$HOME/go/bin/yopass --version";
+  const locateCommand = isWindows ? "where.exe yopass" : "command -v yopass";
+
+  async function openGoDownload() {
+    setSetupError(undefined);
+    try {
+      await openExternalUrl("https://go.dev/dl/");
+    } catch (error) {
+      setSetupError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function openGuide() {
+    setSetupError(undefined);
+    try {
+      await openExternalUrl("https://github.com/jhaals/yopass");
+    } catch (error) {
+      setSetupError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  return (
+    <div className="providerSetupWizard" aria-label="Yopass CLI setup">
+      <div className="providerSetupWizardHeader">
+        <div>
+          <h3>Yopass CLI setup</h3>
+          <p>Yopass is an optional, reduced-control delivery provider. Its local CLI encrypts the projected delivery text before uploading it; WardSen does not install Go or Yopass for you.</p>
+        </div>
+        <button type="button" onClick={onCheck} disabled={isChecking}>{isChecking ? "Checking..." : cliFound ? "Check again" : "Check now"}</button>
+      </div>
+      <ol className="providerSetupSteps">
+        <li className="ready"><CheckCircle2 size={17} aria-hidden="true" /><span><strong>WardSen desktop app</strong><small>Ready</small></span></li>
+        <li className={cliFound ? "ready" : "pending"}><CheckCircle2 size={17} aria-hidden="true" /><span><strong>Yopass CLI</strong><small>{cliFound ? `Found: ${cliVersion}` : isChecking ? "Checking Go's standard install folder and PATH..." : "Not checked"}</small></span></li>
+      </ol>
+      {!cliFound ? <div className="providerSetupGuidance">
+        <p>Complete these steps only when you plan to enable Yopass. It remains an opt-in provider because WardSen cannot revoke its links or observe their access.</p>
+        <ol className="providerDependencySteps" aria-label="Yopass required dependencies">
+          <li>
+            <div><strong>Install Go 1.21 or later</strong><span>Skip this when <code>go version</code> already works in Terminal{isWindows ? " or PowerShell" : ""}.</span></div>
+            <button type="button" className="secondary" onClick={() => void openGoDownload()}><ArrowUpRight size={16} aria-hidden="true" /> Open Go download</button>
+          </li>
+          <li>
+            <div><strong>Install the Yopass CLI</strong><span>Run this command in a new Terminal{isWindows ? " or PowerShell" : ""} after Go finishes installing.</span></div>
+            <ProviderInstallCommand command={installCommand} label="Copy install command" copiedLabel="Install command copied" />
+          </li>
+          <li>
+            <div><strong>Confirm it is ready</strong><span>WardSen checks Go&apos;s normal install folder automatically. Run this yourself only if you want to confirm the installed CLI, then select <strong>Check now</strong>.</span></div>
+            <ProviderInstallCommand command={versionCommand} label="Copy version check" copiedLabel="Version check copied" />
+          </li>
+          <li>
+            <div><strong>Only if WardSen still says not found</strong><span>Run this command to find a CLI already on PATH. For a custom Go install folder, set <code>WARDSEN_YOPASS_CLI_PATH</code> to the absolute executable path in the local service environment, then restart WardSen.</span></div>
+            <ProviderInstallCommand command={locateCommand} label="Copy path command" copiedLabel="Path command copied" />
+          </li>
+        </ol>
+      </div> : <p className="providerSetupGuidance">The local service can use Yopass. Enable it only after reviewing its delivery-control limits above.</p>}
+      <div className="providerSetupActions">
+        <button type="button" className="secondary" onClick={() => void openGuide()}><ArrowUpRight size={16} aria-hidden="true" /> Open official Yopass CLI guide</button>
+      </div>
+      {setupError ? <ErrorNotice message={setupError} compact /> : null}
+    </div>
+  );
+}
+
+function ExternalApiProviderSetupGuide({ provider, onCheck }: { provider: ProviderInfo; onCheck: () => void }) {
+  const isMac = typeof navigator !== "undefined" && /Mac/.test(navigator.platform || navigator.userAgent);
+  const isWindows = typeof navigator !== "undefined" && /Win/.test(navigator.platform || navigator.userAgent);
+  const secretNames = provider.id === "password-pusher"
+    ? "WARDSEN_PASSWORD_PUSHER_API_TOKEN"
+    : "WARDSEN_ONETIME_SECRET_USERNAME and WARDSEN_ONETIME_SECRET_API_TOKEN";
+
+  return (
+    <div className="providerSetupWizard" aria-label={`${provider.displayName} secure local setup`}>
+      <div className="providerSetupWizardHeader">
+        <div>
+          <h3>{provider.displayName} secure local setup</h3>
+          <p>This provider needs an API credential held by the local WardSen service. WardSen never asks for, displays or stores that credential in the desktop app.</p>
+        </div>
+        <button type="button" onClick={onCheck}>Check configuration</button>
+      </div>
+      <ol className="providerDependencySteps" aria-label={`${provider.displayName} setup steps`}>
+        <li>
+          <div><strong>Use an approved secret-management route</strong><span>Ask the administrator who manages this computer or provider account to make {secretNames} available only to WardSen&apos;s local service environment.</span></div>
+        </li>
+        <li>
+          <div><strong>Do not paste provider API credentials into WardSen</strong><span>The desktop UI intentionally has no token field and does not write secrets to its database or configuration files.</span></div>
+        </li>
+        <li>
+          <div><strong>Restart the desktop app</strong><span>{isWindows ? "Apps launched from Start Menu do not inherit variables from a one-off PowerShell window." : isMac ? "Apps opened from Finder do not inherit values from zsh startup files." : "Restart WardSen after the managed service environment changes."} Fully quit WardSen, reopen it, then run this check.</span></div>
+        </li>
+      </ol>
+      <p className="providerSetupGuidance">For a simple first delivery, use Bitwarden Send instead. Enable this provider only after this non-secret check succeeds.</p>
+    </div>
+  );
+}
+
+function ProviderInstallCommand({ command, label, copiedLabel }: { command: string; label: string; copiedLabel: string }) {
+  return <div className="providerInstallCommand"><code>{command}</code><CopyFeedbackButton value={command} label={label} copiedLabel={copiedLabel} /></div>;
 }
 
 function DeliveryComposer({ api, selectedCredentials }: { api: ReturnType<typeof useWardSenApi>; selectedCredentials: CredentialSummary[] }) {
@@ -2132,15 +2512,25 @@ function DeliveryComposer({ api, selectedCredentials }: { api: ReturnType<typeof
     customText: ""
   });
   const [submit, setSubmit] = useState<{ status: "idle" | "loading" | "ready" | "error"; message?: string; url?: string; delivery?: CreatedDeliveryRecord }>({ status: "idle" });
+  const [deliveryProviderCheck, setDeliveryProviderCheck] = useState<{ providerId?: string; status: "idle" | "loading" | "ready" | "error"; text?: string }>({ status: "idle" });
   const [bulkResults, setBulkResults] = useState<BulkDeliveryItemResult[]>([]);
   const [multiCredentialResults, setMultiCredentialResults] = useState<MultiCredentialDeliveryResult[]>([]);
   const selectedCredential = selectedCredentials[0];
   const selectedSourceAccounts = [...new Set(selectedCredentials.map((credential) => credential.accountId))];
   const isCustomText = form.contentType === "custom-text";
   const deliveryProviderId = form.deliveryProviderId || api.deliveryProviders[0]?.id || "";
-  const deliveryAccountId = form.deliveryAccountId || (!isCustomText ? selectedCredential?.accountId : undefined) || api.accounts[0]?.id || "";
   const selectedDeliveryProvider = api.deliveryProviders.find((provider) => provider.id === deliveryProviderId);
+  const deliveryAccounts = selectedDeliveryProvider?.id === "bitwarden-send"
+    ? api.accounts.filter((account) => account.providerId === "bitwarden")
+    : api.accounts;
+  const deliveryAccountId = deliveryAccounts.some((account) => account.id === form.deliveryAccountId)
+    ? form.deliveryAccountId
+    : !isCustomText && selectedCredential && deliveryAccounts.some((account) => account.id === selectedCredential.accountId)
+      ? selectedCredential.accountId
+      : deliveryAccounts[0]?.id || "";
   const capabilities = selectedDeliveryProvider?.capabilities ?? {};
+  const providerNeedsConfiguration = selectedDeliveryProvider?.configurationRequired === true;
+  const providerConfigurationReady = !providerNeedsConfiguration || (deliveryProviderCheck.providerId === deliveryProviderId && deliveryProviderCheck.status === "ready");
   const manualHandoff = isManualHandoffProvider(selectedDeliveryProvider);
   const useBundleLink = !isCustomText && selectedCredentials.length > 1 && form.linkArrangement === "bundle";
   const selectedCredentialSetKey = selectedCredentials.map(credentialSelectionKey).join("|");
@@ -2171,6 +2561,30 @@ function DeliveryComposer({ api, selectedCredentials }: { api: ReturnType<typeof
     resetDeliveryOutcome();
   }, [selectedCredentialSetKey]);
 
+  useEffect(() => {
+    if (!selectedDeliveryProvider?.configurationRequired) {
+      setDeliveryProviderCheck({ status: "idle" });
+      return;
+    }
+    let cancelled = false;
+    setDeliveryProviderCheck({ providerId: selectedDeliveryProvider.id, status: "loading", text: `Checking ${selectedDeliveryProvider.displayName} configuration...` });
+    void apiSend<{ ready: boolean; safeMessage?: string }>(`/api/delivery-providers/${encodeURIComponent(selectedDeliveryProvider.id)}/test`)
+      .then((result) => {
+        if (cancelled) return;
+        setDeliveryProviderCheck({
+          providerId: selectedDeliveryProvider.id,
+          status: result.ready ? "ready" : "error",
+          text: result.safeMessage ?? (result.ready ? `${selectedDeliveryProvider.displayName} is ready.` : `${selectedDeliveryProvider.displayName} needs setup.`)
+        });
+      })
+      .catch((error) => {
+        if (!cancelled) setDeliveryProviderCheck({ providerId: selectedDeliveryProvider.id, status: "error", text: error instanceof Error ? error.message : String(error) });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [deliveryProviderId]);
+
   async function createDelivery(event: React.FormEvent) {
     event.preventDefault();
     const [firstCredential] = selectedCredentials;
@@ -2181,6 +2595,14 @@ function DeliveryComposer({ api, selectedCredentials }: { api: ReturnType<typeof
     }
     if (isCustomText && !customText.trim()) {
       setSubmit({ status: "error", message: "Enter the custom text before creating a secure link." });
+      return;
+    }
+    if (providerNeedsConfiguration && !providerConfigurationReady) {
+      setSubmit({ status: "error", message: `${selectedDeliveryProvider?.displayName ?? "This provider"} needs a successful local configuration check. Open Settings > Provider Capabilities, complete the non-secret setup and try again.` });
+      return;
+    }
+    if (selectedDeliveryProvider?.id === "bitwarden-send" && deliveryAccounts.length === 0) {
+      setSubmit({ status: "error", message: "Bitwarden Send needs a Bitwarden vault account. Add and unlock one in Vaults before creating a secure link." });
       return;
     }
     if (!deliveryProviderId || !deliveryAccountId) {
@@ -2362,9 +2784,11 @@ function DeliveryComposer({ api, selectedCredentials }: { api: ReturnType<typeof
       </select></label>
       <small className="fieldInstruction wide">Only active delivery integrations are selectable. Check Settings &gt; Provider Capabilities for provider limits and planned candidates.</small>
       <label>{deliveryProviderId === "bitwarden-send" ? "Delivery account" : "Audit account"}<select name="deliveryAccountId" value={deliveryAccountId} onChange={(event) => setForm((current) => ({ ...current, deliveryAccountId: event.target.value }))}>
-        {api.accounts.map((account) => <option key={account.id} value={account.id}>{account.label}</option>)}
+        {deliveryAccounts.length === 0 ? <option value="">Add a Bitwarden vault in Vaults</option> : deliveryAccounts.map((account) => <option key={account.id} value={account.id}>{account.label}</option>)}
       </select></label>
       {deliveryProviderId !== "bitwarden-send" ? <small className="fieldInstruction wide">This provider reads its setup from the local WardSen service environment. The selected audit account scopes metadata only; it does not supply the provider API credential.</small> : null}
+      {deliveryProviderId === "bitwarden-send" && deliveryAccounts.length === 0 ? <div className="notice compact wide" role="status"><strong>Bitwarden Send needs a Bitwarden vault</strong><span>Add and unlock a Bitwarden account in Vaults before creating a secure link.</span></div> : null}
+      {providerNeedsConfiguration ? <div className={deliveryProviderCheck.status === "error" ? "notice error compact wide" : "notice compact wide"} role="status" aria-live="polite"><strong>{deliveryProviderCheck.status === "ready" ? `${selectedDeliveryProvider?.displayName} is ready` : deliveryProviderCheck.status === "loading" ? "Checking provider setup" : "Provider setup required"}</strong><span>{deliveryProviderCheck.text ?? "Open Settings > Provider Capabilities to complete the non-secret local setup."}</span></div> : null}
       <div className="segmented" role="group" aria-label="Delivery recipient mode">
         <button type="button" aria-pressed={form.mode === "shared"} className={form.mode === "shared" ? "selected" : ""} onClick={() => { resetDeliveryOutcome(); setForm((current) => ({ ...current, mode: "shared", personId: "" })); }}>Shared</button>
         <button type="button" aria-pressed={form.mode === "individual"} className={form.mode === "individual" ? "selected" : ""} onClick={() => { resetDeliveryOutcome(); setForm((current) => ({ ...current, mode: "individual", personId: current.personId || activePeople[0]?.id || "" })); }}>Individual</button>
@@ -2800,11 +3224,11 @@ function Metric({ label, value, detail }: { label: string; value: string; detail
   );
 }
 
-function PanelTitle({ icon: Icon, title, action, onAction }: { icon: React.ElementType; title: string; action?: string; onAction?: () => void }) {
+function PanelTitle({ icon: Icon, title, action, onAction, actionDisabled = false }: { icon: React.ElementType; title: string; action?: string; onAction?: () => void; actionDisabled?: boolean }) {
   return (
     <div className="panelTitle">
       <h2><Icon size={18} aria-hidden="true" /> {title}</h2>
-      {action && onAction ? <button type="button" onClick={onAction}>{action}</button> : null}
+      {action && onAction ? <button type="button" disabled={actionDisabled} onClick={onAction}>{action}</button> : null}
     </div>
   );
 }

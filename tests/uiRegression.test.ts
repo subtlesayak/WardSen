@@ -123,17 +123,66 @@ describe("web UI regression guards", () => {
     expect(webSource).toContain("/api/delivery-providers/${encodeURIComponent(provider.id)}/test");
   });
 
+  it("keeps API-backed delivery providers out of normal selection until their local setup passes", () => {
+    expect(webSource).toContain("configurationRequired?: boolean");
+    expect(webSource).toContain("function ExternalApiProviderSetupGuide");
+    expect(webSource).toContain("Check setup and enable ${provider.displayName}");
+    expect(webSource).toContain("WardSen never asks for, displays or stores that credential in the desktop app.");
+    expect(webSource).toContain("providerNeedsConfiguration");
+    expect(webSource).toContain("providerConfigurationReady");
+    expect(webSource).toContain("needs a successful local configuration check");
+  });
+
+  it("guides the initial setup and prevents incompatible Bitwarden Send accounts", () => {
+    expect(webSource).toContain('title="Get started"');
+    expect(webSource).toContain("Review provider setup");
+    expect(webSource).toContain("Unlock and search");
+    expect(webSource).toContain("onboardingChecklist");
+    expect(styles).toContain(".onboardingChecklist");
+    expect(webSource).toContain("const deliveryAccounts = selectedDeliveryProvider?.id === \"bitwarden-send\"");
+    expect(webSource).toContain("const approvalDeliveryAccounts = selectedApprovalProvider?.id === \"bitwarden-send\"");
+    expect(webSource).toContain("Bitwarden Send needs a Bitwarden vault");
+    expect(webSource).toContain("Personal KeePassXC");
+    expect(webSource).toContain("choose the .kdbx database path in Account Access");
+  });
+
   it("offers a Bitwarden CLI setup wizard without silently installing a package", () => {
     expect(webSource).toContain("function BitwardenCliSetupWizard");
     expect(webSource).toContain("Bitwarden CLI setup");
-    expect(webSource).toContain("Open official CLI guide");
+    expect(webSource).toContain("Open official Bitwarden CLI guide");
     expect(webSource).toContain("Locate existing CLI");
+    expect(webSource).toContain("do not double-click a downloaded <code>bw</code> file in Finder");
+    expect(webSource).toContain("Gatekeeper blocks a downloaded binary");
+    expect(webSource).toContain("Bitwarden required dependencies");
+    expect(webSource).toContain("Install Node.js LTS");
+    expect(webSource).toContain("Copy install command");
+    expect(webSource).toContain("Copy version check");
+    expect(webSource).toContain("Copy path command");
+    expect(webSource).toContain("npm.cmd install -g @bitwarden/cli");
     expect(webSource).toContain("I trust this official or IT-approved Bitwarden CLI file.");
     expect(webSource).toContain("/api/provider-tools/bitwarden/locate");
     expect(webSource).toContain("runs <code>bw --version</code> before it uses the file");
     expect(webSource).toContain("never installs npm packages or downloads a provider binary");
     expect(styles).toContain(".providerSetupWizard");
     expect(styles).toContain(".providerSetupSteps");
+    expect(styles).toContain(".providerDependencySteps");
+  });
+
+  it("guides every implemented local CLI provider without installing it automatically", () => {
+    expect(webSource).toContain("function KeePassXcCliSetupGuide");
+    expect(webSource).toContain("KeePassXC CLI setup");
+    expect(webSource).toContain("Open official KeePassXC CLI guide");
+    expect(webSource).toContain("KeePassXC required dependencies");
+    expect(webSource).toContain("winget install -e --id KeePassXCTeam.KeePassXC");
+    expect(webSource).toContain("WARDSEN_KEEPASSXC_CLI_PATH");
+    expect(webSource).toContain("function YopassCliSetupGuide");
+    expect(webSource).toContain("Yopass CLI setup");
+    expect(webSource).toContain("Yopass required dependencies");
+    expect(webSource).toContain("go install github.com/jhaals/yopass/cmd/yopass@latest");
+    expect(webSource).toContain("WARDSEN_YOPASS_CLI_PATH");
+    expect(webSource).toContain("onOpenProviderSetup(\"keepassxc\")");
+    expect(webSource).toContain("providerCliRequired");
+    expect(styles).toContain(".providerCliRequired");
   });
 
   it("keeps delivery recipient copy aligned with the selected delivery mode", () => {

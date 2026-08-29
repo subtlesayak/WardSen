@@ -4,9 +4,9 @@ WardSen release installers should be signed before a public release is published
 
 ## Current Release State
 
-`v0.1.0-rc.67` is the current unsigned prerelease candidate. Treat unsigned artifacts as validation builds, not fully trusted end-user releases. The next trusted release remains blocked on Windows Authenticode signing plus macOS Developer ID signing and notarization.
+`v0.11.0` is the current stable release. Its Windows MSI and macOS Apple Silicon DMG are unsigned artifacts, so users must verify checksums and expect platform warnings until Windows Authenticode signing plus macOS Developer ID signing and notarization are configured.
 
-Do not promote a final `v0.1.0` or "latest" release until Windows Authenticode signing and macOS Developer ID notarization are configured and verified, or until the release clearly states that the installers are unsigned.
+Do not promote a future final release until Windows Authenticode signing and macOS Developer ID notarization are configured and verified, or until the release clearly states that the installers are unsigned.
 
 Unsigned macOS DMGs can show `"WardSen" is damaged and can't be opened` after Safari downloads them. That is macOS quarantine/Gatekeeper blocking an unnotarized app. Do not present quarantine removal as a normal installation path. Unsigned DMGs are developer/security-review validation artifacts only; public end-user releases should be signed, notarized, stapled and verified.
 
@@ -58,7 +58,7 @@ Keep `MACOS_SIGNING_ENABLED` unset or any value other than `true` until the Appl
 
 ### 3. Run a signed release candidate
 
-1. Create or choose the next release candidate tag, such as `v0.1.0-rc.29`.
+1. Create or choose the next release candidate tag, such as `v0.12.0-rc.1`.
 2. Push the tag, or open **Actions > Release Installers > Run workflow**.
 3. Enter the tag.
 4. Keep `prerelease` enabled.
@@ -72,15 +72,14 @@ Download the release assets from GitHub on clean machines and verify them.
 Windows:
 
 ```powershell
-signtool verify /pa /v .\WardSen_0.1.0_x64-setup.exe
-signtool verify /pa /v .\WardSen_0.1.0_x64_en-US.msi
+signtool verify /pa /v .\WardSen_0.11.0_x64_en-US.msi
 ```
 
 macOS:
 
 ```bash
-spctl --assess --type open --verbose WardSen_0.1.0_aarch64.dmg
-xcrun stapler validate WardSen_0.1.0_aarch64.dmg
+spctl --assess --type open --verbose WardSen_0.11.0_aarch64.dmg
+xcrun stapler validate WardSen_0.11.0_aarch64.dmg
 ```
 
 Also compare each installer against the matching `SHA256SUMS-*.txt` file.
@@ -120,8 +119,7 @@ apps\desktop\src-tauri\target\release\bundle\
 ### Sign With a Certificate in the Windows Certificate Store
 
 ```powershell
-signtool sign /n "Publisher Name" /fd SHA256 /tr "https://timestamp.example.com" /td SHA256 "apps\desktop\src-tauri\target\release\bundle\nsis\WardSen_0.1.0_x64-setup.exe"
-signtool sign /n "Publisher Name" /fd SHA256 /tr "https://timestamp.example.com" /td SHA256 "apps\desktop\src-tauri\target\release\bundle\msi\WardSen_0.1.0_x64.msi"
+signtool sign /n "Publisher Name" /fd SHA256 /tr "https://timestamp.example.com" /td SHA256 "apps\desktop\src-tauri\target\release\bundle\msi\WardSen_0.11.0_x64_en-US.msi"
 ```
 
 WardSen also includes a helper that signs every `.exe` and `.msi` under the bundle folder and then verifies each artifact:
@@ -133,8 +131,7 @@ powershell -ExecutionPolicy Bypass -File .\installers\windows\sign-windows-artif
 ### Sign With a PFX File
 
 ```powershell
-signtool sign /f ".\certs\wardsen-code-signing.pfx" /p "$env:WINDOWS_CERTIFICATE_PASSWORD" /fd SHA256 /tr "https://timestamp.example.com" /td SHA256 "apps\desktop\src-tauri\target\release\bundle\nsis\WardSen_0.1.0_x64-setup.exe"
-signtool sign /f ".\certs\wardsen-code-signing.pfx" /p "$env:WINDOWS_CERTIFICATE_PASSWORD" /fd SHA256 /tr "https://timestamp.example.com" /td SHA256 "apps\desktop\src-tauri\target\release\bundle\msi\WardSen_0.1.0_x64.msi"
+signtool sign /f ".\certs\wardsen-code-signing.pfx" /p "$env:WINDOWS_CERTIFICATE_PASSWORD" /fd SHA256 /tr "https://timestamp.example.com" /td SHA256 "apps\desktop\src-tauri\target\release\bundle\msi\WardSen_0.11.0_x64_en-US.msi"
 ```
 
 Helper equivalent:
@@ -147,8 +144,7 @@ powershell -ExecutionPolicy Bypass -File .\installers\windows\sign-windows-artif
 ### Verify
 
 ```powershell
-signtool verify /pa /v "apps\desktop\src-tauri\target\release\bundle\nsis\WardSen_0.1.0_x64-setup.exe"
-signtool verify /pa /v "apps\desktop\src-tauri\target\release\bundle\msi\WardSen_0.1.0_x64.msi"
+signtool verify /pa /v "apps\desktop\src-tauri\target\release\bundle\msi\WardSen_0.11.0_x64_en-US.msi"
 ```
 
 Helper equivalent:
@@ -217,7 +213,7 @@ spctl --assess --type execute --verbose "apps/desktop/src-tauri/target/release/b
 ### Verify Notarization Stapling
 
 ```bash
-xcrun stapler validate "apps/desktop/src-tauri/target/release/bundle/dmg/WardSen_0.1.0_aarch64.dmg"
+xcrun stapler validate "apps/desktop/src-tauri/target/release/bundle/dmg/WardSen_0.11.0_aarch64.dmg"
 ```
 
 Helper verification:
@@ -266,7 +262,7 @@ Manual release flow for a new RC or signed update:
 2. Go to `Actions`.
 3. Select `Release Installers`.
 4. Click `Run workflow`.
-5. Enter a tag such as `v0.1.0-rc.29`.
+5. Enter a tag such as `v0.12.0-rc.1`.
 6. Keep `prerelease` enabled until signed artifacts have been verified.
 7. Leave `publish` disabled for unsigned or unverified artifacts. This keeps the GitHub release as a draft while assets are attached.
 8. Review the draft GitHub release before publishing it.
@@ -275,8 +271,8 @@ Manual release flow for a new RC or signed update:
 Tag release flow:
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.11.0
+git push origin v0.11.0
 ```
 
 The workflow builds:

@@ -43,11 +43,22 @@ describe("web error help", () => {
 
     expect(help.title).toBe("WardSen could not find a provider tool");
     expect(help.detail).toContain('"keepassxc-cli"');
-    expect(help.guidance).toContain("No terminal is required");
+    expect(help.guidance).toContain("Provider Capabilities");
     expect(help.actionLabel).toBe("Open KeePassXC download");
     expect(help.actionHref).toBe("https://keepassxc.org/download/");
-    expect(help.terminalCommands?.map((item) => item.command)).toContain("winget install KeePassXCTeam.KeePassXC");
+    expect(help.terminalCommands?.map((item) => item.command)).toContain("winget install -e --id KeePassXCTeam.KeePassXC");
     expect(help.terminalCommands?.map((item) => item.command)).toContain("brew install --cask keepassxc");
+  });
+
+  it("explains when the optional Yopass CLI is missing", () => {
+    const help = describeError('Provider command "yopass" was not found.');
+
+    expect(help.title).toBe("WardSen could not find a provider tool");
+    expect(help.guidance).toContain("Provider Capabilities");
+    expect(help.actionLabel).toBe("Open Yopass CLI guide");
+    expect(help.actionHref).toBe("https://github.com/jhaals/yopass");
+    expect(help.setupNotes).toContain("Run go install github.com/jhaals/yopass/cmd/yopass@latest.");
+    expect(help.terminalCommands?.map((item) => item.command)).toContain("go install github.com/jhaals/yopass/cmd/yopass@latest");
   });
 
   it("explains provider command timeouts", () => {

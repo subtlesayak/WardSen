@@ -122,6 +122,20 @@ describe("provider conformance", () => {
     });
   });
 
+  it("keeps API-backed delivery providers behind configuration and operator opt-in", () => {
+    for (const providerId of ["password-pusher", "onetime-secret"]) {
+      const manifest = builtInProviderManifests.find((item) => item.id === providerId);
+      expect(manifest).toMatchObject({
+        id: providerId,
+        maturity: "active",
+        enabledByDefault: false,
+        requiresExplicitOptIn: true,
+        configurationRequired: true,
+        delivery: expect.objectContaining({ revoke: "supported", statusLookup: "supported" })
+      });
+    }
+  });
+
   it("passes Ente Paste conformance as an experimental manual delivery provider", async () => {
     const manifest = builtInProviderManifests.find((item) => item.id === "ente-paste");
     expect(manifest).toBeTruthy();

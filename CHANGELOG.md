@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.11.0 - 2026-08-29
+
+### Changes
+
+- Promoted WardSen to the `v0.11.0` stable release line while keeping installer signing status explicit.
+- Added operator-initiated GitHub release checks in Settings without automatic downloads or execution.
+- Kept stable installs on stable releases; prerelease builds can still see newer release candidates.
+- Added first-run onboarding, clearer provider setup guides and local configuration checks for optional delivery providers.
+- Gated Password Pusher and Onetime Secret behind successful local environment checks and explicit operator opt-in.
+- Improved Yopass CLI discovery for normal Go install paths.
+- Bounded desktop proxy responses before buffering them in the Tauri shell.
+- Pinned release and CI workflow actions more tightly for repeatable release evidence.
+
+### Steps
+
+- Download the `v0.11.0` Windows MSI or macOS Apple Silicon DMG from GitHub Releases.
+- Download the matching `SHA256SUMS-*.txt` file and verify the installer checksum before opening it.
+- On Windows, install the unsigned MSI only after checksum verification; report SmartScreen or Defender blocks instead of bypassing them casually.
+- On macOS, install the unsigned DMG only after checksum verification. If Gatekeeper blocks the verified local copy, use the README quarantine-removal command and treat it as an unsigned-app workaround, not signing.
+- Install and verify the official Bitwarden `bw` CLI, then use WardSen's terminal login/unlock flow from **Vaults > Account Access**.
+
 ## 0.1.0-rc.67 - 2026-08-27
 
 - Added a Bitwarden CLI setup flow that opens the official guide, re-checks provider availability, and lets operators verify an existing absolute `bw` executable path without restarting WardSen.

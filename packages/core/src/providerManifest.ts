@@ -23,6 +23,7 @@ export interface ProviderManifest {
   documentationUrl?: string;
   enabledByDefault: boolean;
   requiresExplicitOptIn?: boolean;
+  configurationRequired?: boolean;
   optInWarning?: string;
   notes: string;
   setupInstructions?: string[];
@@ -103,7 +104,10 @@ export const builtInProviderManifests: ProviderManifest[] = [
     maturity: "active",
     packageName: "@wardsen/delivery-external",
     documentationUrl: "https://docs.pwpush.com/docs/api-v1/",
-    enabledByDefault: true,
+    enabledByDefault: false,
+    requiresExplicitOptIn: true,
+    configurationRequired: true,
+    optInWarning: "Requires a local Password Pusher API token and a successful configuration check before it can be enabled. WardSen does not store or accept this API token in the desktop UI.",
     notes: "Authenticated Password Pusher API delivery. WardSen projects only title, username and password, uses whole-day expiry and can expire or check a push. It does not claim sender-visible access counts or viewer identity.",
     setupInstructions: [
       "Set WARDSEN_PASSWORD_PUSHER_API_TOKEN in the local WardSen service environment.",
@@ -132,7 +136,7 @@ export const builtInProviderManifests: ProviderManifest[] = [
     optInWarning: "One-time delivery without WardSen lifecycle controls. WardSen cannot revoke the link or observe access, access counts, viewer identity, IP address, device or user-agent data.",
     notes: "Yopass CLI delivery. The local CLI encrypts projected credential text before upload and returns a one-time link. WardSen cannot revoke, refresh or attribute that link through the current CLI contract.",
     setupInstructions: [
-      "Install the official yopass CLI and verify yopass --version in a terminal.",
+      "Use the guided Yopass CLI setup above. WardSen automatically checks Go's standard install folder after the official install command finishes.",
       "Set WARDSEN_YOPASS_CLI_PATH to an absolute executable path when the desktop app cannot see the CLI.",
       "Optionally set WARDSEN_YOPASS_API_URL and WARDSEN_YOPASS_PUBLIC_URL to operator-controlled HTTPS endpoints."
     ],
@@ -153,7 +157,10 @@ export const builtInProviderManifests: ProviderManifest[] = [
     maturity: "active",
     packageName: "@wardsen/delivery-external",
     documentationUrl: "https://docs.onetimesecret.com/en/rest-api/",
-    enabledByDefault: true,
+    enabledByDefault: false,
+    requiresExplicitOptIn: true,
+    configurationRequired: true,
+    optInWarning: "Requires local Onetime Secret API credentials and a successful configuration check before it can be enabled. WardSen does not store or accept these credentials in the desktop UI.",
     notes: "Authenticated Onetime Secret v2 delivery. WardSen creates a concealed one-time secret, reads receipt state and can burn the delivery. Receipt state proves link state, not the recipient's identity or device.",
     setupInstructions: [
       "Set WARDSEN_ONETIME_SECRET_USERNAME and WARDSEN_ONETIME_SECRET_API_TOKEN in the local WardSen service environment.",

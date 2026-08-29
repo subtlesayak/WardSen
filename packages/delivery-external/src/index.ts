@@ -404,7 +404,9 @@ function resolveYopassExecutable(): string {
 function yopassExecutableCandidates(): string[] {
   const candidates: string[] = [];
   if (process.env.LOCALAPPDATA) candidates.push(path.join(process.env.LOCALAPPDATA, "WardSen", "tools", "yopass.exe"));
+  if (process.env.USERPROFILE) candidates.push(path.join(process.env.USERPROFILE, "go", "bin", "yopass.exe"));
   if (process.env.HOME) {
+    candidates.push(path.join(process.env.HOME, "go", "bin", "yopass"));
     candidates.push(path.join(process.env.HOME, ".local", "bin", "yopass"));
     candidates.push(path.join(process.env.HOME, "Library", "Application Support", "WardSen", "tools", "yopass"));
   }

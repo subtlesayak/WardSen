@@ -34,16 +34,20 @@ For dedicated recipient links, say **"Asha's link was viewed"**, not **"Asha vie
 
 ## Release status
 
-`v0.1.0-rc.67` is the current security-review release candidate. A trusted public installer release still requires Windows code signing and Apple Developer ID signing plus macOS notarization.
+`v0.11.0` is the current stable release. The attached Windows MSI and macOS Apple Silicon DMG are unsigned; verify the matching checksum before installation and expect Windows SmartScreen, Defender, or macOS Gatekeeper warnings until code signing and notarization are configured.
 
 | Area | Current position |
 | --- | --- |
 | Security | Destructive actions have exact server-enforced confirmation; plaintext remains on the localhost backend. |
 | Vaults | New accounts auto-lock after ten minutes of inactivity and show the remaining unlocked time. |
 | Providers | Bitwarden needs the official `bw` CLI. Other delivery providers are configured in the local service environment. |
-| Review installers | Windows MSI and macOS Apple Silicon DMG remain unsigned review artifacts. |
+| Installers | Windows MSI and macOS Apple Silicon DMG are stable but unsigned artifacts. |
 
-See the [current release notes](docs/release-notes/v0.1.0.md), [security design](docs/security-design.md), and [installer signing guide](docs/installer-signing.md) for detail.
+See the [current release notes](docs/release-notes/v0.11.0.md), [security design](docs/security-design.md), and [installer signing guide](docs/installer-signing.md) for detail.
+
+### Check for updates
+
+In **Settings > Software Updates**, select **Check GitHub Releases** to compare the installed release tag with WardSen's published GitHub Releases. This is an operator-initiated metadata request only: WardSen does not download, install, or run updates automatically. When an update is available, open its release page and verify the matching checksum before installing.
 
 ## Get started
 
@@ -51,24 +55,24 @@ See the [current release notes](docs/release-notes/v0.1.0.md), [security design]
 
 Download the Windows MSI or macOS Apple Silicon DMG from [GitHub Releases](https://github.com/subtlesayak/WardSen/releases), together with its matching `SHA256SUMS-*.txt` file.
 
-- **Windows:** verify the checksum before running the MSI. Treat SmartScreen or Defender blocks as a reportable release issue.
+- **Windows:** verify the checksum before running the MSI. Treat SmartScreen or Defender blocks as a reportable release issue for this unsigned stable build.
 - **macOS:** verify the checksum before opening the DMG.
 
 > [!WARNING]
-> Current macOS builds are unsigned review artifacts, not normal end-user installers. Until signed and notarized releases are available, use them only for verified review testing. After dragging WardSen to Applications, run this exact command in Terminal:
+> Current macOS builds are unsigned and not notarized. After verifying the checksum and dragging WardSen to Applications, macOS may require this quarantine-removal command for the verified local copy:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/WardSen.app
 ```
 
-This removes macOS quarantine for that local review copy. It is not code signing or notarization. Do not run it for an app you did not obtain from WardSen's verified release page.
+This removes macOS quarantine for that local copy. It is not code signing or notarization. Do not run it for an app you did not obtain from WardSen's verified release page.
 
 ### 2. Connect a Bitwarden vault
 
 WardSen does not bundle, download, or silently install Bitwarden's command-line tool. It uses the official `bw` CLI selected by the operator, then keeps an isolated local Bitwarden profile and never asks for the master password in the app.
 
 1. In WardSen, open **Settings > Provider Capabilities**, select **Bitwarden**, and use **Bitwarden CLI setup**.
-2. If the CLI is missing, choose **Open official CLI guide** and install the provider-supported CLI for your computer. Node.js and npm are optional, not a WardSen prerequisite.
+2. If the CLI is missing, choose **Open official Bitwarden CLI guide** and install the provider-supported CLI for your computer. Node.js and npm are optional, not a WardSen prerequisite. On macOS, do not double-click a downloaded `bw` file in Finder. Bitwarden's official guide says Apple Silicon devices should use its npm installation route; first make `bw --version` work in Terminal.
 3. Select **Check again** when installation is complete. If the app cannot discover a known CLI location, select **Locate existing CLI**, enter the absolute path to the official or IT-approved `bw` executable, acknowledge the trust boundary, and select **Verify and use CLI**. WardSen runs only `bw --version` before saving that local path; it does not run an installer or a package manager.
 4. Open **Vaults** and add a Bitwarden account with a label and email, keeping the ten-minute auto-lock unless your policy requires less.
 5. Select that account in **Account Access** and choose **Terminal login / unlock**. The packaged WardSen desktop app opens Terminal on macOS or PowerShell on Windows and starts the short-lived handoff command. Enter the Bitwarden password only at Bitwarden's own prompt. If terminal launch is unavailable, use **Copy terminal command** and run it manually. Return to WardSen after the command confirms the local session handoff; the account should change to **Unlocked** automatically.
@@ -85,6 +89,9 @@ bw --version
 
 On Windows PowerShell, use `npm.cmd install -g @bitwarden/cli` when PowerShell blocks `npm.ps1`. If macOS reports `EACCES`, do not use `sudo`; follow [npm's user-owned prefix guide](https://docs.npmjs.com/resolving-eacces-permissions-errors-when-installing-packages-globally/). Then return to the setup wizard and select **Locate existing CLI** if the new command is not discovered automatically.
 </details>
+
+> [!IMPORTANT]
+> The `xattr` command above applies only to a verified WardSen review build. Do not reuse it for Bitwarden's `bw` command. If macOS Gatekeeper blocks a downloaded Bitwarden CLI file, WardSen cannot and will not bypass that protection. Use Bitwarden's documented installation method or an IT-approved CLI, verify `bw --version` in Terminal, then select **Check again** in WardSen.
 
 For a new password-manager account, create and secure the Bitwarden account first through Bitwarden's official app or website, then use the steps above to connect WardSen. Never paste a Bitwarden password, session key, recovery code, or API token into WardSen, email, chat, or a support ticket.
 
@@ -149,14 +156,14 @@ Open **Settings > Provider Capabilities** for provider requirements, official do
 | Provider | Setup | WardSen lifecycle support |
 | --- | --- | --- |
 | **Bitwarden Send** | Install and unlock the official `bw` CLI. | Create, status, access count, revoke. |
-| **Password Pusher** | Set `WARDSEN_PASSWORD_PUSHER_API_TOKEN`. Optionally set `WARDSEN_PASSWORD_PUSHER_BASE_URL` for a trusted HTTPS instance. | Create, status, revoke. No trustworthy access count or viewer identity. |
-| **Onetime Secret** | Set `WARDSEN_ONETIME_SECRET_USERNAME` and `WARDSEN_ONETIME_SECRET_API_TOKEN`. Optionally set `WARDSEN_ONETIME_SECRET_BASE_URL`. | Create, receipt status, burn/revoke. No viewer identity or exact access count. |
+| **Password Pusher** | Use an administrator-managed local service environment for `WARDSEN_PASSWORD_PUSHER_API_TOKEN`, then pass **Check configuration** and explicitly enable it in Settings. | Create, status, revoke. No trustworthy access count or viewer identity. |
+| **Onetime Secret** | Use an administrator-managed local service environment for `WARDSEN_ONETIME_SECRET_USERNAME` and `WARDSEN_ONETIME_SECRET_API_TOKEN`, then pass **Check configuration** and explicitly enable it in Settings. | Create, receipt status, burn/revoke. No viewer identity or exact access count. |
 | **Yopass** | Install the official `yopass` CLI. Run `yopass --version`; set `WARDSEN_YOPASS_CLI_PATH` only when discovery fails. | Disabled by default. Create only after an operator review and exact opt-in; the current CLI has no status lookup or sender-side revocation. |
 | **Ente Paste** | Manual clipboard and browser handoff. | Disabled by default. Experimental manual handoff only after an operator review and exact opt-in; no WardSen upload, status, revoke, access-count, or viewer telemetry. |
 
 For non-Bitwarden delivery providers, the selected **audit account** scopes WardSen metadata only. It is not the source of the external provider credential.
 
-Ente Paste and Yopass are intentionally absent from normal delivery selection until enabled in **Settings > Optional Delivery Providers**. Their warning is not a claim about the recipient: WardSen cannot use either integration to prove viewer identity, device, IP address, user-agent, access count, or link lifecycle state.
+Password Pusher, Onetime Secret, Ente Paste and Yopass are intentionally absent from normal delivery selection until enabled in **Settings > Optional Delivery Providers**. Password Pusher and Onetime Secret additionally require a successful local configuration check. Their warnings are not a claim about the recipient: WardSen cannot use any of these integrations to prove viewer identity, device, IP address or user-agent data, and Ente Paste and Yopass do not provide WardSen link lifecycle state.
 
 <details>
 <summary><strong>Run the opt-in external-provider contract tests</strong></summary>
@@ -191,7 +198,7 @@ npm run security:scan-secrets
 
 ### Release work
 
-Release evidence includes installers, checksums, manifests, SBOMs, packaged-smoke evidence, and provenance evidence. A trusted public release requires Windows code signing plus Apple Developer ID signing and notarization.
+Release evidence includes installers, checksums, manifests, SBOMs, packaged-smoke evidence, and provenance evidence. A fully trusted public release requires Windows code signing plus Apple Developer ID signing and notarization.
 
 Follow [desktop packaging](docs/desktop-packaging.md), [installer signing](docs/installer-signing.md), and the [release checklist](docs/release-security-checklist.md).
 

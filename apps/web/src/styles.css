@@ -369,6 +369,15 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
 .grid.two { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
 .grid.split { grid-template-columns: minmax(0, 1.35fr) 360px; align-items: start; }
 .wide { grid-column: 1 / -1; }
+.onboardingChecklist { border: 1px solid #c9e4d8; }
+.onboardingChecklist ol { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.onboardingChecklist li { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 11px 0; border-top: 1px solid #e3ece8; }
+.onboardingChecklist li:first-child { border-top: 0; padding-top: 0; }
+.onboardingChecklist li:last-child { padding-bottom: 0; }
+.onboardingChecklist li > div { display: grid; gap: 2px; min-width: 0; }
+.onboardingChecklist li small { color: #63766f; font-size: 13px; line-height: 1.35; }
+.onboardingStep { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: #e7f1ec; color: #1f5e4d; font-size: 13px; font-weight: 800; }
+.onboardingChecklist li.complete .onboardingStep { background: #c9f2e5; color: #075d4d; }
 .panel, .metric {
   min-width: 0;
   border-radius: 8px;
@@ -424,6 +433,18 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
 .accountAccessPanel .panelTitle { margin-bottom: 0; }
 .vaultProviderBlock { display: grid; gap: 7px; max-width: 440px; }
 .vaultProviderBlock label { display: grid; gap: 7px; color: #52665e; font-size: 13px; }
+.providerCliRequired {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border: 1px solid #ead6ae;
+  background: #fffaf0;
+}
+.providerCliRequired > div { display: grid; gap: 4px; min-width: 0; }
+.providerCliRequired strong { color: #6b4b16; }
+.providerCliRequired span { color: #6a6254; line-height: 1.4; }
+.providerCliRequired button { flex: 0 0 auto; }
 .vaultAccountFields,
 .accountAccessFields {
   display: grid;
@@ -858,6 +879,44 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
 .providerSetupSteps small { font-size: 12px; color: inherit; }
 .providerSetupGuidance { font-size: 13px; }
 .providerSetupActions { display: flex; flex-wrap: wrap; gap: 8px; }
+.providerDependencySteps {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.providerDependencySteps li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 16px;
+  align-items: start;
+  padding-top: 12px;
+  border-top: 1px solid #dbe7e2;
+}
+.providerDependencySteps li > div:first-child { display: grid; gap: 4px; min-width: 0; }
+.providerDependencySteps strong { color: #263b33; }
+.providerDependencySteps span { color: #52665e; line-height: 1.4; }
+.providerDependencySteps li > button { align-self: center; }
+.providerInstallCommand {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+.providerInstallCommand > code {
+  min-width: 0;
+  overflow-x: auto;
+  padding: 8px 10px;
+  border: 1px solid #dbe7e2;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #263b33;
+  white-space: nowrap;
+}
+.providerInstallCommand .copyFeedback { flex: 0 0 auto; }
 .providerCliLocator {
   display: grid;
   gap: 10px;
@@ -973,6 +1032,7 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
     grid-template-columns: 1fr;
   }
   .vaultProfileNote { grid-column: auto; }
+  .providerCliRequired { align-items: flex-start; flex-direction: column; }
   .formActions {
     justify-content: stretch;
   }
@@ -992,6 +1052,11 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
   .providerSetupWizardHeader { align-items: stretch; flex-direction: column; }
   .providerSetupWizardHeader button { align-self: flex-start; }
   .providerSetupSteps { grid-template-columns: 1fr; }
+  .providerDependencySteps li { grid-template-columns: 1fr; }
+  .providerDependencySteps li > button { justify-self: start; }
+  .providerInstallCommand { align-items: flex-start; flex-direction: column; }
+  .onboardingChecklist li { grid-template-columns: 28px minmax(0, 1fr); }
+  .onboardingChecklist li > button { grid-column: 2; justify-self: start; }
   .row > div:first-child,
   .row > span,
   .actions {

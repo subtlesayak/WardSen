@@ -45,6 +45,7 @@ import { fuzzyFilterCredentials } from "./credentialSearch";
 import { EntePasteManualDeliveryProvider } from "../../../packages/delivery-ente-paste/src";
 import { AccountDeletionError, AccountDeletionService } from "./accountDeletionService";
 import { assertManagedProfileDirectoryTarget, managedProfileDirectory, pathsEqual } from "./managedProfileDirectory";
+import { GithubReleaseUpdateService, type ReleaseUpdateService } from "./releaseUpdateService";
 
 export interface BuildAppOptions {
   repository?: WardSenRepository;
@@ -56,6 +57,7 @@ export interface BuildAppOptions {
   registerBuiltInProviders?: boolean;
   credentialProviders?: CredentialProvider[];
   deliveryProviders?: DeliveryProvider[];
+  releaseUpdateService?: ReleaseUpdateService;
 }
 
 interface TerminalSessionHandoffRecord {
@@ -78,6 +80,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
         "req.headers.authorization",
         "req.headers['x-wardsen-api-token']",
         "req.headers['x-wardsen-terminal-handoff']",
+        "req.headers['x-wardsen-employee-session']",
         "req.body",
         "req.body.password",
         "req.body.accessPassword",
@@ -93,6 +96,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   };
   const apiToken = options.apiToken ?? process.env.WARDSEN_API_TOKEN;
   const registry = new ProviderRegistry();
+  const releaseUpdateService = options.releaseUpdateService ?? new GithubReleaseUpdateService();
   const profileRoot = path.resolve(options.profileRoot ?? path.join(process.cwd(), ".wardsen-profiles"));
   const accountProfileDirectories = new Map<string, string>();
   const deliveryOperationTails = new Map<string, Promise<void>>();
@@ -238,6 +242,11 @@ export async function buildApp(options: BuildAppOptions = {}) {
     telemetry: false
   }));
 
+  app.get("/api/release-update", { config: { rateLimit: { max: 10, timeWindow: RATE_LIMIT_WINDOW } } }, async (request) => {
+    const { currentVersion } = z.object({ currentVersion: z.string().trim().min(1).max(100) }).parse(request.query);
+    return releaseUpdateService.check(currentVersion);
+  });
+
   app.get("/api/providers", async () => {
     const deliveryProviderEntries = await Promise.all(registry.listDeliveryProviders().map(async (provider) => {
       const manifest = providerManifestFor(provider.id);
@@ -249,6 +258,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
         enabled: await isDeliveryProviderEnabled(provider.id),
         enabledByDefault: manifest?.enabledByDefault ?? true,
         requiresExplicitOptIn: manifest?.requiresExplicitOptIn ?? false,
+        configurationRequired: manifest?.configurationRequired ?? false,
         optInWarning: manifest?.optInWarning,
         documentationUrl: manifest?.documentationUrl,
         notes: manifest?.notes,
@@ -290,6 +300,13 @@ export async function buildApp(options: BuildAppOptions = {}) {
     const { id } = idParams.parse(request.params);
     const manifest = explicitOptInManifest(id);
     assertDestructiveConfirmation(request.body, `ENABLE WEAKER PROVIDER ${id}`);
+    if (manifest.configurationRequired) {
+      const provider = registry.getDeliveryProvider(id);
+      const connection = await provider.testConnection(`provider-configuration-${id}`);
+      if (!connection.ok || connection.status !== "unlocked") {
+        throw app.httpErrors.badRequest(`${manifest.displayName} is not configured yet. Complete its local setup in Settings and run Check configuration before enabling it.`);
+      }
+    }
     await repository.setLocalSetting(providerOptInSettingKey(id), "enabled");
     await audit("delivery.provider_opt_in", "success", { safeDetails: `provider=${manifest.id}` });
     return { providerId: manifest.id, enabled: true };
@@ -2131,6 +2148,9 @@ export async function buildApp(options: BuildAppOptions = {}) {
   async function assertDeliveryProviderEnabled(providerId: string): Promise<void> {
     const manifest = providerManifestFor(providerId);
     if (!manifest?.requiresExplicitOptIn || await isDeliveryProviderEnabled(providerId)) return;
+    if (manifest.configurationRequired) {
+      throw app.httpErrors.forbidden(`${manifest.displayName} is disabled until its local configuration check succeeds and an operator enables it in Settings > Optional Delivery Providers.`);
+    }
     throw app.httpErrors.forbidden(`${manifest.displayName} is disabled by default because WardSen cannot provide complete link lifecycle controls. Review its warning and enable it in Settings with the exact confirmation phrase before creating a delivery.`);
   }
 }
@@ -2677,7 +2697,8 @@ function keepassXcDiagnosticCandidates(): string[] {
 function yopassDiagnosticCandidates(): string[] {
   const candidates: string[] = [];
   if (process.env.LOCALAPPDATA) candidates.push(path.join(process.env.LOCALAPPDATA, "WardSen", "tools", "yopass.exe"));
-  if (process.env.HOME) candidates.push(path.join(process.env.HOME, ".local", "bin", "yopass"), path.join(process.env.HOME, "Library", "Application Support", "WardSen", "tools", "yopass"));
+  if (process.env.USERPROFILE) candidates.push(path.join(process.env.USERPROFILE, "go", "bin", "yopass.exe"));
+  if (process.env.HOME) candidates.push(path.join(process.env.HOME, "go", "bin", "yopass"), path.join(process.env.HOME, ".local", "bin", "yopass"), path.join(process.env.HOME, "Library", "Application Support", "WardSen", "tools", "yopass"));
   return [...candidates, "/opt/homebrew/bin/yopass", "/usr/local/bin/yopass", "/opt/local/bin/yopass"];
 }
 

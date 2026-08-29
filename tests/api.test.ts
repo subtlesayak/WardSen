@@ -22,6 +22,7 @@ import type {
 import { InMemoryWardSenRepository } from "@wardsen/database";
 import { buildApp } from "../apps/server/src/app";
 import { EntePasteManualDeliveryProvider } from "../packages/delivery-ente-paste/src";
+import { GithubReleaseUpdateService } from "../apps/server/src/releaseUpdateService";
 
 describe("WardSen API", () => {
   afterEach(() => {
@@ -37,6 +38,36 @@ describe("WardSen API", () => {
     expect(response.headers["content-security-policy"]).toContain("default-src 'self'");
     expect(response.headers["content-security-policy"]).toContain("connect-src 'self'");
     expect(response.headers["content-security-policy"]).not.toContain("127.0.0.1:*");
+    await app.close();
+  });
+
+  it("checks published WardSen releases through the local API without exposing a download action", async () => {
+    const releaseUpdateService = new GithubReleaseUpdateService({
+      fetch: vi.fn(async () => new Response(JSON.stringify([
+        { tag_name: "v0.1.0-rc.68", draft: false, prerelease: true, published_at: "2026-08-27T09:00:00Z" }
+      ]), { status: 200 })) as typeof globalThis.fetch,
+      now: () => Date.parse("2026-08-27T10:00:00Z")
+    });
+    const app = await buildApp({ releaseUpdateService });
+    const response = await app.inject({ method: "GET", url: "/api/release-update?currentVersion=v0.1.0-rc.67", headers: { host: "127.0.0.1:4777" } });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual(expect.objectContaining({
+      currentVersion: "v0.1.0-rc.67",
+      updateAvailable: true,
+      release: expect.objectContaining({ tag: "v0.1.0-rc.68", pageUrl: "https://github.com/subtlesayak/WardSen/releases/tag/v0.1.0-rc.68" })
+    }));
+    await app.close();
+  });
+
+  it("rejects invalid installed versions before requesting release metadata", async () => {
+    const fetch = vi.fn(async () => new Response("[]", { status: 200 }));
+    const app = await buildApp({ releaseUpdateService: new GithubReleaseUpdateService({ fetch: fetch as typeof globalThis.fetch }) });
+    const response = await app.inject({ method: "GET", url: "/api/release-update?currentVersion=not-a-version", headers: { host: "127.0.0.1:4777" } });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error).toContain("installed version is invalid");
+    expect(fetch).not.toHaveBeenCalled();
     await app.close();
   });
 
@@ -155,25 +186,31 @@ describe("WardSen API", () => {
       expect.objectContaining({ id: "onepassword-item-share", maturity: "planned", enabledByDefault: false })
     ]));
     expect(body.deliveryProviders).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "bitwarden-send", maturity: "active", enabledByDefault: true }),
+      expect.objectContaining({ id: "bitwarden-send", maturity: "active", enabledByDefault: true })
+    ]));
+    expect(body.deliveryProviders.some((provider: { id: string }) => provider.id === "password-pusher")).toBe(false);
+    expect(body.deliveryProviders.some((provider: { id: string }) => provider.id === "onetime-secret")).toBe(false);
+    expect(body.deliveryProviders.some((provider: { id: string }) => provider.id === "yopass")).toBe(false);
+    expect(body.deliveryProviders.some((provider: { id: string }) => provider.id === "ente-paste")).toBe(false);
+    expect(body.optionalDeliveryProviders).toEqual(expect.arrayContaining([
       expect.objectContaining({
         id: "password-pusher",
         maturity: "active",
-        enabledByDefault: true,
+        enabledByDefault: false,
+        requiresExplicitOptIn: true,
+        configurationRequired: true,
         setupInstructions: expect.arrayContaining([expect.stringContaining("WARDSEN_PASSWORD_PUSHER_API_TOKEN")]),
         delivery: expect.objectContaining({ revoke: "supported", statusLookup: "supported", accessCount: "unsupported" })
       }),
       expect.objectContaining({
         id: "onetime-secret",
         maturity: "active",
-        enabledByDefault: true,
+        enabledByDefault: false,
+        requiresExplicitOptIn: true,
+        configurationRequired: true,
         setupInstructions: expect.arrayContaining([expect.stringContaining("WARDSEN_ONETIME_SECRET_USERNAME")]),
         delivery: expect.objectContaining({ revoke: "supported", statusLookup: "supported", accessCount: "unsupported" })
       }),
-    ]));
-    expect(body.deliveryProviders.some((provider: { id: string }) => provider.id === "yopass")).toBe(false);
-    expect(body.deliveryProviders.some((provider: { id: string }) => provider.id === "ente-paste")).toBe(false);
-    expect(body.optionalDeliveryProviders).toEqual(expect.arrayContaining([
       expect.objectContaining({
         id: "yopass",
         maturity: "active",
@@ -204,6 +241,70 @@ describe("WardSen API", () => {
       })
     ]));
     await app.close();
+  });
+
+  it("requires local API configuration before enabling API-backed delivery providers", async () => {
+    const previousPasswordPusherToken = process.env.WARDSEN_PASSWORD_PUSHER_API_TOKEN;
+    const previousOnetimeSecretUsername = process.env.WARDSEN_ONETIME_SECRET_USERNAME;
+    const previousOnetimeSecretToken = process.env.WARDSEN_ONETIME_SECRET_API_TOKEN;
+    delete process.env.WARDSEN_PASSWORD_PUSHER_API_TOKEN;
+    delete process.env.WARDSEN_ONETIME_SECRET_USERNAME;
+    delete process.env.WARDSEN_ONETIME_SECRET_API_TOKEN;
+    const app = await buildApp();
+    const headers = { host: "127.0.0.1:4777", origin: "http://127.0.0.1:4777" };
+
+    try {
+      for (const providerId of ["password-pusher", "onetime-secret"]) {
+        const response = await app.inject({
+          method: "POST",
+          url: `/api/delivery-providers/${providerId}/opt-in`,
+          headers,
+          payload: { confirm: `ENABLE WEAKER PROVIDER ${providerId}` }
+        });
+        expect(response.statusCode).toBe(400);
+        expect(response.json().error).toContain("WARDSEN_");
+      }
+    } finally {
+      await app.close();
+      if (previousPasswordPusherToken === undefined) delete process.env.WARDSEN_PASSWORD_PUSHER_API_TOKEN;
+      else process.env.WARDSEN_PASSWORD_PUSHER_API_TOKEN = previousPasswordPusherToken;
+      if (previousOnetimeSecretUsername === undefined) delete process.env.WARDSEN_ONETIME_SECRET_USERNAME;
+      else process.env.WARDSEN_ONETIME_SECRET_USERNAME = previousOnetimeSecretUsername;
+      if (previousOnetimeSecretToken === undefined) delete process.env.WARDSEN_ONETIME_SECRET_API_TOKEN;
+      else process.env.WARDSEN_ONETIME_SECRET_API_TOKEN = previousOnetimeSecretToken;
+    }
+  });
+
+  it("enables API-backed delivery providers only after their local configuration check passes", async () => {
+    const previousPasswordPusherToken = process.env.WARDSEN_PASSWORD_PUSHER_API_TOKEN;
+    const previousOnetimeSecretUsername = process.env.WARDSEN_ONETIME_SECRET_USERNAME;
+    const previousOnetimeSecretToken = process.env.WARDSEN_ONETIME_SECRET_API_TOKEN;
+    process.env.WARDSEN_PASSWORD_PUSHER_API_TOKEN = "test-password-pusher-token";
+    process.env.WARDSEN_ONETIME_SECRET_USERNAME = "test-onetime-secret-user";
+    process.env.WARDSEN_ONETIME_SECRET_API_TOKEN = "test-onetime-secret-token";
+    const app = await buildApp();
+    const headers = { host: "127.0.0.1:4777", origin: "http://127.0.0.1:4777" };
+
+    try {
+      for (const providerId of ["password-pusher", "onetime-secret"]) {
+        const response = await app.inject({
+          method: "POST",
+          url: `/api/delivery-providers/${providerId}/opt-in`,
+          headers,
+          payload: { confirm: `ENABLE WEAKER PROVIDER ${providerId}` }
+        });
+        expect(response.statusCode).toBe(200);
+        expect(response.json()).toEqual({ providerId, enabled: true });
+      }
+    } finally {
+      await app.close();
+      if (previousPasswordPusherToken === undefined) delete process.env.WARDSEN_PASSWORD_PUSHER_API_TOKEN;
+      else process.env.WARDSEN_PASSWORD_PUSHER_API_TOKEN = previousPasswordPusherToken;
+      if (previousOnetimeSecretUsername === undefined) delete process.env.WARDSEN_ONETIME_SECRET_USERNAME;
+      else process.env.WARDSEN_ONETIME_SECRET_USERNAME = previousOnetimeSecretUsername;
+      if (previousOnetimeSecretToken === undefined) delete process.env.WARDSEN_ONETIME_SECRET_API_TOKEN;
+      else process.env.WARDSEN_ONETIME_SECRET_API_TOKEN = previousOnetimeSecretToken;
+    }
   });
 
   it("requires an exact opt-in before weaker delivery providers are available", async () => {
@@ -284,65 +385,73 @@ describe("WardSen API", () => {
   });
 
   it("creates, updates and deletes account metadata", async () => {
-    const app = await buildApp();
+    const workingDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "wardsen-account-metadata-"));
+    const app = await buildApp({ profileRoot: path.join(workingDirectory, "profiles") });
     const headers = { host: "127.0.0.1:4777", origin: "http://127.0.0.1:4777" };
-    const created = await app.inject({
-      method: "POST",
-      url: "/api/accounts",
-      headers,
-      payload: { id: "ops", providerId: "bitwarden", label: "Operations", username: "ops@example.com" }
-    });
-    expect(created.statusCode).toBe(200);
+    try {
+      const created = await app.inject({
+        method: "POST",
+        url: "/api/accounts",
+        headers,
+        payload: { id: "ops", providerId: "bitwarden", label: "Operations", username: "ops@example.com" }
+      });
+      expect(created.statusCode).toBe(200);
 
-    const updated = await app.inject({
-      method: "PUT",
-      url: "/api/accounts/ops",
-      headers,
-      payload: { label: "Company Operations" }
-    });
-    expect(updated.json().label).toBe("Company Operations");
+      const updated = await app.inject({
+        method: "PUT",
+        url: "/api/accounts/ops",
+        headers,
+        payload: { label: "Company Operations" }
+      });
+      expect(updated.json().label).toBe("Company Operations");
 
-    const removed = await app.inject({ method: "DELETE", url: "/api/accounts/ops", headers, payload: { confirm: "DELETE ACCOUNT ops" } });
-    expect(removed.statusCode).toBe(200);
+      const removed = await app.inject({ method: "DELETE", url: "/api/accounts/ops", headers, payload: { confirm: "DELETE ACCOUNT ops" } });
+      expect(removed.statusCode).toBe(200);
 
-    const audit = await app.inject({ method: "GET", url: "/api/audit-log", headers: { host: "127.0.0.1:4777" } });
-    expect(audit.json().items.some((item: { action: string }) => item.action === "account.delete")).toBe(true);
-    await app.close();
+      const audit = await app.inject({ method: "GET", url: "/api/audit-log", headers: { host: "127.0.0.1:4777" } });
+      expect(audit.json().items.some((item: { action: string }) => item.action === "account.delete")).toBe(true);
+    } finally {
+      await app.close();
+      fs.rmSync(workingDirectory, { recursive: true, force: true });
+    }
   });
 
   it("manages provider profile directories instead of accepting caller-supplied paths", async () => {
-    const profileRoot = path.join(os.tmpdir(), "wardsen-test-profiles-api");
+    const workingDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "wardsen-test-profiles-api-"));
+    const profileRoot = path.join(workingDirectory, "profiles");
     const app = await buildApp({ profileRoot });
     const headers = { host: "127.0.0.1:4777", origin: "http://127.0.0.1:4777" };
+    try {
+      const created = await app.inject({
+        method: "POST",
+        url: "/api/accounts",
+        headers,
+        payload: { id: "ops", providerId: "bitwarden", label: "Operations", profileDirectory: "D:\\Outside\\Bitwarden" }
+      });
+      expect(created.statusCode).toBe(200);
+      expect(created.json().profileDirectory).toBe(path.resolve(profileRoot, "ops"));
 
-    const created = await app.inject({
-      method: "POST",
-      url: "/api/accounts",
-      headers,
-      payload: { id: "ops", providerId: "bitwarden", label: "Operations", profileDirectory: "D:\\Outside\\Bitwarden" }
-    });
-    expect(created.statusCode).toBe(200);
-    expect(created.json().profileDirectory).toBe(path.resolve(profileRoot, "ops"));
+      const updated = await app.inject({
+        method: "PUT",
+        url: "/api/accounts/ops",
+        headers,
+        payload: { label: "Operations 2", profileDirectory: "D:\\StillOutside" }
+      });
+      expect(updated.statusCode).toBe(200);
+      expect(updated.json().profileDirectory).toBe(path.resolve(profileRoot, "ops"));
 
-    const updated = await app.inject({
-      method: "PUT",
-      url: "/api/accounts/ops",
-      headers,
-      payload: { label: "Operations 2", profileDirectory: "D:\\StillOutside" }
-    });
-    expect(updated.statusCode).toBe(200);
-    expect(updated.json().profileDirectory).toBe(path.resolve(profileRoot, "ops"));
-
-    const escaped = await app.inject({
-      method: "POST",
-      url: "/api/accounts",
-      headers,
-      payload: { id: "..\\escape", providerId: "bitwarden", label: "Escape" }
-    });
-    expect(escaped.statusCode).toBe(400);
-    expect(escaped.json().error).toContain("Account id cannot contain path separators");
-
-    await app.close();
+      const escaped = await app.inject({
+        method: "POST",
+        url: "/api/accounts",
+        headers,
+        payload: { id: "..\\escape", providerId: "bitwarden", label: "Escape" }
+      });
+      expect(escaped.statusCode).toBe(400);
+      expect(escaped.json().error).toContain("Account id cannot contain path separators");
+    } finally {
+      await app.close();
+      fs.rmSync(workingDirectory, { recursive: true, force: true });
+    }
   });
 
   it("rejects stored profile paths and linked profile directories before provider commands run", async () => {

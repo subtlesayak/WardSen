@@ -58,6 +58,8 @@ struct LocalServiceProxyResponse {
     content_type: String,
 }
 
+const MAX_LOCAL_SERVICE_PROXY_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
+
 #[tauri::command]
 fn proxy_local_service_request(
     request: LocalServiceProxyRequest,
@@ -317,8 +319,7 @@ fn proxy_local_service_request_inner(
     );
     stream.write_all(raw_request.as_bytes())?;
 
-    let mut raw_response = Vec::new();
-    stream.read_to_end(&mut raw_response)?;
+    let raw_response = read_bounded_local_service_proxy_response(&mut stream)?;
     let header_end = raw_response
         .windows(4)
         .position(|window| window == b"\r\n\r\n")
@@ -362,6 +363,25 @@ fn proxy_local_service_request_inner(
         body,
         content_type,
     })
+}
+
+fn read_bounded_local_service_proxy_response(reader: &mut impl Read) -> io::Result<Vec<u8>> {
+    let mut response = Vec::with_capacity(16 * 1024);
+    let mut chunk = [0_u8; 16 * 1024];
+
+    loop {
+        let read = reader.read(&mut chunk)?;
+        if read == 0 {
+            return Ok(response);
+        }
+        if read > MAX_LOCAL_SERVICE_PROXY_RESPONSE_BYTES.saturating_sub(response.len()) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "local service response was too large",
+            ));
+        }
+        response.extend_from_slice(&chunk[..read]);
+    }
 }
 
 fn http_header_value(line: &str, expected_name: &str) -> Option<String> {
@@ -818,9 +838,12 @@ fn base64_encode(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        decode_http_response_body, macos_terminal_command, validate_local_service_proxy_request,
+        decode_http_response_body, macos_terminal_command,
+        read_bounded_local_service_proxy_response, validate_local_service_proxy_request,
         windows_terminal_args, windows_terminal_command, LocalServiceProxyRequest,
+        MAX_LOCAL_SERVICE_PROXY_RESPONSE_BYTES,
     };
+    use std::io::Cursor;
 
     #[test]
     fn macos_terminal_handoff_keeps_the_window_open_after_running() {
@@ -910,6 +933,16 @@ mod tests {
         )
         .expect("chunked body");
         assert_eq!(chunked, br#"{"ok":true}"#);
+    }
+
+    #[test]
+    fn local_service_proxy_rejects_oversized_responses_before_buffering_them_all() {
+        let oversized = vec![b'x'; MAX_LOCAL_SERVICE_PROXY_RESPONSE_BYTES + 1];
+        let error = read_bounded_local_service_proxy_response(&mut Cursor::new(oversized))
+            .expect_err("oversized local response must be rejected");
+
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        assert_eq!(error.to_string(), "local service response was too large");
     }
 }
 
