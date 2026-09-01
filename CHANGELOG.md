@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.11.1 - 2026-09-01
+
+### Changes
+
+- Added Bitwarden CLI update checks inside the Bitwarden setup wizard.
+- Checks use npm registry metadata only; WardSen does not download, install or execute provider updates.
+- Shows the exact npm update command only after the operator confirms the installed `bw` came from npm.
+- Keeps operator-selected `bw` executable paths on their original official or IT-approved update path.
+- Audits Bitwarden CLI update checks without recording local executable paths or latest version strings.
+
+### Steps
+
+- Download the `v0.11.1` Windows MSI or macOS Apple Silicon DMG from GitHub Releases.
+- Download the matching `SHA256SUMS-*.txt` file and verify the installer checksum before opening it.
+- Open **Settings > Provider Capabilities > Bitwarden > Bitwarden CLI setup**.
+- Select **Check for updates** after WardSen detects `bw`.
+- If the CLI came from npm, confirm that in the UI, copy the exact npm command and run it yourself in Terminal or PowerShell.
+- If the CLI came from a native download, Chocolatey, Homebrew, Snap, Flatpak or IT-managed path, update it through that original channel.
+
 ## 0.11.0 - 2026-08-29
 
 ### Changes

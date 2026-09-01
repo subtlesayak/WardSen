@@ -2204,6 +2204,12 @@ function BitwardenCliSetupWizard({ onConfigured }: { onConfigured: () => void })
   const [executablePath, setExecutablePath] = useState("");
   const [trustAcknowledged, setTrustAcknowledged] = useState(false);
   const [saveState, setSaveState] = useState<{ status: "idle" | "loading" | "ready" | "error"; text?: string }>({ status: "idle" });
+  const [updateState, setUpdateState] = useState<{
+    status: "idle" | "loading" | "ready" | "error";
+    update?: { currentVersion: string; latestVersion: string; checkedAt: string; updateAvailable: boolean; operatorSelectedExecutable: boolean };
+    text?: string;
+  }>({ status: "idle" });
+  const [npmUpdateAcknowledged, setNpmUpdateAcknowledged] = useState(false);
 
   async function checkRuntime() {
     setDiagnostic({ status: "loading" });
@@ -2244,11 +2250,24 @@ function BitwardenCliSetupWizard({ onConfigured }: { onConfigured: () => void })
       setExecutablePath("");
       setTrustAcknowledged(false);
       setShowLocator(false);
+      setUpdateState({ status: "idle" });
+      setNpmUpdateAcknowledged(false);
       setSaveState({ status: "ready", text: `Bitwarden CLI verified: ${result.version}. WardSen will use it immediately.` });
       await checkRuntime();
       onConfigured();
     } catch (error) {
       setSaveState({ status: "error", text: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  async function checkForUpdates() {
+    setUpdateState({ status: "loading" });
+    try {
+      const update = await apiGet<{ currentVersion: string; latestVersion: string; checkedAt: string; updateAvailable: boolean; operatorSelectedExecutable: boolean }>("/api/provider-tools/bitwarden/update");
+      setUpdateState({ status: "ready", update });
+      setNpmUpdateAcknowledged(false);
+    } catch (error) {
+      setUpdateState({ status: "error", text: error instanceof Error ? error.message : String(error) });
     }
   }
 
@@ -2258,6 +2277,8 @@ function BitwardenCliSetupWizard({ onConfigured }: { onConfigured: () => void })
   const isWindows = typeof navigator !== "undefined" && /Win/.test(navigator.platform || navigator.userAgent);
   const installCommand = isWindows ? "npm.cmd install -g @bitwarden/cli" : "npm install -g @bitwarden/cli";
   const locateCommand = isWindows ? "where.exe bw" : "command -v bw";
+  const cliUpdate = updateState.update;
+  const npmUpdateCommand = cliUpdate ? (isWindows ? `npm.cmd install -g @bitwarden/cli@${cliUpdate.latestVersion}` : `npm install -g @bitwarden/cli@${cliUpdate.latestVersion}`) : "";
   return (
     <div className="providerSetupWizard" aria-label="Bitwarden CLI setup">
       <div className="providerSetupWizardHeader">
@@ -2293,6 +2314,24 @@ function BitwardenCliSetupWizard({ onConfigured }: { onConfigured: () => void })
           </li>
         </ol>
       </div> : <p className="providerSetupGuidance">The local service can use this CLI. Add a Bitwarden account in Vaults, then use Terminal login / unlock.</p>}
+      {cliFound ? <section className="providerUpdatePanel" aria-label="Bitwarden CLI updates">
+        <div className="providerUpdateHeader">
+          <div><h4>Bitwarden CLI updates</h4><p>Checks only the current and latest version through npm metadata. WardSen never downloads or runs the update.</p></div>
+          <button type="button" className="secondary" disabled={updateState.status === "loading"} onClick={() => void checkForUpdates()}>{updateState.status === "loading" ? "Checking updates..." : "Check for updates"}</button>
+        </div>
+        {updateState.status === "ready" && cliUpdate ? <div className="providerUpdateResult" role="status" aria-live="polite">
+          {cliUpdate.updateAvailable ? <>
+            <strong>Update available: {cliUpdate.latestVersion}</strong>
+            <span>Installed: {cliUpdate.currentVersion}</span>
+            {cliUpdate.operatorSelectedExecutable ? <p>WardSen uses an operator-selected CLI path. Update that file through its original official or IT-approved installer, then select <strong>Verify and use CLI</strong> again.</p> : <>
+              <label className="checkboxLine"><input type="checkbox" checked={npmUpdateAcknowledged} onChange={(event) => setNpmUpdateAcknowledged(event.target.checked)} /> I installed this <code>bw</code> CLI with npm and want the exact npm update command.</label>
+              {npmUpdateAcknowledged ? <div className="providerInstallCommand"><code>{npmUpdateCommand}</code><CopyFeedbackButton value={npmUpdateCommand} label="Copy update command" copiedLabel="Update command copied" /></div> : null}
+              <small>Run it yourself in Terminal{isWindows ? " or PowerShell" : ""}, then select <strong>Check again</strong>. Use the official guide instead when another installer supplied this CLI.</small>
+            </>}
+          </> : <><strong>Bitwarden CLI is current</strong><span>Installed version {cliUpdate.currentVersion} matches npm&apos;s latest version {cliUpdate.latestVersion}.</span></>}
+        </div> : null}
+        {updateState.status === "error" ? <ErrorNotice message={updateState.text} compact /> : null}
+      </section> : null}
       <div className="providerSetupActions">
         <button type="button" className="secondary" onClick={() => void openInstallGuide()}><ArrowUpRight size={16} aria-hidden="true" /> Open official Bitwarden CLI guide</button>
         <button type="button" onClick={() => setShowLocator((current) => !current)}>{showLocator ? "Hide CLI path" : "Locate existing CLI"}</button>

@@ -879,6 +879,27 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
 .providerSetupSteps small { font-size: 12px; color: inherit; }
 .providerSetupGuidance { font-size: 13px; }
 .providerSetupActions { display: flex; flex-wrap: wrap; gap: 8px; }
+.providerUpdatePanel {
+  display: grid;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid #dbe7e2;
+}
+.providerUpdateHeader {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.providerUpdateHeader > div,
+.providerUpdateResult { min-width: 0; }
+.providerUpdateHeader h4,
+.providerUpdateHeader p,
+.providerUpdateResult p { margin: 0; }
+.providerUpdateHeader h4 { font-size: 14px; }
+.providerUpdateResult { display: grid; gap: 6px; color: #52665e; font-size: 13px; line-height: 1.45; }
+.providerUpdateResult strong { color: #263b33; }
+.providerUpdateResult small { color: #63766f; }
 .providerDependencySteps {
   display: grid;
   gap: 12px;
@@ -1049,8 +1070,10 @@ h1 { font-size: 30px; line-height: 1.12; letter-spacing: 0; }
   .optionalProvider button {
     justify-self: start;
   }
-  .providerSetupWizardHeader { align-items: stretch; flex-direction: column; }
-  .providerSetupWizardHeader button { align-self: flex-start; }
+  .providerSetupWizardHeader,
+  .providerUpdateHeader { align-items: stretch; flex-direction: column; }
+  .providerSetupWizardHeader button,
+  .providerUpdateHeader button { align-self: flex-start; }
   .providerSetupSteps { grid-template-columns: 1fr; }
   .providerDependencySteps li { grid-template-columns: 1fr; }
   .providerDependencySteps li > button { justify-self: start; }

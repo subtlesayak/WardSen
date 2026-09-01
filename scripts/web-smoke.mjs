@@ -112,7 +112,7 @@ async function handleRequest(requestUrl, response) {
 function sendApi(apiPath, response) {
   const now = new Date().toISOString();
   const routes = {
-    "/api/health": { ok: true, version: "0.11.0" },
+    "/api/health": { ok: true, version: "0.11.1" },
     "/api/providers": {
       credentialProviders: [{ id: "mock-source", displayName: "Mock Source" }],
       deliveryProviders: [{ id: "bitwarden-send", displayName: "Bitwarden Send", capabilities: { statusLookup: true, revokeLink: true } }],

@@ -158,6 +158,11 @@ describe("web UI regression guards", () => {
     expect(webSource).toContain("Copy install command");
     expect(webSource).toContain("Copy version check");
     expect(webSource).toContain("Copy path command");
+    expect(webSource).toContain("Check for updates");
+    expect(webSource).toContain("/api/provider-tools/bitwarden/update");
+    expect(webSource).toContain("I installed this <code>bw</code> CLI with npm");
+    expect(webSource).toContain("Copy update command");
+    expect(webSource).toContain("WardSen never downloads or runs the update");
     expect(webSource).toContain("npm.cmd install -g @bitwarden/cli");
     expect(webSource).toContain("I trust this official or IT-approved Bitwarden CLI file.");
     expect(webSource).toContain("/api/provider-tools/bitwarden/locate");
@@ -166,6 +171,7 @@ describe("web UI regression guards", () => {
     expect(styles).toContain(".providerSetupWizard");
     expect(styles).toContain(".providerSetupSteps");
     expect(styles).toContain(".providerDependencySteps");
+    expect(styles).toContain(".providerUpdatePanel");
   });
 
   it("guides every implemented local CLI provider without installing it automatically", () => {

@@ -46,6 +46,7 @@ import { EntePasteManualDeliveryProvider } from "../../../packages/delivery-ente
 import { AccountDeletionError, AccountDeletionService } from "./accountDeletionService";
 import { assertManagedProfileDirectoryTarget, managedProfileDirectory, pathsEqual } from "./managedProfileDirectory";
 import { GithubReleaseUpdateService, type ReleaseUpdateService } from "./releaseUpdateService";
+import { NpmBitwardenCliUpdateService, type BitwardenCliUpdateService } from "./bitwardenCliUpdateService";
 
 export interface BuildAppOptions {
   repository?: WardSenRepository;
@@ -58,6 +59,7 @@ export interface BuildAppOptions {
   credentialProviders?: CredentialProvider[];
   deliveryProviders?: DeliveryProvider[];
   releaseUpdateService?: ReleaseUpdateService;
+  bitwardenCliUpdateService?: BitwardenCliUpdateService;
 }
 
 interface TerminalSessionHandoffRecord {
@@ -97,6 +99,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   const apiToken = options.apiToken ?? process.env.WARDSEN_API_TOKEN;
   const registry = new ProviderRegistry();
   const releaseUpdateService = options.releaseUpdateService ?? new GithubReleaseUpdateService();
+  const bitwardenCliUpdateService = options.bitwardenCliUpdateService ?? new NpmBitwardenCliUpdateService();
   const profileRoot = path.resolve(options.profileRoot ?? path.join(process.cwd(), ".wardsen-profiles"));
   const accountProfileDirectories = new Map<string, string>();
   const deliveryOperationTails = new Map<string, Promise<void>>();
@@ -357,6 +360,25 @@ export async function buildApp(options: BuildAppOptions = {}) {
       };
     } catch (error) {
       throw app.httpErrors.badRequest(`WardSen could not verify the chosen Bitwarden CLI. ${safeErrorMessage(error, [body.executablePath])}`);
+    }
+  });
+
+  app.get("/api/provider-tools/bitwarden/update", { config: { rateLimit: { max: 5, timeWindow: RATE_LIMIT_WINDOW } } }, async () => {
+    try {
+      const operatorSelectedExecutable = Boolean(configuredBitwardenCli.executablePath);
+      const executable = configuredBitwardenCli.executablePath ?? resolveProviderExecutable({
+        toolName: "bw",
+        envPathKey: "WARDSEN_BITWARDEN_CLI_PATH",
+        trustedCandidates: bitwardenDiagnosticCandidates()
+      });
+      const result = await runCliCommand({ executable, args: ["--version"], timeoutMs: 5_000, maxOutputBytes: 512 });
+      const update = await bitwardenCliUpdateService.check(cliVersion(result.stdout));
+      await audit("provider.cli_update_check", "success", { safeDetails: `provider=bitwarden;update_available=${update.updateAvailable}` });
+      return { ...update, operatorSelectedExecutable };
+    } catch (error) {
+      await audit("provider.cli_update_check", "failure", { safeDetails: "provider=bitwarden" });
+      const message = safeErrorMessage(error);
+      throw app.httpErrors.badRequest(message.startsWith("WardSen could not") ? message : `WardSen could not check Bitwarden CLI updates. ${message}`);
     }
   });
 

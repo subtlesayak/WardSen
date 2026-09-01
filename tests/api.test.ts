@@ -820,6 +820,38 @@ describe("WardSen API", () => {
     await restarted.close();
   });
 
+  it("checks Bitwarden CLI updates without downloading or running an update", async () => {
+    const bitwardenCliUpdateService = {
+      check: vi.fn(async (currentVersion: string) => ({
+        currentVersion,
+        latestVersion: "2026.7.0",
+        checkedAt: "2026-08-29T10:00:00.000Z",
+        updateAvailable: true
+      }))
+    };
+    const app = await buildApp({ bitwardenCliUpdateService });
+    const headers = { host: "127.0.0.1:4777" };
+
+    const located = await app.inject({
+      method: "POST",
+      url: "/api/provider-tools/bitwarden/locate",
+      headers,
+      payload: { executablePath: process.execPath, trustAcknowledged: true }
+    });
+    expect(located.statusCode).toBe(200);
+
+    const checked = await app.inject({ method: "GET", url: "/api/provider-tools/bitwarden/update", headers });
+    expect(checked.statusCode).toBe(200);
+    expect(checked.json()).toMatchObject({ latestVersion: "2026.7.0", updateAvailable: true, operatorSelectedExecutable: true });
+    expect(checked.body).not.toContain(process.execPath);
+    expect(bitwardenCliUpdateService.check).toHaveBeenCalledWith(expect.any(String));
+
+    const audit = await app.inject({ method: "GET", url: "/api/audit-log", headers });
+    expect(audit.body).toContain("provider.cli_update_check");
+    expect(audit.body).not.toContain("2026.7.0");
+    await app.close();
+  });
+
   it("tracks cancellable delivery batches", async () => {
     const app = await buildApp();
     const headers = { host: "127.0.0.1:4777", origin: "http://127.0.0.1:4777" };
