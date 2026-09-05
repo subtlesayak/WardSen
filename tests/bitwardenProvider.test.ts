@@ -189,7 +189,9 @@ describe("Bitwarden credential provider", () => {
 
       expect(command).toContain(`$env:BITWARDENCLI_APPDATA_DIR='${expectedProfile}'`);
       expect(command).toContain("& $bwCommand status --nointeraction");
-      expect(command).toContain("& $bwCommand config server 'https://vault.bitwarden.com'");
+      expect(command).toContain("$bwDesiredServer='https://vault.bitwarden.com'");
+      expect(command).toContain("& $bwCommand config server $bwDesiredServer");
+      expect(command.indexOf("& $bwCommand status --nointeraction")).toBeLessThan(command.indexOf("& $bwCommand config server $bwDesiredServer"));
       expect(command).toContain("& $bwCommand login 'user@example.com' --raw");
       expect(command).toContain("& $bwCommand unlock --raw");
       expect(command).toContain("master password once to sign in and unlock");
@@ -246,7 +248,9 @@ describe("Bitwarden credential provider", () => {
       expect(command).toContain("WardSen could not find the Bitwarden CLI");
       expect(command).toContain("$HOME/.local/bin/bw");
       expect(command).toContain("\"$bwCommand\" status --nointeraction");
-      expect(command).toContain("\"$bwCommand\" config server 'https://vault.bitwarden.com'");
+      expect(command).toContain("bwDesiredServer='https://vault.bitwarden.com'");
+      expect(command).toContain("\"$bwCommand\" config server \"$bwDesiredServer\"");
+      expect(command.indexOf("\"$bwCommand\" status --nointeraction")).toBeLessThan(command.indexOf("\"$bwCommand\" config server \"$bwDesiredServer\""));
       expect(command).toContain("\"$bwCommand\" login 'user@example.com' --raw");
       expect(command).toContain("\"$bwCommand\" unlock --raw");
       expect(command).toContain("curl --fail --silent --show-error");
