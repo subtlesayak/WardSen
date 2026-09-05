@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.11.3 - 2026-09-05
+
+### Changes
+
+- Updated Fastify and `fast-uri` dependency pins so `npm audit --audit-level=high` passes again.
+- Keeps the `v0.11.2` terminal-login launch improvements unchanged.
+
+### Steps
+
+- Download the `v0.11.3` Windows MSI or macOS Apple Silicon DMG from GitHub Releases.
+- Download the matching `SHA256SUMS-*.txt` file and verify the installer checksum before opening it.
+- On Windows, install the unsigned MSI only after checksum verification; report SmartScreen or Defender blocks instead of bypassing them casually.
+- On macOS, install the unsigned DMG only after checksum verification. If Gatekeeper blocks the verified local copy, use the README quarantine-removal command and treat it as an unsigned-app workaround, not signing.
+- For Bitwarden accounts, open **Vaults > Account Access**, choose the account and select **Terminal login / unlock**. If the terminal prompt does not appear within 10 seconds, use **Open Terminal again** or **Copy terminal command**.
+
 ## 0.11.2 - 2026-09-05
 
 ### Changes

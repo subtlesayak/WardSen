@@ -34,7 +34,7 @@ For dedicated recipient links, say **"Asha's link was viewed"**, not **"Asha vie
 
 ## Release status
 
-`v0.11.2` is the current stable release. The attached Windows MSI and macOS Apple Silicon DMG are unsigned; verify the matching checksum before installation and expect Windows SmartScreen, Defender, or macOS Gatekeeper warnings until code signing and notarization are configured.
+`v0.11.3` is the current stable release. The attached Windows MSI and macOS Apple Silicon DMG are unsigned; verify the matching checksum before installation and expect Windows SmartScreen, Defender, or macOS Gatekeeper warnings until code signing and notarization are configured.
 
 | Area | Current position |
 | --- | --- |
@@ -43,7 +43,7 @@ For dedicated recipient links, say **"Asha's link was viewed"**, not **"Asha vie
 | Providers | Bitwarden needs the official `bw` CLI. Other delivery providers are configured in the local service environment. |
 | Installers | Windows MSI and macOS Apple Silicon DMG are stable but unsigned artifacts. |
 
-See the [current release notes](docs/release-notes/v0.11.2.md), [security design](docs/security-design.md), and [installer signing guide](docs/installer-signing.md) for detail.
+See the [current release notes](docs/release-notes/v0.11.3.md), [security design](docs/security-design.md), and [installer signing guide](docs/installer-signing.md) for detail.
 
 ### Check for updates
 

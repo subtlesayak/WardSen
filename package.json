@@ -1,6 +1,6 @@
 {
   "name": "wardsen",
-  "version": "0.11.2",
+  "version": "0.11.3",
   "private": true,
   "description": "WardSen is a local-first credential dispatch hub for password managers and secure-sharing providers.",
   "license": "Apache-2.0",
@@ -52,7 +52,7 @@
     "@tauri-apps/plugin-opener": "^2.5.0",
     "@vitejs/plugin-react": "^6.0.5",
     "concurrently": "^10.0.4",
-    "fastify": "^5.11.3",
+    "fastify": "^5.12.3",
     "lucide-react": "^1.28.0",
     "nanoid": "^6.0.0",
     "rate-limiter-flexible": "^11.2.0",
@@ -72,11 +72,11 @@
     "vitest": "^4.1.10"
   },
   "overrides": {
-    "fast-uri": "3.1.5",
+    "fast-uri": "3.1.7",
     "fast-json-stringify": {
-      "fast-uri": "4.1.2",
+      "fast-uri": "4.1.4",
       "ajv": {
-        "fast-uri": "3.1.5"
+        "fast-uri": "3.1.7"
       }
     }
   }
