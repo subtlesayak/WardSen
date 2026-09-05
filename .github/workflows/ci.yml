@@ -73,7 +73,7 @@ jobs:
       - uses: github/codeql-action/init@5ba2889ada762081db2c4f32a729827dce632c7b
         with:
           languages: javascript-typescript
-      - uses: github/codeql-action/analyze@5ba2889ada762081db2c4f32a729827dce632c7b
+      - uses: github/codeql-action/analyze@6f5948dfacef28e207b48d0905cf90c03365536d
 
   dependency-review:
     runs-on: ubuntu-latest
