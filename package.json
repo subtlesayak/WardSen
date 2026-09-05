@@ -1,6 +1,6 @@
 {
   "name": "wardsen",
-  "version": "0.11.1",
+  "version": "0.11.2",
   "private": true,
   "description": "WardSen is a local-first credential dispatch hub for password managers and secure-sharing providers.",
   "license": "Apache-2.0",

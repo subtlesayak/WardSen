@@ -188,8 +188,11 @@ describe("Bitwarden credential provider", () => {
       });
 
       expect(command).toContain(`$env:BITWARDENCLI_APPDATA_DIR='${expectedProfile}'`);
-      expect(command).toContain("& $bwCommand login 'user@example.com'");
+      expect(command).toContain("& $bwCommand status --nointeraction");
+      expect(command).toContain("& $bwCommand config server 'https://vault.bitwarden.com'");
+      expect(command).toContain("& $bwCommand login 'user@example.com' --raw");
       expect(command).toContain("& $bwCommand unlock --raw");
+      expect(command).toContain("master password once to sign in and unlock");
       expect(command).toContain("Invoke-WebRequest");
       expect(command).toContain("X-WardSen-Terminal-Handoff");
       expect(command).not.toContain("Set-Content");
@@ -242,7 +245,9 @@ describe("Bitwarden credential provider", () => {
       expect(command).toContain("export BITWARDENCLI_APPDATA_DIR=\"$HOME/Library/Application Support/dev.wardsen.desktop/wardsen-data/profiles/acct-1\"");
       expect(command).toContain("WardSen could not find the Bitwarden CLI");
       expect(command).toContain("$HOME/.local/bin/bw");
-      expect(command).toContain("\"$bwCommand\" login 'user@example.com'");
+      expect(command).toContain("\"$bwCommand\" status --nointeraction");
+      expect(command).toContain("\"$bwCommand\" config server 'https://vault.bitwarden.com'");
+      expect(command).toContain("\"$bwCommand\" login 'user@example.com' --raw");
       expect(command).toContain("\"$bwCommand\" unlock --raw");
       expect(command).toContain("curl --fail --silent --show-error");
       expect(command).toContain("X-WardSen-Terminal-Handoff: one-time-token");
@@ -269,10 +274,30 @@ describe("Bitwarden credential provider", () => {
       token: "one-time-token"
     });
     expect(command).toContain("bwCommand='/opt/homebrew/bin/bw'");
-    expect(command).toContain("\"$bwCommand\" login 'user@example.com'");
+    expect(command).toContain("\"$bwCommand\" login 'user@example.com' --raw");
     expect(command).toContain("\"$bwCommand\" unlock --raw");
     expect(command).not.toContain("; bw login");
     expect(command).not.toContain("| bw unlock --raw");
+  });
+
+  it("uses Bitwarden SSO before one terminal unlock when requested", () => {
+    const provider = new BitwardenCredentialProvider({
+      platform: "win32",
+      profileRoot: "profiles",
+      runCommand: async () => ok()
+    });
+
+    const command = provider.createTerminalSessionHandoffCommand("acct-1", {
+      username: "user@example.com",
+      sso: true
+    }, {
+      claimUrl: "http://127.0.0.1:4777/api/accounts/acct-1/terminal-handoff/claim",
+      token: "one-time-token"
+    });
+
+    expect(command).toContain("& $bwCommand login --sso");
+    expect(command).toContain("& $bwCommand unlock --raw");
+    expect(command).not.toContain("login 'user@example.com' --raw");
   });
 
   it("uses a validated terminal-created session for later credential commands", async () => {

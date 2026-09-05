@@ -4,7 +4,7 @@ WardSen release installers should be signed before a public release is published
 
 ## Current Release State
 
-`v0.11.1` is the current stable release. Its Windows MSI and macOS Apple Silicon DMG are unsigned artifacts, so users must verify checksums and expect platform warnings until Windows Authenticode signing plus macOS Developer ID signing and notarization are configured.
+`v0.11.2` is the current stable release. Its Windows MSI and macOS Apple Silicon DMG are unsigned artifacts, so users must verify checksums and expect platform warnings until Windows Authenticode signing plus macOS Developer ID signing and notarization are configured.
 
 Do not promote a future final release until Windows Authenticode signing and macOS Developer ID notarization are configured and verified, or until the release clearly states that the installers are unsigned.
 
@@ -72,14 +72,14 @@ Download the release assets from GitHub on clean machines and verify them.
 Windows:
 
 ```powershell
-signtool verify /pa /v .\WardSen_0.11.1_x64_en-US.msi
+signtool verify /pa /v .\WardSen_0.11.2_x64_en-US.msi
 ```
 
 macOS:
 
 ```bash
-spctl --assess --type open --verbose WardSen_0.11.1_aarch64.dmg
-xcrun stapler validate WardSen_0.11.1_aarch64.dmg
+spctl --assess --type open --verbose WardSen_0.11.2_aarch64.dmg
+xcrun stapler validate WardSen_0.11.2_aarch64.dmg
 ```
 
 Also compare each installer against the matching `SHA256SUMS-*.txt` file.
@@ -119,7 +119,7 @@ apps\desktop\src-tauri\target\release\bundle\
 ### Sign With a Certificate in the Windows Certificate Store
 
 ```powershell
-signtool sign /n "Publisher Name" /fd SHA256 /tr "https://timestamp.example.com" /td SHA256 "apps\desktop\src-tauri\target\release\bundle\msi\WardSen_0.11.1_x64_en-US.msi"
+signtool sign /n "Publisher Name" /fd SHA256 /tr "https://timestamp.example.com" /td SHA256 "apps\desktop\src-tauri\target\release\bundle\msi\WardSen_0.11.2_x64_en-US.msi"
 ```
 
 WardSen also includes a helper that signs every `.exe` and `.msi` under the bundle folder and then verifies each artifact:
@@ -131,7 +131,7 @@ powershell -ExecutionPolicy Bypass -File .\installers\windows\sign-windows-artif
 ### Sign With a PFX File
 
 ```powershell
-signtool sign /f ".\certs\wardsen-code-signing.pfx" /p "$env:WINDOWS_CERTIFICATE_PASSWORD" /fd SHA256 /tr "https://timestamp.example.com" /td SHA256 "apps\desktop\src-tauri\target\release\bundle\msi\WardSen_0.11.1_x64_en-US.msi"
+signtool sign /f ".\certs\wardsen-code-signing.pfx" /p "$env:WINDOWS_CERTIFICATE_PASSWORD" /fd SHA256 /tr "https://timestamp.example.com" /td SHA256 "apps\desktop\src-tauri\target\release\bundle\msi\WardSen_0.11.2_x64_en-US.msi"
 ```
 
 Helper equivalent:
@@ -144,7 +144,7 @@ powershell -ExecutionPolicy Bypass -File .\installers\windows\sign-windows-artif
 ### Verify
 
 ```powershell
-signtool verify /pa /v "apps\desktop\src-tauri\target\release\bundle\msi\WardSen_0.11.1_x64_en-US.msi"
+signtool verify /pa /v "apps\desktop\src-tauri\target\release\bundle\msi\WardSen_0.11.2_x64_en-US.msi"
 ```
 
 Helper equivalent:
@@ -213,7 +213,7 @@ spctl --assess --type execute --verbose "apps/desktop/src-tauri/target/release/b
 ### Verify Notarization Stapling
 
 ```bash
-xcrun stapler validate "apps/desktop/src-tauri/target/release/bundle/dmg/WardSen_0.11.1_aarch64.dmg"
+xcrun stapler validate "apps/desktop/src-tauri/target/release/bundle/dmg/WardSen_0.11.2_aarch64.dmg"
 ```
 
 Helper verification:
@@ -271,8 +271,8 @@ Manual release flow for a new RC or signed update:
 Tag release flow:
 
 ```bash
-git tag v0.11.1
-git push origin v0.11.1
+git tag v0.11.2
+git push origin v0.11.2
 ```
 
 The workflow builds:

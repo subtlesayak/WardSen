@@ -65,6 +65,13 @@ interface ProviderDiagnostic {
   linkPreviewRisk: string;
 }
 
+interface ProviderDiagnosticCheck {
+  providerId?: string;
+  status: "idle" | "loading" | "ready" | "error";
+  value?: ProviderDiagnostic;
+  text?: string;
+}
+
 interface ReleaseUpdateCheck {
   currentVersion: string;
   checkedAt: string;
@@ -320,7 +327,10 @@ function App() {
           setSettingsProviderId(providerId);
           setActive("Settings");
         }} />}
-        {active === "Credentials" && <Credentials api={api} />}
+        {active === "Credentials" && <Credentials api={api} onManageDeliveryProviders={() => {
+          setSettingsProviderId(api.optionalDeliveryProviders[0]?.id);
+          setActive("Settings");
+        }} />}
         {active === "People" && <People api={api} confirmDestructiveAction={destructiveConfirmation.confirm} />}
         {active === "Requests" && <RequestsView api={api} />}
         {active === "Deliveries" && <Deliveries api={api} confirmDestructiveAction={destructiveConfirmation.confirm} />}
@@ -690,7 +700,7 @@ function Vaults({ api, confirmDestructiveAction, onOpenProviderSetup }: { api: R
   }
 
   async function beginBitwardenTerminalLogin(account: AccountRecord) {
-    if (!await checkBitwardenCli()) {
+    if (bitwardenCli.status === "ready" && !bitwardenCli.available) {
       setMessage({ status: "error", text: "Bitwarden CLI is not ready. Open Bitwarden CLI setup, make sure bw --version succeeds, then return here to start Terminal login / unlock." });
       return;
     }
@@ -916,7 +926,7 @@ function Vaults({ api, confirmDestructiveAction, onOpenProviderSetup }: { api: R
           ) : null}
         </div>
         <div className="formActions accountAccessActions">
-          {selectedAccountIsBitwarden && bitwardenCliMissing ? <button type="button" className="primary" onClick={() => onOpenProviderSetup("bitwarden")}><Settings size={16} aria-hidden="true" /> Set up Bitwarden CLI</button> : <button type="button" className={selectedAccountIsBitwarden || verificationNeeded ? "primary" : undefined} disabled={selectedAccountIsBitwarden && bitwardenCliChecking} onClick={() => void accountAccess("login")}><ShieldCheck size={16} /> {selectedAccountIsBitwarden && bitwardenCliChecking ? "Checking Bitwarden CLI..." : selectedAccountIsBitwarden ? "Terminal login / unlock" : verificationNeeded ? "Submit code and login" : "Login"}</button>}
+          {selectedAccountIsBitwarden && bitwardenCliMissing ? <button type="button" className="primary" onClick={() => onOpenProviderSetup("bitwarden")}><Settings size={16} aria-hidden="true" /> Set up Bitwarden CLI</button> : <button type="button" className={selectedAccountIsBitwarden || verificationNeeded ? "primary" : undefined} onClick={() => void accountAccess("login")}><ShieldCheck size={16} /> {selectedAccountIsBitwarden ? "Terminal login / unlock" : verificationNeeded ? "Submit code and login" : "Login"}</button>}
           {!selectedAccountIsBitwarden ? selectedAccountIsKeePassXC && keepassXcCliMissing ? <button type="button" className="primary" onClick={() => onOpenProviderSetup("keepassxc")}><Settings size={16} aria-hidden="true" /> Set up KeePassXC</button> : <button type="button" className="primary" disabled={selectedAccountIsKeePassXC && keepassXcCliChecking} onClick={() => void accountAccess("unlock")}><KeyRound size={16} /> {selectedAccountIsKeePassXC && keepassXcCliChecking ? "Checking KeePassXC..." : "Unlock"}</button> : null}
         </div>
       </section>
@@ -963,7 +973,7 @@ function formatElapsedSeconds(totalSeconds: number): string {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
-function Credentials({ api }: { api: ReturnType<typeof useWardSenApi> }) {
+function Credentials({ api, onManageDeliveryProviders }: { api: ReturnType<typeof useWardSenApi>; onManageDeliveryProviders: () => void }) {
   const [search, setSearch] = useState<CredentialSearchState>({
     status: "idle",
     query: "",
@@ -1097,7 +1107,7 @@ function Credentials({ api }: { api: ReturnType<typeof useWardSenApi> }) {
           })}
         </div>
       </section>
-      <DeliveryComposer api={api} selectedCredentials={selectedCredentials} />
+      <DeliveryComposer api={api} selectedCredentials={selectedCredentials} onManageDeliveryProviders={onManageDeliveryProviders} />
     </div>
   );
 }
@@ -1992,11 +2002,12 @@ function Deliveries({ api, confirmDestructiveAction }: { api: ReturnType<typeof 
 function SettingsView({ credentialProviders, deliveryProviders, optionalDeliveryProviders, plannedProviders, onRefresh, confirmAction, initialProviderId }: { credentialProviders: ProviderInfo[]; deliveryProviders: ProviderInfo[]; optionalDeliveryProviders: ProviderInfo[]; plannedProviders: ProviderInfo[]; onRefresh: () => void; confirmAction: DestructiveConfirmation; initialProviderId?: string }) {
   const [selectedProviderId, setSelectedProviderId] = useState(initialProviderId ?? "");
   const [connectionCheck, setConnectionCheck] = useState<{ providerId?: string; status: "idle" | "loading" | "ready" | "error"; text?: string }>({ status: "idle" });
-  const [diagnostic, setDiagnostic] = useState<{ providerId?: string; status: "idle" | "loading" | "ready" | "error"; value?: ProviderDiagnostic; text?: string }>({ status: "idle" });
+  const [diagnostic, setDiagnostic] = useState<ProviderDiagnosticCheck>({ status: "idle" });
   const [releaseUpdate, setReleaseUpdate] = useState<{ status: "idle" | "loading" | "ready" | "error"; value?: ReleaseUpdateCheck; text?: string }>({ status: "idle" });
   const providers = [...credentialProviders, ...deliveryProviders, ...optionalDeliveryProviders];
   const selectedProvider = providers.find((provider) => provider.id === selectedProviderId) ?? providers[0];
   const capabilities = selectedProvider?.capabilities ?? {};
+  const selectedProviderUsesInlineCheck = selectedProvider?.id === "bitwarden" || selectedProvider?.id === "bitwarden-send" || selectedProvider?.id === "keepassxc" || Boolean(selectedProvider?.configurationRequired);
   const isSelectedProviderCheck = connectionCheck.providerId === selectedProvider?.id;
   const isSelectedDiagnostic = diagnostic.providerId === selectedProvider?.id;
 
@@ -2021,9 +2032,9 @@ function SettingsView({ credentialProviders, deliveryProviders, optionalDelivery
     await runDeliveryProviderCheck(selectedProvider);
   }
 
-  async function refreshDiagnostics() {
-    if (!selectedProvider) return;
-    const provider = selectedProvider;
+  async function refreshDiagnostics(providerToCheck = selectedProvider) {
+    if (!providerToCheck) return;
+    const provider = providerToCheck;
     setDiagnostic({ providerId: provider.id, status: "loading", text: `Checking ${provider.displayName} local readiness...` });
     try {
       const value = await apiGet<ProviderDiagnostic>(`/api/provider-diagnostics/${encodeURIComponent(provider.id)}`);
@@ -2092,23 +2103,26 @@ function SettingsView({ credentialProviders, deliveryProviders, optionalDelivery
         {releaseUpdate.status === "ready" && !releaseUpdate.value?.updateAvailable ? <div className="notice compact" role="status" aria-live="polite">{appVersion} is current as of {formatDate(releaseUpdate.value?.checkedAt ?? new Date().toISOString())}.</div> : null}
       </section>
       <section className="panel">
-        <PanelTitle icon={Settings} title="Provider Capabilities" action="Refresh" onAction={onRefresh} />
-        <div className="filters">
-          <select aria-label="Provider capability selection" value={selectedProvider?.id ?? ""} onChange={(event) => {
+        <PanelTitle icon={Settings} title="Provider Capabilities" action="Reload providers" actionIcon={RefreshCcw} onAction={onRefresh} />
+        <div className="providerCapabilityToolbar">
+          <label className="providerCapabilitySelector">Provider
+            <select aria-label="Provider capability selection" value={selectedProvider?.id ?? ""} onChange={(event) => {
             setSelectedProviderId(event.target.value);
             setConnectionCheck({ status: "idle" });
             setDiagnostic({ status: "idle" });
-          }}>
+            }}>
             {providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.displayName}</option>)}
-          </select>
-          {selectedProvider?.documentationUrl ? <button type="button" onClick={() => void openExternalUrl(selectedProvider.documentationUrl!)}>Open provider docs</button> : null}
-          {selectedProvider?.kind === "delivery" && selectedProvider.id !== "bitwarden-send" ? <button type="button" disabled={isSelectedProviderCheck && connectionCheck.status === "loading"} onClick={() => void checkDeliveryProvider()}>{isSelectedProviderCheck && connectionCheck.status === "loading" ? "Checking..." : "Check configuration"}</button> : null}
-          <button type="button" disabled={isSelectedDiagnostic && diagnostic.status === "loading"} onClick={() => void refreshDiagnostics()}>{isSelectedDiagnostic && diagnostic.status === "loading" ? "Checking runtime..." : "Refresh diagnostics"}</button>
+            </select>
+          </label>
+          <div className="providerCapabilityQuickActions">
+            {selectedProvider?.documentationUrl ? <button type="button" className="secondary" onClick={() => void openExternalUrl(selectedProvider.documentationUrl!)}><ArrowUpRight size={16} aria-hidden="true" /> Provider documentation</button> : null}
+            {selectedProvider?.kind === "delivery" && selectedProvider.id !== "bitwarden-send" && !selectedProviderUsesInlineCheck ? <button type="button" disabled={isSelectedProviderCheck && connectionCheck.status === "loading"} onClick={() => void checkDeliveryProvider()}><RefreshCcw size={16} aria-hidden="true" /> {isSelectedProviderCheck && connectionCheck.status === "loading" ? "Checking..." : "Check configuration"}</button> : null}
+          </div>
         </div>
         {selectedProvider?.notes ? <p className="providerNotes">{selectedProvider.notes}</p> : null}
         {selectedProvider?.id === "bitwarden" || selectedProvider?.id === "bitwarden-send" ? <BitwardenCliSetupWizard onConfigured={onRefresh} /> : null}
-        {selectedProvider?.id === "keepassxc" ? <KeePassXcCliSetupGuide diagnostic={isSelectedDiagnostic ? diagnostic : undefined} onCheck={() => void refreshDiagnostics()} /> : null}
-        {selectedProvider?.id === "yopass" ? <YopassCliSetupGuide diagnostic={isSelectedDiagnostic ? diagnostic : undefined} onCheck={() => void refreshDiagnostics()} /> : null}
+        {selectedProvider?.id === "keepassxc" ? <KeePassXcCliSetupGuide diagnostic={isSelectedDiagnostic ? diagnostic : undefined} onCheck={() => void refreshDiagnostics(selectedProvider)} /> : null}
+        {selectedProvider?.id === "yopass" ? <YopassCliSetupGuide diagnostic={isSelectedDiagnostic ? diagnostic : undefined} onCheck={() => void refreshDiagnostics(selectedProvider)} /> : null}
         {selectedProvider?.configurationRequired ? <ExternalApiProviderSetupGuide provider={selectedProvider} onCheck={() => void checkDeliveryProvider()} /> : null}
         {selectedProvider?.setupInstructions?.length ? <ul className="providerSetup" aria-label={`${selectedProvider.displayName} setup`}>
           {selectedProvider.setupInstructions.map((instruction) => <li key={instruction}>{instruction}</li>)}
@@ -2117,15 +2131,18 @@ function SettingsView({ credentialProviders, deliveryProviders, optionalDelivery
         {isSelectedProviderCheck && connectionCheck.status !== "idle" ? <div className={connectionCheck.status === "error" ? "notice error compact" : "notice compact"} role="status" aria-live="polite">{connectionCheck.text}</div> : null}
         {isSelectedDiagnostic && diagnostic.status === "error" ? <ErrorNotice message={diagnostic.text} compact /> : null}
         {isSelectedDiagnostic && diagnostic.status === "ready" && diagnostic.value ? <ProviderDiagnostics diagnostic={diagnostic.value} /> : null}
-        <div className="capabilityGrid">
-          {Object.entries(capabilities).map(([key, enabled]) => (
-            <div className={enabled ? "capability enabled" : "capability"} key={key}>
-              <CheckCircle2 size={16} />
-              <span>{key.replace(/[A-Z]/g, (letter) => ` ${letter.toLowerCase()}`)}</span>
-              <strong>{enabled ? "Supported" : "Hidden or disabled"}</strong>
-            </div>
-          ))}
-        </div>
+        <section className="providerCapabilitySection" aria-label={`${selectedProvider?.displayName ?? "Provider"} capabilities`}>
+          <h3>Capabilities</h3>
+          <div className="capabilityGrid">
+            {Object.entries(capabilities).map(([key, enabled]) => (
+              <div className={enabled ? "capability enabled" : "capability"} key={key}>
+                <CheckCircle2 size={16} />
+                <span>{key.replace(/[A-Z]/g, (letter) => ` ${letter.toLowerCase()}`)}</span>
+                <strong>{enabled ? "Supported" : "Hidden or disabled"}</strong>
+              </div>
+            ))}
+          </div>
+        </section>
       </section>
       <section className="panel">
         <PanelTitle icon={ShieldCheck} title="Optional Delivery Providers" action="Refresh" onAction={onRefresh} />
@@ -2352,13 +2369,24 @@ function BitwardenCliSetupWizard({ onConfigured }: { onConfigured: () => void })
   );
 }
 
-function KeePassXcCliSetupGuide({ diagnostic, onCheck }: { diagnostic?: { status: "idle" | "loading" | "ready" | "error"; value?: ProviderDiagnostic }; onCheck: () => void }) {
+function KeePassXcCliSetupGuide({ diagnostic, onCheck }: { diagnostic?: ProviderDiagnosticCheck; onCheck: () => void }) {
   const [setupError, setSetupError] = useState<string>();
   const isMac = typeof navigator !== "undefined" && /Mac/.test(navigator.platform || navigator.userAgent);
   const isWindows = typeof navigator !== "undefined" && /Win/.test(navigator.platform || navigator.userAgent);
   const isChecking = diagnostic?.status === "loading";
   const cliFound = diagnostic?.status === "ready" && diagnostic.value?.runtime.kind === "cli" && diagnostic.value.runtime.binaryFound;
   const cliVersion = cliFound ? diagnostic.value?.runtime.version : "Not found";
+  const checkFailed = diagnostic?.status === "error";
+  const checkCompletedWithoutCli = diagnostic?.status === "ready" && !cliFound;
+  const cliStatus = cliFound
+    ? `Found: ${cliVersion}`
+    : isChecking
+      ? "Checking local app locations and PATH..."
+      : checkFailed
+        ? "Check failed"
+        : checkCompletedWithoutCli
+          ? "Not found"
+          : "Not checked";
   const installCommand = "winget install -e --id KeePassXCTeam.KeePassXC";
   const versionCommand = isWindows
     ? '& "$env:ProgramFiles\\KeePassXC\\keepassxc-cli.exe" --version'
@@ -2395,8 +2423,10 @@ function KeePassXcCliSetupGuide({ diagnostic, onCheck }: { diagnostic?: { status
       </div>
       <ol className="providerSetupSteps">
         <li className="ready"><CheckCircle2 size={17} aria-hidden="true" /><span><strong>WardSen desktop app</strong><small>Ready</small></span></li>
-        <li className={cliFound ? "ready" : "pending"}><CheckCircle2 size={17} aria-hidden="true" /><span><strong>KeePassXC CLI</strong><small>{cliFound ? `Found: ${cliVersion}` : isChecking ? "Checking local app locations and PATH..." : "Not checked"}</small></span></li>
+        <li className={cliFound ? "ready" : checkFailed ? "error" : "pending"}><CheckCircle2 size={17} aria-hidden="true" /><span><strong>KeePassXC CLI</strong><small>{cliStatus}</small></span></li>
       </ol>
+      {checkFailed ? <div className="notice error compact" role="status" aria-live="polite"><strong>WardSen could not complete the KeePassXC check.</strong><span>{diagnostic?.text ?? "Restart the local service, then select Check again."}</span></div> : null}
+      {checkCompletedWithoutCli ? <div className="notice compact" role="status" aria-live="polite"><strong>KeePassXC was not found by this check.</strong><span>{diagnostic?.value?.runtime.detail ?? "Install the official app, then select Check again."}</span></div> : null}
       {!cliFound ? <div className="providerSetupGuidance">
         <p>Install the official KeePassXC app, then select <strong>Check now</strong>. WardSen checks the normal application location automatically, so a separate terminal command is not required.</p>
         {isMac ? <p><strong>macOS:</strong> open KeePassXC&apos;s official DMG and drag the app to Applications. Do not bypass a macOS security warning; use the provider&apos;s signed download or an IT-approved installation.</p> : null}
@@ -2426,13 +2456,24 @@ function KeePassXcCliSetupGuide({ diagnostic, onCheck }: { diagnostic?: { status
   );
 }
 
-function YopassCliSetupGuide({ diagnostic, onCheck }: { diagnostic?: { status: "idle" | "loading" | "ready" | "error"; value?: ProviderDiagnostic }; onCheck: () => void }) {
+function YopassCliSetupGuide({ diagnostic, onCheck }: { diagnostic?: ProviderDiagnosticCheck; onCheck: () => void }) {
   const [setupError, setSetupError] = useState<string>();
   const isMac = typeof navigator !== "undefined" && /Mac/.test(navigator.platform || navigator.userAgent);
   const isWindows = typeof navigator !== "undefined" && /Win/.test(navigator.platform || navigator.userAgent);
   const isChecking = diagnostic?.status === "loading";
   const cliFound = diagnostic?.status === "ready" && diagnostic.value?.runtime.kind === "cli" && diagnostic.value.runtime.binaryFound;
   const cliVersion = cliFound ? diagnostic.value?.runtime.version : "Not found";
+  const checkFailed = diagnostic?.status === "error";
+  const checkCompletedWithoutCli = diagnostic?.status === "ready" && !cliFound;
+  const cliStatus = cliFound
+    ? `Found: ${cliVersion}`
+    : isChecking
+      ? "Checking Go's standard install folder and PATH..."
+      : checkFailed
+        ? "Check failed"
+        : checkCompletedWithoutCli
+          ? "Not found"
+          : "Not checked";
   const installCommand = "go install github.com/jhaals/yopass/cmd/yopass@latest";
   const versionCommand = isWindows ? '& "$env:USERPROFILE\\go\\bin\\yopass.exe" --version' : isMac ? '"$HOME/go/bin/yopass" --version' : "$HOME/go/bin/yopass --version";
   const locateCommand = isWindows ? "where.exe yopass" : "command -v yopass";
@@ -2466,8 +2507,10 @@ function YopassCliSetupGuide({ diagnostic, onCheck }: { diagnostic?: { status: "
       </div>
       <ol className="providerSetupSteps">
         <li className="ready"><CheckCircle2 size={17} aria-hidden="true" /><span><strong>WardSen desktop app</strong><small>Ready</small></span></li>
-        <li className={cliFound ? "ready" : "pending"}><CheckCircle2 size={17} aria-hidden="true" /><span><strong>Yopass CLI</strong><small>{cliFound ? `Found: ${cliVersion}` : isChecking ? "Checking Go's standard install folder and PATH..." : "Not checked"}</small></span></li>
+        <li className={cliFound ? "ready" : checkFailed ? "error" : "pending"}><CheckCircle2 size={17} aria-hidden="true" /><span><strong>Yopass CLI</strong><small>{cliStatus}</small></span></li>
       </ol>
+      {checkFailed ? <div className="notice error compact" role="status" aria-live="polite"><strong>WardSen could not complete the Yopass check.</strong><span>{diagnostic?.text ?? "Restart the local service, then select Check again."}</span></div> : null}
+      {checkCompletedWithoutCli ? <div className="notice compact" role="status" aria-live="polite"><strong>Yopass was not found by this check.</strong><span>{diagnostic?.value?.runtime.detail ?? "Install the CLI, then select Check again."}</span></div> : null}
       {!cliFound ? <div className="providerSetupGuidance">
         <p>Complete these steps only when you plan to enable Yopass. It remains an opt-in provider because WardSen cannot revoke its links or observe their access.</p>
         <ol className="providerDependencySteps" aria-label="Yopass required dependencies">
@@ -2533,7 +2576,7 @@ function ProviderInstallCommand({ command, label, copiedLabel }: { command: stri
   return <div className="providerInstallCommand"><code>{command}</code><CopyFeedbackButton value={command} label={label} copiedLabel={copiedLabel} /></div>;
 }
 
-function DeliveryComposer({ api, selectedCredentials }: { api: ReturnType<typeof useWardSenApi>; selectedCredentials: CredentialSummary[] }) {
+function DeliveryComposer({ api, selectedCredentials, onManageDeliveryProviders }: { api: ReturnType<typeof useWardSenApi>; selectedCredentials: CredentialSummary[]; onManageDeliveryProviders: () => void }) {
   const [form, setForm] = useState({
     contentType: "credential" as "credential" | "custom-text",
     mode: "shared" as "shared" | "individual" | "bulk",
@@ -2568,6 +2611,7 @@ function DeliveryComposer({ api, selectedCredentials }: { api: ReturnType<typeof
       ? selectedCredential.accountId
       : deliveryAccounts[0]?.id || "";
   const capabilities = selectedDeliveryProvider?.capabilities ?? {};
+  const additionalProviderCount = api.optionalDeliveryProviders.length;
   const providerNeedsConfiguration = selectedDeliveryProvider?.configurationRequired === true;
   const providerConfigurationReady = !providerNeedsConfiguration || (deliveryProviderCheck.providerId === deliveryProviderId && deliveryProviderCheck.status === "ready");
   const manualHandoff = isManualHandoffProvider(selectedDeliveryProvider);
@@ -2818,10 +2862,15 @@ function DeliveryComposer({ api, selectedCredentials }: { api: ReturnType<typeof
         <option value="">{recipientPlaceholder}</option>
         {activePeople.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
       </select></label>
-      <label>Delivery provider<select name="deliveryProviderId" value={deliveryProviderId} onChange={(event) => setForm((current) => ({ ...current, deliveryProviderId: event.target.value }))}>
-        {api.deliveryProviders.map((provider) => <option key={provider.id} value={provider.id}>{provider.displayName}</option>)}
-      </select></label>
-      <small className="fieldInstruction wide">Only active delivery integrations are selectable. Check Settings &gt; Provider Capabilities for provider limits and planned candidates.</small>
+      <div className="deliveryProviderField wide">
+        <label>Delivery provider<select name="deliveryProviderId" value={deliveryProviderId} onChange={(event) => setForm((current) => ({ ...current, deliveryProviderId: event.target.value }))}>
+          {api.deliveryProviders.map((provider) => <option key={provider.id} value={provider.id}>{provider.displayName}</option>)}
+        </select></label>
+        <div className="deliveryProviderSummary" role="status" aria-live="polite">
+          <span>{api.deliveryProviders.length} enabled delivery provider{api.deliveryProviders.length === 1 ? "" : "s"}{additionalProviderCount ? `; ${additionalProviderCount} more require review and setup.` : "."}</span>
+          {additionalProviderCount ? <button type="button" className="secondary" onClick={onManageDeliveryProviders}><Settings size={16} aria-hidden="true" /> Manage delivery providers</button> : null}
+        </div>
+      </div>
       <label>{deliveryProviderId === "bitwarden-send" ? "Delivery account" : "Audit account"}<select name="deliveryAccountId" value={deliveryAccountId} onChange={(event) => setForm((current) => ({ ...current, deliveryAccountId: event.target.value }))}>
         {deliveryAccounts.length === 0 ? <option value="">Add a Bitwarden vault in Vaults</option> : deliveryAccounts.map((account) => <option key={account.id} value={account.id}>{account.label}</option>)}
       </select></label>
@@ -3263,11 +3312,11 @@ function Metric({ label, value, detail }: { label: string; value: string; detail
   );
 }
 
-function PanelTitle({ icon: Icon, title, action, onAction, actionDisabled = false }: { icon: React.ElementType; title: string; action?: string; onAction?: () => void; actionDisabled?: boolean }) {
+function PanelTitle({ icon: Icon, title, action, actionIcon: ActionIcon, onAction, actionDisabled = false }: { icon: React.ElementType; title: string; action?: string; actionIcon?: React.ElementType; onAction?: () => void; actionDisabled?: boolean }) {
   return (
     <div className="panelTitle">
       <h2><Icon size={18} aria-hidden="true" /> {title}</h2>
-      {action && onAction ? <button type="button" disabled={actionDisabled} onClick={onAction}>{action}</button> : null}
+      {action && onAction ? <button type="button" disabled={actionDisabled} onClick={onAction}>{ActionIcon ? <ActionIcon size={16} aria-hidden="true" /> : null}{action}</button> : null}
     </div>
   );
 }

@@ -116,6 +116,17 @@ describe("web error help", () => {
     expect(help.technicalDetail).toContain("one-time local session handoff");
   });
 
+  it("explains Bitwarden master-password decryption failures without exposing a password", () => {
+    const help = describeError("ERROR bitwarden_crypto::keys::master_key: error=The decryption operation failed\\nCryptography error, The decryption operation failed");
+
+    expect(help.kind).toBe("bitwardenDecryption");
+    expect(help.title).toBe("Bitwarden could not decrypt this vault");
+    expect(help.detail).not.toContain("master_key");
+    expect(help.guidance).toContain("server URL");
+    expect(help.guidance).toContain("does not receive or store the password");
+    expect(help.technicalDetail).toContain("decryption operation failed");
+  });
+
   it("explains Bitwarden local profile lock failures", () => {
     const help = describeError("Provider command \"bw status\" failed. Detail: EPERM mkdir '%LOCALAPPDATA%\\WardSen\\data\\profiles\\acct\\data.json.lock'");
 

@@ -1,5 +1,5 @@
 export interface ErrorHelp {
-  kind?: "bitwardenVerification" | "bitwardenTerminalLogin";
+  kind?: "bitwardenVerification" | "bitwardenTerminalLogin" | "bitwardenDecryption";
   title: string;
   detail: string;
   guidance: string;
@@ -63,6 +63,16 @@ export function describeError(message?: string): ErrorHelp {
       title: "Bitwarden needs terminal login once",
       detail: "Bitwarden first login runs in a real terminal so WardSen never receives your master password or verification code.",
       guidance: "Open Vaults > Account Access and select Terminal login / unlock. The desktop app opens Terminal or PowerShell automatically; use Copy terminal command only when that launch is unavailable. WardSen updates the account automatically after the one-time local handoff succeeds.",
+      technicalDetail: detail
+    };
+  }
+
+  if (lower.includes("decryption operation failed") || (lower.includes("cryptography error") && lower.includes("bitwarden"))) {
+    return {
+      kind: "bitwardenDecryption",
+      title: "Bitwarden could not decrypt this vault",
+      detail: "Bitwarden rejected the master-password decryption step before WardSen received a session.",
+      guidance: "Verify that this account's email and server URL match the account that unlocks in Bitwarden, then retry Terminal login / unlock and enter that account's master password only in Bitwarden's prompt. WardSen does not receive or store the password. If Bitwarden unlocks normally but this repeats, close and reopen WardSen before retrying.",
       technicalDetail: detail
     };
   }

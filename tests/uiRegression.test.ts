@@ -113,13 +113,17 @@ describe("web UI regression guards", () => {
     expect(webSource).toContain("Locks in ${minutes}:${seconds}");
     expect(webSource).toContain("autoLockMinutes: \"10\"");
     expect(webSource).toContain("Check Settings &gt; Provider Capabilities");
-    expect(webSource).toContain("Only active delivery integrations are selectable.");
-    expect(webSource).toContain("Open provider docs");
+    expect(webSource).toContain("enabled delivery provider");
+    expect(webSource).toContain("Manage delivery providers");
+    expect(webSource).toContain("onManageDeliveryProviders");
+    expect(webSource).toContain("Provider documentation");
     expect(webSource).toContain("Check configuration");
-    expect(webSource).toContain("Refresh diagnostics");
+    expect(webSource).toContain("Reload providers");
     expect(webSource).toContain("ProviderDiagnostics");
     expect(webSource).toContain("/api/provider-diagnostics/${encodeURIComponent(provider.id)}");
     expect(styles).toContain(".providerDiagnostics");
+    expect(styles).toContain(".providerCapabilityToolbar");
+    expect(styles).toContain(".providerCapabilitySection");
     expect(webSource).toContain("/api/delivery-providers/${encodeURIComponent(provider.id)}/test");
   });
 
@@ -181,11 +185,15 @@ describe("web UI regression guards", () => {
     expect(webSource).toContain("KeePassXC required dependencies");
     expect(webSource).toContain("winget install -e --id KeePassXCTeam.KeePassXC");
     expect(webSource).toContain("WARDSEN_KEEPASSXC_CLI_PATH");
+    expect(webSource).toContain("KeePassXC was not found by this check.");
+    expect(webSource).toContain("WardSen could not complete the KeePassXC check.");
     expect(webSource).toContain("function YopassCliSetupGuide");
     expect(webSource).toContain("Yopass CLI setup");
     expect(webSource).toContain("Yopass required dependencies");
     expect(webSource).toContain("go install github.com/jhaals/yopass/cmd/yopass@latest");
     expect(webSource).toContain("WARDSEN_YOPASS_CLI_PATH");
+    expect(webSource).toContain("Yopass was not found by this check.");
+    expect(styles).toContain(".providerSetupSteps li.error");
     expect(webSource).toContain("onOpenProviderSetup(\"keepassxc\")");
     expect(webSource).toContain("providerCliRequired");
     expect(styles).toContain(".providerCliRequired");
@@ -268,8 +276,11 @@ describe("web UI regression guards", () => {
     expect(webSource).toContain("Waiting for Terminal");
     expect(webSource).toContain("formatElapsedSeconds(terminalLaunchElapsed)");
     expect(webSource).toContain("If no prompt is visible after 10 seconds");
+    expect(webSource).toContain('bitwardenCli.status === "ready" && !bitwardenCli.available');
+    expect(webSource).not.toContain("if (!await checkBitwardenCli())");
     expect(webSource).not.toContain("TERMINAL_LAUNCH_TIMEOUT_MS");
     expect(webSource).not.toContain("openTerminalSessionWithUiTimeout");
+    expect(webSource).not.toContain("Checking Bitwarden CLI...");
     expect(webSource).toContain("Copy terminal command");
   });
 
